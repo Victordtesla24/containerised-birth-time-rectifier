@@ -1,0 +1,29 @@
+{
+    "typescript.disableAutomaticTypeAcquisition": true,
+    "workbench.experimental.cloudChanges.partialMatches.enabled": true,
+    "workbench.experimental.cloudChanges.autoStore": "onShutdown",
+    "files.autoSave": "afterDelay",
+    "cursor.general.enableShadowWorkspace": true,
+    "cursor.composer.collapsePaneInputBoxPills": true,
+    "cursor.composer.cmdPFilePicker2": true,
+    "editor.experimental.asyncTokenizationLogging": true,
+    "editor.experimental.asyncTokenizationVerification": true,
+    "editor.experimentalEditContextEnabled": true,
+    "editor.formatOnPaste": true,
+    "diffEditor.hideUnchangedRegions.enabled": true,
+    "editor.minimap.enabled": true,
+    "editor.suggest.preview": true,
+    "files.autoSaveWhenNoErrors": true,
+    "files.insertFinalNewline": true,
+    "files.readonlyFromPermissions": true,
+    "files.trimFinalNewlines": true,
+    "files.trimTrailingWhitespace": true,
+    "workbench.commandPalette.experimental.suggestCommands": true,
+    "workbench.commandPalette.preserveInput": true,
+    "workbench.externalBrowser": "chrome",
+    "workbench.view.showQuietly": {
+        "workbench.panel.output": true
+    },
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": false
+}

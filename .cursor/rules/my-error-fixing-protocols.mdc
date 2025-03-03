@@ -1,0 +1,39 @@
+---
+description: Detailed Error Resolution & Error Fixing Protocols to fix errors systematically and comprehensively
+globs: 
+alwaysApply: false
+---
+#### Error Fixing Protocol
+**Pre and Post requisite**: This protocol pre and post requisite has a strict pre-requisite of mandatory and strict adherance with every single other protocols [my-code-optimisation-protocols.mdc](mdc:.cursor/rules/my-code-optimisation-protocols.mdc), [my-development-protocols.mdc](mdc:.cursor/rules/my-development-protocols.mdc), [my-directory-management-protocols.mdc](mdc:.cursor/rules/my-directory-management-protocols.mdc), & [my-memory-manager.mdc](mdc:.cursor/rules/my-memory-manager.mdc) meticulously.
+
+
+1. **Stay Focused and Methodical:**  
+- Approach each error with the calm, deliberate mindset of a seasoned developer. Avoid jumping to conclusions.
+- Focus only on fixing errors precisely by targeting only the impacted code, file or component across all the files for accurate error fixing
+
+2. **Fix One Error at a Time:**  
+- Address errors individually or file by file. After fixing one error, verify comprehensively that it’s resolved before moving to the next.
+
+3. **Conduct Thorough Error Analysis:**  
+* Analyze each error end-to-end. Document the complete "error trail" by identifying:
+    - All affected files, components, and modules.
+    - Whether the error is isolated or has a cascading impact.
+    - The root cause with clear reasoning and evidence.
+
+4. **Iterate and Reassess:**  
+- If a particular error persists after two fix attempts, pause and re-evaluate your approach. Reassess your previous solutions, consult reliable sources on internet ( @Web ) or "Perplexity (MCP Tool)", and explore alternative fixes instead of repeating the same steps.
+
+5. **Prevent New Errors:**  
+- Ensure that fixing one error does not create additional issues. Continuously validate the test suite to maintain overall system integrity.
+
+## Mandatory Compliance
+* **Strict Adherence:**  
+    - No 'NEW' errors must be introduced due to fixing of one error and TEST RESULTS INTEGRITY MUST BE MAINTAINED AT ALL TIMES WHEN FIXING ERRORS. 
+    - Do not add, remove, or modify any requirements or code that is not explicitly part of the test error resolution.
+* **No Extraneous Changes:**  
+    - Every change must be precise and directly aligned with the guidelines. No additional modifications or unnecessary adjustments are allowed.
+* **No Rushing to Finish Up:**
+    - Without being hasty to finish your tasks quickly, first "Finish" the full end to end root cause analysis before rushing to make changes to the code/files or run tests, and list the full and complete error trail across files, components, modules and other scripts in the current implementation ensuring the error trail list contains:
+        1. All affected files, components, and modules.
+        2. Whether the error is isolated or has a cascading impact.
+        3. The root cause with clear reasoning and evidence. 

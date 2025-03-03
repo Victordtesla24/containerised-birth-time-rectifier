@@ -1,0 +1,639 @@
+
+> birth-time-rectifier@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.1.7
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.4.49:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ⚠ Duplicate page detected. pages/_app.tsx and pages/_app.js both resolve to /_app.
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ✓ Ready in 3.2s
+ ⚠ Duplicate page detected. pages/index.tsx and pages/index.js both resolve to /index.
+ ○ Compiling / ...
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Setting up new context...
+Finding changed files: 16.193ms
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/celestial.css
+JIT TOTAL: 231.924ms
+
+
+(node:7031) Warning: Label 'JIT TOTAL' already exists for console.time()
+(Use `node --trace-warnings ...` to show where the warning was created)
+Reading changed files: 704.992ms
+Sorting candidates: 7.744ms
+Generate rules: 281.847ms
+Build stylesheet: 17.352ms
+Potential classes:  6650
+Active contexts:  1
+
+
+(node:7031) Warning: No such label 'JIT TOTAL' for console.timeEnd()
+ ✓ Compiled / in 6.9s (322 modules)
+ GET / 200 in 7892ms
+ ⚠ Duplicate page detected. pages/index.tsx and pages/index.js both resolve to /index.
+ GET / 200 in 293ms
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 16.292ms
+Reading changed files: 0.01ms
+Sorting candidates: 0.013ms
+Generate rules: 6.9ms
+Build stylesheet: 0.025ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 136.434ms
+
+
+ ○ Compiling /birth-details ...
+ ✓ Compiled /birth-details in 2.2s (430 modules)
+ GET /birth-details 200 in 2730ms
+ ✓ Compiled /questionnaire in 424ms (436 modules)
+ GET /questionnaire 200 in 794ms
+ ⚠ Duplicate page detected. pages/index.tsx and pages/index.js both resolve to /index.
+ GET / 200 in 359ms
+ GET /birth-details 200 in 288ms
+ GET /questionnaire 200 in 220ms
+ ⚠ Duplicate page detected. pages/index.tsx and pages/index.js both resolve to /index.
+ GET / 200 in 353ms
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 5.596ms
+Reading changed files: 2.654ms
+Sorting candidates: 0.084ms
+Generate rules: 0.393ms
+Build stylesheet: 0.001ms
+Potential classes:  239
+Active contexts:  1
+JIT TOTAL: 48.201ms
+
+
+ ✓ Compiled in 166ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 1.496ms
+Reading changed files: 1.058ms
+Sorting candidates: 0.058ms
+Generate rules: 0.148ms
+Build stylesheet: 0.001ms
+Potential classes:  239
+Active contexts:  1
+JIT TOTAL: 17.528ms
+
+
+ ✓ Compiled in 81ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 5.611ms
+Reading changed files: 9.532ms
+Sorting candidates: 0.46ms
+Generate rules: 1.02ms
+Build stylesheet: 0.003ms
+Potential classes:  346
+Active contexts:  1
+JIT TOTAL: 79.019ms
+
+
+ ✓ Compiled in 314ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 5.879ms
+Reading changed files: 15.487ms
+Sorting candidates: 0.317ms
+Generate rules: 1.337ms
+Build stylesheet: 0.005ms
+Potential classes:  346
+Active contexts:  1
+JIT TOTAL: 116.643ms
+
+
+ ✓ Compiled in 431ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.955ms
+Reading changed files: 6.995ms
+Sorting candidates: 0.265ms
+Generate rules: 0.511ms
+Build stylesheet: 0.002ms
+Potential classes:  346
+Active contexts:  1
+JIT TOTAL: 61.929ms
+
+
+ ✓ Compiled in 227ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.367ms
+Reading changed files: 11.017ms
+Sorting candidates: 0.273ms
+Generate rules: 0.945ms
+Build stylesheet: 0.002ms
+Potential classes:  354
+Active contexts:  1
+JIT TOTAL: 86.608ms
+
+
+ ✓ Compiled in 321ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 8.035ms
+Reading changed files: 9.629ms
+Sorting candidates: 0.218ms
+Generate rules: 0.687ms
+Build stylesheet: 0.002ms
+Potential classes:  354
+Active contexts:  1
+JIT TOTAL: 93.656ms
+
+
+ ✓ Compiled in 731ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.343ms
+Reading changed files: 4.818ms
+Sorting candidates: 0.27ms
+Generate rules: 0.569ms
+Build stylesheet: 0.002ms
+Potential classes:  354
+Active contexts:  1
+JIT TOTAL: 112.363ms
+
+
+ ✓ Compiled in 521ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 5.663ms
+Reading changed files: 6.032ms
+Sorting candidates: 0.314ms
+Generate rules: 0.804ms
+Build stylesheet: 0.002ms
+Potential classes:  352
+Active contexts:  1
+JIT TOTAL: 61.417ms
+
+
+ ✓ Compiled in 311ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 6.796ms
+Reading changed files: 59.183ms
+Sorting candidates: 0.275ms
+Generate rules: 0.65ms
+Build stylesheet: 0.002ms
+Potential classes:  352
+Active contexts:  1
+JIT TOTAL: 211.867ms
+
+
+ ✓ Compiled in 464ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 3.806ms
+Reading changed files: 13.249ms
+Sorting candidates: 0.198ms
+Generate rules: 0.561ms
+Build stylesheet: 0.002ms
+Potential classes:  352
+Active contexts:  1
+JIT TOTAL: 57.921ms
+
+
+ ✓ Compiled in 257ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 10.985ms
+Reading changed files: 11.221ms
+Sorting candidates: 0.49ms
+Generate rules: 1.286ms
+Build stylesheet: 0.003ms
+Potential classes:  356
+Active contexts:  1
+JIT TOTAL: 131.095ms
+
+
+ ✓ Compiled in 3.7s (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 57.825ms
+Reading changed files: 17.619ms
+Sorting candidates: 0.214ms
+Generate rules: 0.784ms
+Build stylesheet: 0.001ms
+Potential classes:  237
+Active contexts:  1
+JIT TOTAL: 226.058ms
+
+
+ ✓ Compiled in 825ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 5.02ms
+Reading changed files: 7.217ms
+Sorting candidates: 0.182ms
+Generate rules: 0.458ms
+Build stylesheet: 0.003ms
+Potential classes:  237
+Active contexts:  1
+JIT TOTAL: 94.17ms
+
+
+ ✓ Compiled in 315ms (233 modules)
+
+> birth-time-rectifier@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.1.7
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.4.49:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ⚠ Duplicate page detected. pages/_app.tsx and pages/_app.js both resolve to /_app.
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ✓ Ready in 2.5s
+
+> birth-time-rectifier@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.1.7
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.4.49:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ⚠ Duplicate page detected. pages/_app.tsx and pages/_app.js both resolve to /_app.
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ✓ Ready in 1344ms
+
+> birth-time-rectifier@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.1.7
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.4.49:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ⚠ Duplicate page detected. pages/_app.tsx and pages/_app.js both resolve to /_app.
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ✓ Ready in 1178ms
+ ⚠ Duplicate page detected. pages/index.tsx and pages/index.js both resolve to /index.
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Setting up new context...
+Finding changed files: 7.415ms
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/celestial.css
+JIT TOTAL: 83.01ms
+
+
+(node:19907) Warning: Label 'JIT TOTAL' already exists for console.time()
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ○ Compiling / ...
+Reading changed files: 140.229ms
+Sorting candidates: 3.481ms
+Generate rules: 50.931ms
+Build stylesheet: 1.607ms
+Potential classes:  6661
+Active contexts:  1
+
+
+(node:19907) Warning: No such label 'JIT TOTAL' for console.timeEnd()
+ ✓ Compiled / in 1609ms (322 modules)
+ HEAD / 200 in 1884ms
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 8.744ms
+Reading changed files: 4.685ms
+Sorting candidates: 0.126ms
+Generate rules: 2.165ms
+Build stylesheet: 0.002ms
+Potential classes:  415
+Active contexts:  1
+JIT TOTAL: 47.886ms
+
+
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ✓ Compiled in 238ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.244ms
+Reading changed files: 7.606ms
+Sorting candidates: 0.168ms
+Generate rules: 6.676ms
+Build stylesheet: 0.006ms
+Potential classes:  421
+Active contexts:  1
+JIT TOTAL: 45.855ms
+
+
+ ✓ Compiled in 162ms (233 modules)
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 3.253ms
+Reading changed files: 4.953ms
+Sorting candidates: 0.172ms
+Generate rules: 3.459ms
+Build stylesheet: 1.641ms
+Potential classes:  530
+Active contexts:  1
+JIT TOTAL: 36.786ms
+
+
+ ✓ Compiled in 161ms (233 modules)
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 14.168ms
+Reading changed files: 7.987ms
+Sorting candidates: 0.334ms
+Generate rules: 5.012ms
+Build stylesheet: 1.583ms
+Potential classes:  611
+Active contexts:  1
+JIT TOTAL: 72.581ms
+
+
+ ⚠ Duplicate page detected. src/pages/_app.js and src/pages/_app.tsx resolve to /_app
+ ⚠ Duplicate page detected. src/pages/index.js and src/pages/index.tsx resolve to /
+ ⚠ Duplicate page detected. src/pages/api/questionnaire.js and src/pages/api/questionnaire.ts resolve to /api/questionnaire
+ ✓ Compiled in 456ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 6.313ms
+Reading changed files: 3.276ms
+Sorting candidates: 0.02ms
+Generate rules: 0.171ms
+Build stylesheet: 0.001ms
+Potential classes:  68
+Active contexts:  1
+JIT TOTAL: 35.721ms
+
+
+ ✓ Compiled in 219ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 8.816ms
+Reading changed files: 8.488ms
+Sorting candidates: 0.281ms
+Generate rules: 6.804ms
+Build stylesheet: 1.473ms
+Potential classes:  761
+Active contexts:  1
+JIT TOTAL: 53.708ms
+
+
+ ✓ Compiled in 259ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 3.455ms
+Reading changed files: 8.45ms
+Sorting candidates: 0.003ms
+Generate rules: 0.078ms
+Build stylesheet: 0.001ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 47.386ms
+
+
+ ✓ Compiled in 187ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.925ms
+Reading changed files: 3.133ms
+Sorting candidates: 0.04ms
+Generate rules: 1.948ms
+Build stylesheet: 1.802ms
+Potential classes:  64
+Active contexts:  1
+JIT TOTAL: 37.33ms
+
+
+ ✓ Compiled in 154ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.885ms
+Reading changed files: 0.939ms
+Sorting candidates: 0.002ms
+Generate rules: 0.036ms
+Build stylesheet: 0.001ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 35.12ms
+
+
+ ✓ Compiled in 179ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 3.666ms
+Reading changed files: 2.087ms
+Sorting candidates: 0.045ms
+Generate rules: 0.821ms
+Build stylesheet: 0.002ms
+Potential classes:  101
+Active contexts:  1
+JIT TOTAL: 36.226ms
+
+
+ ✓ Compiled in 146ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 3.167ms
+Reading changed files: 1.327ms
+Sorting candidates: 0.002ms
+Generate rules: 0.047ms
+Build stylesheet: 0.001ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 30.049ms
+
+
+ ✓ Compiled in 166ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 4.592ms
+Reading changed files: 2.806ms
+Sorting candidates: 0.034ms
+Generate rules: 0.632ms
+Build stylesheet: 0.002ms
+Potential classes:  81
+Active contexts:  1
+JIT TOTAL: 36.433ms
+
+
+ ✓ Compiled in 142ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 7.053ms
+Reading changed files: 1.705ms
+Sorting candidates: 0.002ms
+Generate rules: 0.06ms
+Build stylesheet: 0.001ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 30.785ms
+
+
+ ✓ Compiled in 143ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 2.048ms
+Reading changed files: 1.652ms
+Sorting candidates: 0.03ms
+Generate rules: 0.656ms
+Build stylesheet: 0.001ms
+Potential classes:  96
+Active contexts:  1
+JIT TOTAL: 25.893ms
+
+
+ ✓ Compiled in 112ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 3.576ms
+Reading changed files: 10.042ms
+Sorting candidates: 0.406ms
+Generate rules: 3.915ms
+Build stylesheet: 0.001ms
+Potential classes:  761
+Active contexts:  1
+JIT TOTAL: 46.3ms
+
+
+ ✓ Compiled in 175ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 2.682ms
+Reading changed files: 12.921ms
+Sorting candidates: 0.274ms
+Generate rules: 4.093ms
+Build stylesheet: 0.002ms
+Potential classes:  766
+Active contexts:  1
+JIT TOTAL: 45.852ms
+
+
+ ✓ Compiled in 179ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 2.483ms
+Reading changed files: 1.534ms
+Sorting candidates: 0.002ms
+Generate rules: 0.074ms
+Build stylesheet: 0.001ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 30.254ms
+
+
+ ✓ Compiled in 138ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 5.699ms
+Reading changed files: 1.065ms
+Sorting candidates: 0.003ms
+Generate rules: 0.042ms
+Build stylesheet: 0.001ms
+Potential classes:  1
+Active contexts:  1
+JIT TOTAL: 35.933ms
+
+
+ ✓ Compiled in 126ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 8.615ms
+Reading changed files: 2.043ms
+Sorting candidates: 0.01ms
+Generate rules: 0.389ms
+Build stylesheet: 0.001ms
+Potential classes:  15
+Active contexts:  1
+JIT TOTAL: 42.498ms
+
+
+ ✓ Compiled in 199ms (233 modules)
+
+
+Source path: /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/src/styles/globals.css
+Finding changed files: 2.752ms
+Reading changed files: 14.704ms
+Sorting candidates: 0.302ms
+Generate rules: 5.162ms
+Build stylesheet: 0.002ms
+Potential classes:  766
+Active contexts:  1
+JIT TOTAL: 49.187ms
+
+
+ ✓ Compiled in 175ms (233 modules)
+[?25h

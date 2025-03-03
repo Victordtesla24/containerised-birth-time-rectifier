@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      target: development
+    container_name: birth-rectifier-frontend
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_TELEMETRY_DISABLED=1
+    ports:
+      - "3000:3000"
+    command: npm run dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      ai_service:
+        condition: service_healthy
+    user: "1000:1000"
+
+  ai_service:
+    build:
+      context: .
+      dockerfile: docker/ai_service.Dockerfile
+      target: development
+    container_name: birth-rectifier-ai
+    volumes:
+      - ./ai_service:/app/ai_service
+      - ./requirements.txt:/app/requirements.txt
+      - ./setup.py:/app/setup.py
+      - ai_service_venv:/app/.venv
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=development
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+    ports:
+      - "8000:8000"
+    command: /app/.venv/bin/python -m uvicorn ai_service.api.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: birth-rectifier-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
+      - ./docker/redis/log:/var/log/redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  redis_data:
+    driver: local
+  ai_service_venv:
+    driver: local

@@ -1,0 +1,23 @@
+
+> frontend@1.0.0 start
+> next start
+
+ ⚠ You are using a non-standard "NODE_ENV" value in your environment. This creates inconsistencies in the project and is strongly advised against. Read more: https://nextjs.org/docs/messages/non-standard-node-env
+ ⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use :::3000
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/service-manager/frontend/node_modules/next/dist/server/lib/start-server.js:254:16
+    at new Promise (<anonymous>)
+    at startServer (/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/service-manager/frontend/node_modules/next/dist/server/lib/start-server.js:191:11)
+    at nextStart (/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/service-manager/frontend/node_modules/next/dist/cli/next-start.js:50:40)
+    at /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/service-manager/frontend/node_modules/next/dist/bin/next:157:54
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async main (/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/service-manager/frontend/node_modules/next/dist/bin/next:157:5) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '::',
+  port: 3000
+}

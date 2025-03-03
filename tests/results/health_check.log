@@ -1,0 +1,29 @@
+Starting health check...
+=== Birth Time Rectifier Health Check ===
+Time: 2025-02-26T23:38:29.508Z
+
+Backend API (http://localhost:8000/health):
+  Status: 200 OK
+  Healthy: ✅ YES
+  Response Time: 43ms
+  Response: {"status":"ok"}
+
+Frontend (http://localhost:3000):
+  Status: 200 OK
+  Healthy: ✅ YES
+  Response Time: 851ms
+
+Geocoding API (http://localhost:8000/api/geocode):
+  Status: 200 OK
+  Healthy: ✅ YES
+  Response Time: 112ms
+  Response: {"latitude":18.5204,"longitude":73.8567,"timezone":"Asia/Kolkata"}
+
+Initialize Questionnaire API (http://localhost:8000/api/initialize-questionnaire):
+  Status: 200 OK
+  Healthy: ✅ YES
+  Response Time: 14ms
+  Response: {"sessionId":"0b5e517f-7c47-416c-bbad-44d609d66a3e","initialChart":{"ascendant":{"sign":"Aries","deg...
+
+Overall Health: ✅ HEALTHY
+Health check complete. System is healthy.

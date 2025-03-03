@@ -1,0 +1,126 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn
+.pnp
+.pnp.js
+web_modules/
+
+# Virtual Environment
+.env
+.venv/
+env/
+venv/
+ENV/
+.python-version
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Docker
+.docker/
+docker-compose*.yml
+*.dockerfile
+Dockerfile*
+!docker/ai_service.Dockerfile
+
+# Git
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Logs and databases
+*.log
+logs/
+*.sqlite3
+*.db
+*.sql
+*.sqlite
+
+# Cache
+.cache/
+.mypy_cache/
+.eslintcache
+.parcel-cache/
+
+# Documentation
+docs/
+site/
+*.md
+!README.md
+
+# Environment variables
+.env*
+!.env.example
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Test files
+tests/node_modules/
+tests/coverage/
+tests/reports/
+tests/__pycache__/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Build artifacts
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# Local development
+.local/
+local/

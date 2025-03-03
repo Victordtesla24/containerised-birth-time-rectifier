@@ -1,0 +1,26 @@
+Starting health check...
+=== Birth Time Rectifier Health Check ===
+Time: 2025-03-02T22:08:12.959Z
+
+Backend API (http://localhost:8000/health):
+  Status: ERROR
+  Healthy: ❌ NO
+  Error: request to http://localhost:8000/health failed, reason: connect ECONNREFUSED ::1:8000
+
+Frontend (http://localhost:3000):
+  Status: ERROR
+  Healthy: ❌ NO
+  Error: request to http://localhost:3000/ failed, reason: connect ECONNREFUSED ::1:3000
+
+Geocoding API (http://localhost:8000/api/geocode):
+  Status: ERROR
+  Healthy: ❌ NO
+  Error: request to http://localhost:8000/api/geocode failed, reason: connect ECONNREFUSED ::1:8000
+
+Initialize Questionnaire API (http://localhost:8000/api/initialize-questionnaire):
+  Status: ERROR
+  Healthy: ❌ NO
+  Error: request to http://localhost:8000/api/initialize-questionnaire failed, reason: connect ECONNREFUSED ::1:8000
+
+Overall Health: ❌ ISSUES DETECTED
+Health check complete. System is unhealthy.

@@ -1,0 +1,230 @@
+/* Celestial body animations and effects */
+
+/* Base styles for celestial bodies - improved browser compatibility */
+.celestial-body {
+  border-radius: 50%;
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0); /* Force hardware acceleration */
+  will-change: transform; /* Optimize for animations */
+  -webkit-backface-visibility: hidden; /* Prevent flickering */
+  backface-visibility: hidden;
+}
+
+/* Sun-specific styles - improved for compatibility */
+.celestial-sun {
+  background: radial-gradient(circle, #ffcc33 5%, #ff9900 70%, #ff6600 100%);
+  box-shadow: 0 0 20px 5px rgba(255, 204, 51, 0.4);
+}
+
+/* Moon-specific styles */
+.celestial-moon {
+  background: radial-gradient(circle, #f5f5f5 10%, #e0e0e0 70%, #bbbbbb 100%);
+  box-shadow: 0 0 15px 2px rgba(255, 255, 255, 0.3);
+}
+
+/* Planet generic styles */
+.celestial-planet {
+  box-shadow: 0 0 10px 1px rgba(100, 100, 255, 0.3);
+}
+
+/* Optional particle effects for stars */
+@keyframes twinkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.twinkling-star {
+  animation: twinkle 2s ease-in-out infinite;
+  background-color: white;
+  height: 2px;
+  width: 2px;
+  border-radius: 50%;
+}
+
+/* Optional atmospheric effect for planets */
+.planet-atmosphere {
+  border-radius: 50%;
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  right: -10%;
+  bottom: -10%;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* Font rendering improvements for text */
+.celestial-text {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+/* High contrast mode for improved text visibility */
+.high-contrast-text {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  letter-spacing: 0.01em;
+  color: white;
+  font-weight: 500;
+}
+
+/* Fallback background for image loading */
+.celestial-image-fallback {
+  background-color: #1a1a2e;
+  border-radius: 8px;
+  position: relative;
+}
+
+/* Replace problematic mix-blend-mode with simple opacity */
+.celestial-blend {
+  opacity: 0.9;
+}
+
+/* Generic container for space-themed elements */
+.celestial-container {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Improve text contrast on dark backgrounds */
+.text-on-space {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  color: #ffffff;
+  letter-spacing: 0.01em;
+}
+
+/* Touch-specific optimizations */
+@media (hover: none) {
+  .celestial-body:active {
+    transform: scale(0.98);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .celestial-body {
+    transform: scale(0.9);
+  }
+}
+
+/* Specific Firefox fixes */
+@-moz-document url-prefix() {
+  .celestial-text,
+  .high-contrast-text {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  
+  .celestial-body {
+    transform: translateZ(0.1px); /* Helps with rendering in Firefox */
+  }
+}
+
+/* Specific WebKit fixes for MacOS */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .celestial-body {
+    -webkit-transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+  }
+  
+  .celestial-text, 
+  .high-contrast-text {
+    -webkit-text-stroke: 0.2px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Chrome on M3 Mac (arm64) specific optimizations */
+.chrome-m3-mac .celestial-text {
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+  letter-spacing: 0.01em;
+}
+
+.chrome-m3-mac .high-contrast-text {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  -webkit-text-stroke: 0.3px rgba(0, 0, 0, 0.2);
+}
+
+.chrome-m3-mac .celestial-body {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-perspective: 1000;
+}
+
+.chrome-m3-mac button,
+.chrome-m3-mac .celestial-button {
+  -webkit-appearance: none;
+  appearance: none;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  overflow: hidden;
+}
+
+.chrome-m3-mac .transition-all {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
+/* Animation keyframes */
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 15px 2px rgba(255, 255, 255, 0.3); }
+  50% { box-shadow: 0 0 20px 5px rgba(255, 255, 255, 0.5); }
+}
+
+/* Apply rotations */
+.celestial-rotate {
+  animation: rotate 20s linear infinite;
+}
+
+.celestial-rotate-slow {
+  animation: rotate 40s linear infinite;
+}
+
+.celestial-rotate-fast {
+  animation: rotate 10s linear infinite;
+}
+
+/* Apply glow effect */
+.celestial-glow {
+  animation: glow 3s ease-in-out infinite;
+}
+
+/* Button styles for celestial UI */
+.celestial-button {
+  background: linear-gradient(to right, #2563EB, #4F46E5);
+  color: white;
+  border: none;
+  border-radius: 9999px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  outline: none;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.01em;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.celestial-button:hover,
+.celestial-button:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 10px -1px rgba(37, 99, 235, 0.4);
+}
+
+.celestial-button:active {
+  transform: translateY(1px);
+} 

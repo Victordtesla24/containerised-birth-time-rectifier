@@ -1,0 +1,519 @@
+INFO:     Will watch for changes in these directories: ['/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/ai_service']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [6708] using StatReload
+INFO:     Started server process [6720]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:51757 - "GET /health HTTP/1.1" 200 OK
+INFO:api.main:Geocoding place: London, UK
+INFO:     127.0.0.1:51757 - "POST /api/geocode HTTP/1.1" 200 OK
+INFO:api.main:Initializing questionnaire for birth date: 1990-01-01 00:00:00, time: 12:00
+INFO:api.main:Generating birth chart for: 1990-01-01 00:00:00 12:00 at lat: 51.5074, lng: -0.1278
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Questionnaire initialized with session ID: 673b904d-2b8f-4bd4-855c-8948ae5e0202
+INFO:api.main:Generated first question: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:51757 - "POST /api/initialize-questionnaire HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51858 - "GET /health HTTP/1.1" 200 OK
+INFO:api.main:Geocoding place: London, UK
+INFO:     127.0.0.1:51882 - "POST /api/geocode HTTP/1.1" 200 OK
+INFO:api.main:Initializing questionnaire for birth date: 1990-01-01 00:00:00, time: 12:00
+INFO:api.main:Generating birth chart for: 1990-01-01 00:00:00 12:00 at lat: 51.5074, lng: -0.1278
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Questionnaire initialized with session ID: 4a87d87b-6c78-493b-86e6-bc87baadb6cd
+INFO:api.main:Generated first question: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:51882 - "POST /api/initialize-questionnaire HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51887 - "GET /health HTTP/1.1" 200 OK
+INFO:api.main:Geocoding place: London, UK
+INFO:     127.0.0.1:51887 - "POST /api/geocode HTTP/1.1" 200 OK
+INFO:api.main:Initializing questionnaire for birth date: 1990-01-01 00:00:00, time: 12:00
+INFO:api.main:Generating birth chart for: 1990-01-01 00:00:00 12:00 at lat: 51.5074, lng: -0.1278
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Questionnaire initialized with session ID: 2dfd9bf4-f287-43c7-98db-d3b47d2d90b2
+INFO:api.main:Generated first question: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:51887 - "POST /api/initialize-questionnaire HTTP/1.1" 200 OK
+INFO:api.main:Processing next question request for session: 2dfd9bf4-f287-43c7-98db-d3b47d2d90b2
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Generated next question for session 2dfd9bf4-f287-43c7-98db-d3b47d2d90b2: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:51887 - "POST /api/next-question HTTP/1.1" 200 OK
+INFO:api.main:Retrieving analysis results for session: 2dfd9bf4-f287-43c7-98db-d3b47d2d90b2
+INFO:api.main:Successfully retrieved analysis for session: 2dfd9bf4-f287-43c7-98db-d3b47d2d90b2
+INFO:     127.0.0.1:51887 - "GET /api/analysis?sessionId=2dfd9bf4-f287-43c7-98db-d3b47d2d90b2 HTTP/1.1" 200 OK
+INFO:ai_service.utils.astro_calculator:Calculating chart for birth_date=1990-01-01 12:00:00, lat=51.5074, lon=-0.1278
+INFO:ai_service.utils.astro_calculator:Julian day: 2447893.0
+INFO:ai_service.utils.astro_calculator:Swiss Ephemeris initialized successfully
+ERROR:ai_service.utils.astro_calculator:Error calculating houses: cannot access local variable 'houses' where it is not associated with a value
+INFO:ai_service.utils.astro_calculator:Calculating position for Sun (ID: 0)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Sun: ((280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Normalized result: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Sun longitude: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Sun sign: Capricorn, degree: 10.814255445756032
+INFO:ai_service.utils.astro_calculator:Sun house: 12
+WARNING:root:Unexpected planet_info format for speed: ((280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), 260)
+INFO:ai_service.utils.astro_calculator:Sun retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Moon (ID: 1)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Moon: ((333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Normalized result: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Moon longitude: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Moon sign: Pisces, degree: 3.2676876709446674
+INFO:ai_service.utils.astro_calculator:Moon house: 12
+WARNING:root:Unexpected planet_info format for speed: ((333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), 260)
+INFO:ai_service.utils.astro_calculator:Moon retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Mercury (ID: 2)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Mercury: ((295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Normalized result: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Mercury longitude: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Mercury sign: Capricorn, degree: 25.672804536597198
+INFO:ai_service.utils.astro_calculator:Mercury house: 12
+WARNING:root:Unexpected planet_info format for speed: ((295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), 260)
+INFO:ai_service.utils.astro_calculator:Mercury retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Venus (ID: 3)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Venus: ((306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Normalized result: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Venus longitude: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Venus sign: Aquarius, degree: 6.221833473402
+INFO:ai_service.utils.astro_calculator:Venus house: 12
+WARNING:root:Unexpected planet_info format for speed: ((306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), 260)
+INFO:ai_service.utils.astro_calculator:Venus retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Mars (ID: 4)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Mars: ((250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Normalized result: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars longitude: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars sign: Sagittarius, degree: 10.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars house: 12
+WARNING:root:Unexpected planet_info format for speed: ((250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), 260)
+INFO:ai_service.utils.astro_calculator:Mars retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Jupiter (ID: 5)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Jupiter: ((95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Normalized result: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter longitude: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter sign: Cancer, degree: 5.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter house: 12
+WARNING:root:Unexpected planet_info format for speed: ((95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), 260)
+INFO:ai_service.utils.astro_calculator:Jupiter retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Saturn (ID: 6)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Saturn: ((285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Normalized result: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Saturn longitude: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Saturn sign: Capricorn, degree: 15.657522095459683
+INFO:ai_service.utils.astro_calculator:Saturn house: 12
+WARNING:root:Unexpected planet_info format for speed: ((285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), 260)
+INFO:ai_service.utils.astro_calculator:Saturn retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Uranus (ID: 7)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Uranus: ((275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Normalized result: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus longitude: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus sign: Capricorn, degree: 5.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus house: 12
+WARNING:root:Unexpected planet_info format for speed: ((275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), 260)
+INFO:ai_service.utils.astro_calculator:Uranus retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Neptune (ID: 8)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Neptune: ((282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Normalized result: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Neptune longitude: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Neptune sign: Capricorn, degree: 12.038119593774582
+INFO:ai_service.utils.astro_calculator:Neptune house: 12
+WARNING:root:Unexpected planet_info format for speed: ((282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), 260)
+INFO:ai_service.utils.astro_calculator:Neptune retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Pluto (ID: 9)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Pluto: ((227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Normalized result: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Pluto longitude: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Pluto sign: Scorpio, degree: 17.093166550775265
+INFO:ai_service.utils.astro_calculator:Pluto house: 12
+WARNING:root:Unexpected planet_info format for speed: ((227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), 260)
+INFO:ai_service.utils.astro_calculator:Pluto retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Rahu (ID: 10)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Rahu: ((318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), 258)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Normalized result: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Rahu longitude: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Rahu sign: Aquarius, degree: 18.43498371139259
+INFO:ai_service.utils.astro_calculator:Rahu house: 12
+WARNING:root:Unexpected planet_info format for speed: ((318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), 258)
+INFO:ai_service.utils.astro_calculator:Rahu retrograde: False
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: 498.4349837113926, type: <class 'float'>
+INFO:ai_service.utils.astro_calculator:Normalized result: 138.4349837113926
+WARNING:api.main:Using simplified D1 chart due to error: 1 validation error for AspectData
+aspect_type
+  Field required [type=missing, input_value={'planet1': 'Sun', 'plane...etween Sun and Jupiter'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.10/v/missing
+INFO:     127.0.0.1:51887 - "POST /api/charts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52041 - "GET /health HTTP/1.1" 200 OK
+INFO:api.main:Geocoding place: London, UK
+INFO:     127.0.0.1:52041 - "POST /api/geocode HTTP/1.1" 200 OK
+INFO:api.main:Initializing questionnaire for birth date: 1990-01-01 00:00:00, time: 12:00
+INFO:api.main:Generating birth chart for: 1990-01-01 00:00:00 12:00 at lat: 51.5074, lng: -0.1278
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Questionnaire initialized with session ID: 5edf49bc-a443-48e5-b03b-02235a1bde1d
+INFO:api.main:Generated first question: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:52041 - "POST /api/initialize-questionnaire HTTP/1.1" 200 OK
+INFO:api.main:Processing next question request for session: 5edf49bc-a443-48e5-b03b-02235a1bde1d
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Generated next question for session 5edf49bc-a443-48e5-b03b-02235a1bde1d: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:52041 - "POST /api/next-question HTTP/1.1" 200 OK
+INFO:api.main:Retrieving analysis results for session: 5edf49bc-a443-48e5-b03b-02235a1bde1d
+INFO:api.main:Successfully retrieved analysis for session: 5edf49bc-a443-48e5-b03b-02235a1bde1d
+INFO:     127.0.0.1:52041 - "GET /api/analysis?sessionId=5edf49bc-a443-48e5-b03b-02235a1bde1d HTTP/1.1" 200 OK
+INFO:ai_service.utils.astro_calculator:Calculating chart for birth_date=1990-01-01 12:00:00, lat=51.5074, lon=-0.1278
+INFO:ai_service.utils.astro_calculator:Julian day: 2447893.0
+INFO:ai_service.utils.astro_calculator:Swiss Ephemeris initialized successfully
+ERROR:ai_service.utils.astro_calculator:Error calculating houses: cannot access local variable 'houses' where it is not associated with a value
+INFO:ai_service.utils.astro_calculator:Calculating position for Sun (ID: 0)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Sun: ((280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Normalized result: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Sun longitude: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Sun sign: Capricorn, degree: 10.814255445756032
+INFO:ai_service.utils.astro_calculator:Sun house: 12
+WARNING:root:Unexpected planet_info format for speed: ((280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), 260)
+INFO:ai_service.utils.astro_calculator:Sun retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Moon (ID: 1)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Moon: ((333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Normalized result: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Moon longitude: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Moon sign: Pisces, degree: 3.2676876709446674
+INFO:ai_service.utils.astro_calculator:Moon house: 12
+WARNING:root:Unexpected planet_info format for speed: ((333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), 260)
+INFO:ai_service.utils.astro_calculator:Moon retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Mercury (ID: 2)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Mercury: ((295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Normalized result: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Mercury longitude: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Mercury sign: Capricorn, degree: 25.672804536597198
+INFO:ai_service.utils.astro_calculator:Mercury house: 12
+WARNING:root:Unexpected planet_info format for speed: ((295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), 260)
+INFO:ai_service.utils.astro_calculator:Mercury retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Venus (ID: 3)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Venus: ((306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Normalized result: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Venus longitude: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Venus sign: Aquarius, degree: 6.221833473402
+INFO:ai_service.utils.astro_calculator:Venus house: 12
+WARNING:root:Unexpected planet_info format for speed: ((306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), 260)
+INFO:ai_service.utils.astro_calculator:Venus retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Mars (ID: 4)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Mars: ((250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Normalized result: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars longitude: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars sign: Sagittarius, degree: 10.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars house: 12
+WARNING:root:Unexpected planet_info format for speed: ((250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), 260)
+INFO:ai_service.utils.astro_calculator:Mars retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Jupiter (ID: 5)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Jupiter: ((95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Normalized result: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter longitude: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter sign: Cancer, degree: 5.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter house: 12
+WARNING:root:Unexpected planet_info format for speed: ((95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), 260)
+INFO:ai_service.utils.astro_calculator:Jupiter retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Saturn (ID: 6)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Saturn: ((285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Normalized result: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Saturn longitude: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Saturn sign: Capricorn, degree: 15.657522095459683
+INFO:ai_service.utils.astro_calculator:Saturn house: 12
+WARNING:root:Unexpected planet_info format for speed: ((285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), 260)
+INFO:ai_service.utils.astro_calculator:Saturn retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Uranus (ID: 7)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Uranus: ((275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Normalized result: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus longitude: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus sign: Capricorn, degree: 5.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus house: 12
+WARNING:root:Unexpected planet_info format for speed: ((275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), 260)
+INFO:ai_service.utils.astro_calculator:Uranus retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Neptune (ID: 8)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Neptune: ((282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Normalized result: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Neptune longitude: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Neptune sign: Capricorn, degree: 12.038119593774582
+INFO:ai_service.utils.astro_calculator:Neptune house: 12
+WARNING:root:Unexpected planet_info format for speed: ((282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), 260)
+INFO:ai_service.utils.astro_calculator:Neptune retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Pluto (ID: 9)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Pluto: ((227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Normalized result: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Pluto longitude: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Pluto sign: Scorpio, degree: 17.093166550775265
+INFO:ai_service.utils.astro_calculator:Pluto house: 12
+WARNING:root:Unexpected planet_info format for speed: ((227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), 260)
+INFO:ai_service.utils.astro_calculator:Pluto retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Rahu (ID: 10)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Rahu: ((318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), 258)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Normalized result: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Rahu longitude: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Rahu sign: Aquarius, degree: 18.43498371139259
+INFO:ai_service.utils.astro_calculator:Rahu house: 12
+WARNING:root:Unexpected planet_info format for speed: ((318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), 258)
+INFO:ai_service.utils.astro_calculator:Rahu retrograde: False
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: 498.4349837113926, type: <class 'float'>
+INFO:ai_service.utils.astro_calculator:Normalized result: 138.4349837113926
+WARNING:api.main:Using simplified D1 chart due to error: 1 validation error for AspectData
+aspect_type
+  Field required [type=missing, input_value={'planet1': 'Sun', 'plane...etween Sun and Jupiter'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.10/v/missing
+INFO:     127.0.0.1:52041 - "POST /api/charts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52044 - "GET /health HTTP/1.1" 200 OK
+INFO:api.main:Geocoding place: London, UK
+INFO:     127.0.0.1:52044 - "POST /api/geocode HTTP/1.1" 200 OK
+INFO:api.main:Initializing questionnaire for birth date: 1990-01-01 00:00:00, time: 12:00
+INFO:api.main:Generating birth chart for: 1990-01-01 00:00:00 12:00 at lat: 51.5074, lng: -0.1278
+INFO:api.main:Generating AI question based on chart data and previous answers
+INFO:api.main:Generated question: Do you consider yourself more introverted than extroverted?
+INFO:api.main:Questionnaire initialized with session ID: 0b5e517f-7c47-416c-bbad-44d609d66a3e
+INFO:api.main:Generated first question: Do you consider yourself more introverted than extroverted?
+INFO:     127.0.0.1:52044 - "POST /api/initialize-questionnaire HTTP/1.1" 200 OK
+Traceback (most recent call last):
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/main.py", line 412, in main
+    run(
+    ~~~^
+        app,
+        ^^^^
+    ...<45 lines>...
+        h11_max_incomplete_event_size=h11_max_incomplete_event_size,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/main.py", line 579, in run
+    server.run()
+    ~~~~~~~~~~^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/lib/python3.13/asyncio/base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+    ~~~~~~~~~~~^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/lib/python3.13/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1310, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1324, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'api'
+INFO:ai_service.utils.astro_calculator:Swiss Ephemeris initialized
+INFO:     Started server process [19577]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54682 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54685 - "GET /health HTTP/1.1" 200 OK
+INFO:ai_service.utils.astro_calculator:Swiss Ephemeris initialized
+INFO:     Started server process [19862]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54817 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54820 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54834 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57894 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57896 - "POST /api/questionnaire/initialize HTTP/1.1" 404 Not Found
+/Users/Shared/cursor/Containerised-Birth-Time-Recitfier/.venv/lib/python3.13/site-packages/fastapi/openapi/utils.py:225: UserWarning: Duplicate Operation ID generate_charts_api_charts_post for function generate_charts at /Users/Shared/cursor/Containerised-Birth-Time-Recitfier/ai_service/api/routers/charts.py
+  warnings.warn(message, stacklevel=1)
+INFO:     127.0.0.1:57898 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:ai_service.utils.astro_calculator:Calculating chart for birth_date=1990-01-01 12:00:00, lat=0.0, lon=0.0
+INFO:ai_service.utils.astro_calculator:Julian day: 2447893.0
+INFO:ai_service.utils.astro_calculator:Swiss Ephemeris initialized successfully
+INFO:ai_service.utils.astro_calculator:House cusps calculated: (11.831741604799397, 43.334014065097165, 72.35582431353075, 100.00039853909266, 128.45499091080592, 159.29984183171007, 191.8317416047994, 223.33401406509716, 252.35582431353075, 280.00039853909266, 308.4549909108059, 339.29984183171007)
+INFO:ai_service.utils.astro_calculator:Ascendant: 11.831741604799397, Sign: Aries, Degree: 11.831741604799397, Midheaven: 280.00039853909266
+INFO:ai_service.utils.astro_calculator:Calculating position for Sun (ID: 0)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Sun: ((280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Normalized result: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Sun longitude: 280.81425544575603
+INFO:ai_service.utils.astro_calculator:Sun sign: Capricorn, degree: 10.814255445756032
+INFO:ai_service.utils.astro_calculator:Sun house: 10
+WARNING:root:Unexpected planet_info format for speed: ((280.81425544575603, 1.1985682564757624e-05, 0.9833280831730781, 1.01947310464201, 2.809760697245598e-05, -1.5098034370248692e-05), 260)
+INFO:ai_service.utils.astro_calculator:Sun retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Moon (ID: 1)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Moon: ((333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Normalized result: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Moon longitude: 333.26768767094467
+INFO:ai_service.utils.astro_calculator:Moon sign: Pisces, degree: 3.2676876709446674
+INFO:ai_service.utils.astro_calculator:Moon house: 11
+WARNING:root:Unexpected planet_info format for speed: ((333.26768767094467, 1.47068950903145, 0.0025351279509547115, 13.470100891939252, 1.1743239834064831, -1.979214879207882e-05), 260)
+INFO:ai_service.utils.astro_calculator:Moon retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Mercury (ID: 2)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Mercury: ((295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Normalized result: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Mercury longitude: 295.6728045365972
+INFO:ai_service.utils.astro_calculator:Mercury sign: Capricorn, degree: 25.672804536597198
+INFO:ai_service.utils.astro_calculator:Mercury house: 10
+WARNING:root:Unexpected planet_info format for speed: ((295.6728045365972, 0.6303053479293252, 0.7711120890134723, -0.29457231280300367, 0.3134351991162652, -0.021861152206074905), 260)
+INFO:ai_service.utils.astro_calculator:Mercury retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Venus (ID: 3)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Venus: ((306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Normalized result: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Venus longitude: 306.221833473402
+INFO:ai_service.utils.astro_calculator:Venus sign: Aquarius, degree: 6.221833473402
+INFO:ai_service.utils.astro_calculator:Venus house: 10
+WARNING:root:Unexpected planet_info format for speed: ((306.221833473402, 1.9011918260328955, 0.3054890730547468, -0.13028682883516793, 0.24595353822093885, -0.00427931435543599), 260)
+INFO:ai_service.utils.astro_calculator:Venus retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Mars (ID: 4)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Mars: ((250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Normalized result: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars longitude: 250.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars sign: Sagittarius, degree: 10.00008659833776
+INFO:ai_service.utils.astro_calculator:Mars house: 8
+WARNING:root:Unexpected planet_info format for speed: ((250.00008659833776, -0.03293101657371646, 2.3075926945854244, 0.7037567155774984, -0.010994010195469911, -0.005722596811260307), 260)
+INFO:ai_service.utils.astro_calculator:Mars retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Jupiter (ID: 5)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Jupiter: ((95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Normalized result: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter longitude: 95.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter sign: Cancer, degree: 5.14872561927946
+INFO:ai_service.utils.astro_calculator:Jupiter house: 3
+WARNING:root:Unexpected planet_info format for speed: ((95.14872561927946, -0.11696028211365207, 4.171522546220324, -0.13448078212919967, 0.0024423931619051817, 0.0019538741503227156), 260)
+INFO:ai_service.utils.astro_calculator:Jupiter retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Saturn (ID: 6)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Saturn: ((285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Normalized result: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Saturn longitude: 285.6575220954597
+INFO:ai_service.utils.astro_calculator:Saturn sign: Capricorn, degree: 15.657522095459683
+INFO:ai_service.utils.astro_calculator:Saturn house: 10
+WARNING:root:Unexpected planet_info format for speed: ((285.6575220954597, 0.2933007711626002, 11.006571768028431, 0.11827135254681995, -0.0012295725143390015, 0.0013657353647093845), 260)
+INFO:ai_service.utils.astro_calculator:Saturn retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Uranus (ID: 7)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Uranus: ((275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Normalized result: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus longitude: 275.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus sign: Capricorn, degree: 5.78547525004376
+INFO:ai_service.utils.astro_calculator:Uranus house: 9
+WARNING:root:Unexpected planet_info format for speed: ((275.78547525004376, -0.27010758490767717, 20.35945699822529, 0.06000821979893455, -0.00016580147976099987, -0.0013166990470305866), 260)
+INFO:ai_service.utils.astro_calculator:Uranus retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Neptune (ID: 8)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Neptune: ((282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Normalized result: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Neptune longitude: 282.0381195937746
+INFO:ai_service.utils.astro_calculator:Neptune sign: Capricorn, degree: 12.038119593774582
+INFO:ai_service.utils.astro_calculator:Neptune house: 10
+WARNING:root:Unexpected planet_info format for speed: ((282.0381195937746, 0.8473535347432745, 31.19343142190719, 0.037911024452963356, -0.0001221630818358851, 0.0003880732570147815), 260)
+INFO:ai_service.utils.astro_calculator:Neptune retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Pluto (ID: 9)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Pluto: ((227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), 260)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Normalized result: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Pluto longitude: 227.09316655077527
+INFO:ai_service.utils.astro_calculator:Pluto sign: Scorpio, degree: 17.093166550775265
+INFO:ai_service.utils.astro_calculator:Pluto house: 8
+WARNING:root:Unexpected planet_info format for speed: ((227.09316655077527, 15.28442092654024, 30.206517889657466, 0.02732340680896378, 0.006139322442282221, -0.013477109937381758), 260)
+INFO:ai_service.utils.astro_calculator:Pluto retrograde: False
+INFO:ai_service.utils.astro_calculator:Calculating position for Rahu (ID: 10)
+INFO:ai_service.utils.astro_calculator:Raw calculation result for Rahu: ((318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), 258)
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: (318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), type: <class 'tuple'>
+INFO:ai_service.utils.astro_calculator:Extracted from tuple: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Normalized result: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Rahu longitude: 318.4349837113926
+INFO:ai_service.utils.astro_calculator:Rahu sign: Aquarius, degree: 18.43498371139259
+INFO:ai_service.utils.astro_calculator:Rahu house: 11
+WARNING:root:Unexpected planet_info format for speed: ((318.4349837113926, 0.0, 0.00256955528979999, -0.052959402172705644, 0.0, 0.0), 258)
+INFO:ai_service.utils.astro_calculator:Rahu retrograde: False
+INFO:ai_service.utils.astro_calculator:Normalizing degrees: 498.4349837113926, type: <class 'float'>
+INFO:ai_service.utils.astro_calculator:Normalized result: 138.4349837113926
+INFO:     127.0.0.1:57904 - "POST /api/questionnaire/generate HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:ai_service.api.main:Application shutdown, resources cleaned up
+INFO:     Application shutdown complete.
+INFO:     Finished server process [19862]

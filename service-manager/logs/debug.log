@@ -1,0 +1,2650 @@
+DEBUG: Service Manager started at Wed Feb 26 14:11:08 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Creating default configuration file
+DEBUG: Status: ✓ Default configuration created
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 14:11:08 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:15:48 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 14:15:48 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:16:01 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Running diagnostics at Wed Feb 26 14:16:01 AEDT 2025
+DEBUG: Status: ✓ Logs directory exists
+DEBUG: Checking command bash: 0
+DEBUG: Status: ✓ bash is installed
+DEBUG: Checking command grep: 0
+DEBUG: Status: ✓ grep is installed
+DEBUG: Checking command sed: 0
+DEBUG: Status: ✓ sed is installed
+DEBUG: Checking command awk: 0
+DEBUG: Status: ✓ awk is installed
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ ps is installed
+DEBUG: Checking command kill: 0
+DEBUG: Status: ✓ kill is installed
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✓ jq is installed
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ✓ lsof is installed
+DEBUG: Checking command netstat: 0
+DEBUG: Status: ✓ netstat is installed
+DEBUG: Checking command curl: 0
+DEBUG: Status: ✓ curl is installed
+DEBUG: Checking command wget: 1
+DEBUG: Status: ! wget is not installed
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ✓ Redis is installed: Redis server v=7.2.7 sha=00000000:0 malloc=libc bits=64 build=7f24f11dd7e42c58
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✓ Python is installed: Python 3.13.1
+DEBUG: Checking command node: 0
+DEBUG: Status: ✓ Node.js is installed: v23.7.0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ✓ npm is installed: 10.9.2
+DEBUG: Checking command docker: 0
+DEBUG: Status: ✓ Docker is installed: Docker version 27.5.1, build 9f9e405801
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✗ Python module uvicorn is not installed
+DEBUG: Status: ✗ Python module fastapi is not installed
+DEBUG: Status: ✗ Python module redis is not installed
+DEBUG: Status: ✗ Python module pydantic is not installed
+DEBUG: Status: ✓ Configuration file exists
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✗ AI Service directory does not exist
+DEBUG: Status: ✗ Frontend directory does not exist
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ✓ Redis is running on port 6379
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! AI Service is not running
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! Frontend is not running
+DEBUG: Status: ! frontend.log does not exist
+DEBUG: Status: ! ai_service.log does not exist
+DEBUG: Status: ! redis.log does not exist
+DEBUG: Status: ! error.log does not exist
+DEBUG: Status: ✓ debug.log exists (size: 8.0K, last updated: 2025-02-26 14:16:02)
+DEBUG: Getting system resources
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ Diagnostics completed successfully with no issues
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: • Install Python module uvicorn: python3 -m pip install uvicorn
+DEBUG: Status: • Install Python module fastapi: python3 -m pip install fastapi
+DEBUG: Status: • Install Python module redis: python3 -m pip install redis
+DEBUG: Status: • Install Python module pydantic: python3 -m pip install pydantic
+DEBUG: Checking command node: 0
+DEBUG: Status: ℹ Diagnostics report has been saved to logs/debug.log
+DEBUG: Service Manager ended at Wed Feb 26 14:16:07 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:16:34 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Running diagnostics at Wed Feb 26 14:16:34 AEDT 2025
+DEBUG: Status: ✓ Logs directory exists
+DEBUG: Checking command bash: 0
+DEBUG: Status: ✓ bash is installed
+DEBUG: Checking command grep: 0
+DEBUG: Status: ✓ grep is installed
+DEBUG: Checking command sed: 0
+DEBUG: Status: ✓ sed is installed
+DEBUG: Checking command awk: 0
+DEBUG: Status: ✓ awk is installed
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ ps is installed
+DEBUG: Checking command kill: 0
+DEBUG: Status: ✓ kill is installed
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✓ jq is installed
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ✓ lsof is installed
+DEBUG: Checking command netstat: 0
+DEBUG: Status: ✓ netstat is installed
+DEBUG: Checking command curl: 0
+DEBUG: Status: ✓ curl is installed
+DEBUG: Checking command wget: 1
+DEBUG: Status: ! wget is not installed
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ✓ Redis is installed: Redis server v=7.2.7 sha=00000000:0 malloc=libc bits=64 build=7f24f11dd7e42c58
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✓ Python is installed: Python 3.13.1
+DEBUG: Checking command node: 0
+DEBUG: Status: ✓ Node.js is installed: v23.7.0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ✓ npm is installed: 10.9.2
+DEBUG: Checking command docker: 0
+DEBUG: Status: ✓ Docker is installed: Docker version 27.5.1, build 9f9e405801
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✗ Python module uvicorn is not installed
+DEBUG: Status: ✗ Python module fastapi is not installed
+DEBUG: Status: ✗ Python module redis is not installed
+DEBUG: Status: ✗ Python module pydantic is not installed
+DEBUG: Status: ✓ Configuration file exists
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✗ AI Service directory does not exist
+DEBUG: Status: ✗ Frontend directory does not exist
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ✓ Redis is running on port 6379
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! AI Service is not running
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! Frontend is not running
+DEBUG: Status: ! frontend.log does not exist
+DEBUG: Status: ! ai_service.log does not exist
+DEBUG: Status: ! redis.log does not exist
+DEBUG: Status: ! error.log does not exist
+DEBUG: Status: ✓ debug.log exists (size:  12K, last updated: 2025-02-26 14:16:35)
+DEBUG: Getting system resources
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ Diagnostics completed successfully with no issues
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: • Install Python module uvicorn: python3 -m pip install uvicorn
+DEBUG: Status: • Install Python module fastapi: python3 -m pip install fastapi
+DEBUG: Status: • Install Python module redis: python3 -m pip install redis
+DEBUG: Status: • Install Python module pydantic: python3 -m pip install pydantic
+DEBUG: Checking command node: 0
+DEBUG: Status: ℹ Diagnostics report has been saved to logs/debug.log
+DEBUG: Service Manager ended at Wed Feb 26 14:17:12 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:17:21 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Running diagnostics at Wed Feb 26 14:17:21 AEDT 2025
+DEBUG: Status: ✓ Logs directory exists
+DEBUG: Checking command bash: 0
+DEBUG: Status: ✓ bash is installed
+DEBUG: Checking command grep: 0
+DEBUG: Status: ✓ grep is installed
+DEBUG: Checking command sed: 0
+DEBUG: Status: ✓ sed is installed
+DEBUG: Checking command awk: 0
+DEBUG: Status: ✓ awk is installed
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ ps is installed
+DEBUG: Checking command kill: 0
+DEBUG: Status: ✓ kill is installed
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✓ jq is installed
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ✓ lsof is installed
+DEBUG: Checking command netstat: 0
+DEBUG: Status: ✓ netstat is installed
+DEBUG: Checking command curl: 0
+DEBUG: Status: ✓ curl is installed
+DEBUG: Checking command wget: 1
+DEBUG: Status: ! wget is not installed
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ✓ Redis is installed: Redis server v=7.2.7 sha=00000000:0 malloc=libc bits=64 build=7f24f11dd7e42c58
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✓ Python is installed: Python 3.13.1
+DEBUG: Checking command node: 0
+DEBUG: Status: ✓ Node.js is installed: v23.7.0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ✓ npm is installed: 10.9.2
+DEBUG: Checking command docker: 0
+DEBUG: Status: ✓ Docker is installed: Docker version 27.5.1, build 9f9e405801
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✗ Python module uvicorn is not installed
+DEBUG: Status: ✗ Python module fastapi is not installed
+DEBUG: Status: ✗ Python module redis is not installed
+DEBUG: Status: ✗ Python module pydantic is not installed
+DEBUG: Status: ✓ Configuration file exists
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✗ AI Service directory does not exist
+DEBUG: Status: ✗ Frontend directory does not exist
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ✓ Redis is running on port 6379
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! AI Service is not running
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! Frontend is not running
+DEBUG: Status: ! frontend.log does not exist
+DEBUG: Status: ! ai_service.log does not exist
+DEBUG: Status: ! redis.log does not exist
+DEBUG: Status: ! error.log does not exist
+DEBUG: Status: ✓ debug.log exists (size:  12K, last updated: 2025-02-26 14:17:22)
+DEBUG: Getting system resources
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ Diagnostics completed successfully with no issues
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: • Install Python module uvicorn: python3 -m pip install uvicorn
+DEBUG: Status: • Install Python module fastapi: python3 -m pip install fastapi
+DEBUG: Status: • Install Python module redis: python3 -m pip install redis
+DEBUG: Status: • Install Python module pydantic: python3 -m pip install pydantic
+DEBUG: Checking command node: 0
+DEBUG: Status: ℹ Diagnostics report has been saved to logs/debug.log
+DEBUG: Service Manager ended at Wed Feb 26 14:17:24 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:17:44 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Running diagnostics at Wed Feb 26 14:17:44 AEDT 2025
+DEBUG: Status: ✓ Logs directory exists
+DEBUG: Checking command bash: 0
+DEBUG: Status: ✓ bash is installed
+DEBUG: Checking command grep: 0
+DEBUG: Status: ✓ grep is installed
+DEBUG: Checking command sed: 0
+DEBUG: Status: ✓ sed is installed
+DEBUG: Checking command awk: 0
+DEBUG: Status: ✓ awk is installed
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ ps is installed
+DEBUG: Checking command kill: 0
+DEBUG: Status: ✓ kill is installed
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✓ jq is installed
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ✓ lsof is installed
+DEBUG: Checking command netstat: 0
+DEBUG: Status: ✓ netstat is installed
+DEBUG: Checking command curl: 0
+DEBUG: Status: ✓ curl is installed
+DEBUG: Checking command wget: 1
+DEBUG: Status: ! wget is not installed
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ✓ Redis is installed: Redis server v=7.2.7 sha=00000000:0 malloc=libc bits=64 build=7f24f11dd7e42c58
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✓ Python is installed: Python 3.13.1
+DEBUG: Checking command node: 0
+DEBUG: Status: ✓ Node.js is installed: v23.7.0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ✓ npm is installed: 10.9.2
+DEBUG: Checking command docker: 0
+DEBUG: Status: ✓ Docker is installed: Docker version 27.5.1, build 9f9e405801
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking command python3: 0
+DEBUG: Status: ✗ Python module uvicorn is not installed
+DEBUG: Status: ✗ Python module fastapi is not installed
+DEBUG: Status: ✗ Python module redis is not installed
+DEBUG: Status: ✗ Python module pydantic is not installed
+DEBUG: Status: ✓ Configuration file exists
+DEBUG: Checking command jq: 0
+DEBUG: Status: ✗ AI Service directory does not exist
+DEBUG: Status: ✗ Frontend directory does not exist
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ✓ Redis is running on port 6379
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! AI Service is not running
+DEBUG: Checking command pgrep: 0
+DEBUG: Status: ! Frontend is not running
+DEBUG: Status: ! frontend.log does not exist
+DEBUG: Status: ! ai_service.log does not exist
+DEBUG: Status: ! redis.log does not exist
+DEBUG: Status: ! error.log does not exist
+DEBUG: Status: ✓ debug.log exists (size:  16K, last updated: 2025-02-26 14:17:44)
+DEBUG: Getting system resources
+DEBUG: Checking command ps: 0
+DEBUG: Status: ✓ Diagnostics completed successfully with no issues
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: • Install Python module uvicorn: python3 -m pip install uvicorn
+DEBUG: Status: • Install Python module fastapi: python3 -m pip install fastapi
+DEBUG: Status: • Install Python module redis: python3 -m pip install redis
+DEBUG: Status: • Install Python module pydantic: python3 -m pip install pydantic
+DEBUG: Checking command node: 0
+DEBUG: Status: ℹ Diagnostics report has been saved to logs/debug.log
+DEBUG: Service Manager ended at Wed Feb 26 14:17:47 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:17:53 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 14:17:53 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 14:18:05 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Service Manager ended at Wed Feb 26 14:18:05 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 21:34:19 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 21:34:19 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 21:34:24 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Status: ✗ Unknown command: --diagnostics
+DEBUG: Service Manager started at Wed Feb 26 21:34:29 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 64899
+DEBUG: REDIS process not found with PID 64899
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ✗ AI Service not found. Expected at ai_service/api/main.py
+DEBUG: Status: ! Failed to start AI Service, skipping Frontend
+DEBUG: Status: ℹ Service Status Summary:
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Status: ✗ Redis is not running
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Status: ✗ AI Service is not running
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Status: ✗ Frontend is not running
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 64948
+DEBUG: REDIS process not found with PID 64948
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ✗ AI Service not found. Expected at ai_service/api/main.py
+DEBUG: Status: ! Failed to start AI Service, skipping Frontend
+DEBUG: Status: ℹ Service Status Summary:
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Status: ✗ Redis is not running
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Status: ✗ AI Service is not running
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Status: ✗ Frontend is not running
+DEBUG: Service Manager started at Wed Feb 26 21:37:34 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 65534
+DEBUG: REDIS process not found with PID 65534
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 21:38:19 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 65792
+DEBUG: REDIS process not found with PID 65792
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 21:38:58 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 66065
+DEBUG: REDIS process not found with PID 66065
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 21:41:14 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 67042
+DEBUG: REDIS process not found with PID 67042
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 21:47:19 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Cleaning temporary files
+DEBUG: Status: ⚙ Cleaning temporary files...
+DEBUG: Status: ✓ Temporary files cleaned
+DEBUG: Service Manager started at Wed Feb 26 22:01:34 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 22:01:34 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:01:39 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 22:01:39 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:01:45 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 22:01:45 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:01:51 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 22:01:51 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:02:02 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 22:02:02 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:02:08 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Service Manager ended at Wed Feb 26 22:02:08 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:06:45 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 69257
+DEBUG: REDIS process not found with PID 69257
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:06:55 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 69409
+DEBUG: FRONTEND is running with PID 69409
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 69409)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:07:00 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:08:20 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 69902
+DEBUG: REDIS process not found with PID 69902
+DEBUG: Status: ✗ Failed to start Redis server. Check logs/redis.log for details.
+DEBUG: Status: ! Failed to start Redis, continuing with other services
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:08:33 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 70041
+DEBUG: FRONTEND is running with PID 70041
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 70041)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:08:39 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:10:18 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:10:36 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 70776
+DEBUG: FRONTEND is running with PID 70776
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 70776)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:10:41 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:10:41 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 70902
+DEBUG: FRONTEND is running with PID 70902
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 70902)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:10:46 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:17:09 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:17:18 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 71730
+DEBUG: FRONTEND is running with PID 71730
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 71730)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:17:23 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:17:23 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 71853
+DEBUG: FRONTEND is running with PID 71853
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 71853)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:17:28 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:20:08 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:20:17 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 72857
+DEBUG: FRONTEND is running with PID 72857
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 72857)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:20:22 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:20:22 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 72982
+DEBUG: FRONTEND is running with PID 72982
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 72982)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:20:28 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:21:50 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Status: ✗ Unknown command: test
+DEBUG: Service Manager started at Wed Feb 26 22:21:55 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Status: ✗ Unknown command: test
+DEBUG: Service Manager started at Wed Feb 26 22:22:01 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Getting system resources
+DEBUG: Checking command ps: 0
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Checking command curl: 0
+DEBUG: Checking command jq: 0
+DEBUG: Checking command docker: 0
+DEBUG: Checking command docker-compose: 0
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Checking command python3: 0
+DEBUG: Checking command redis-server: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command docker: 0
+DEBUG: Checking command docker-compose: 0
+DEBUG: Checking command python3: 0
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Service Manager ended at Wed Feb 26 22:23:36 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:24:10 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 74316
+DEBUG: FRONTEND is running with PID 74316
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 74316)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:24:15 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:25:23 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 74800
+DEBUG: FRONTEND is running with PID 74800
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 74800)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:25:28 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:25:40 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:25:48 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 75116
+DEBUG: FRONTEND process not found with PID 75116
+DEBUG: Status: ✗ Failed to start Frontend. Check logs/frontend.log for details.
+DEBUG: Service Manager ended at Wed Feb 26 22:25:52 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:26:09 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Getting system resources
+DEBUG: Checking command ps: 0
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Checking command curl: 0
+DEBUG: Checking command jq: 0
+DEBUG: Checking command docker: 0
+DEBUG: Checking command docker-compose: 0
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Checking command python3: 0
+DEBUG: Checking command redis-server: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command docker: 0
+DEBUG: Checking command docker-compose: 0
+DEBUG: Checking command python3: 0
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Service Manager ended at Wed Feb 26 22:26:13 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:27:40 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:28:20 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 76052
+DEBUG: FRONTEND process not found with PID 76052
+DEBUG: Status: ✗ Failed to start Frontend. Check logs/frontend.log for details.
+DEBUG: Service Manager ended at Wed Feb 26 22:28:23 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:28:38 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 76288
+DEBUG: FRONTEND process not found with PID 76288
+DEBUG: Status: ✗ Failed to start Frontend. Check logs/frontend.log for details.
+DEBUG: Service Manager ended at Wed Feb 26 22:28:41 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:34:53 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:34:58 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 77260
+DEBUG: FRONTEND is running with PID 77260
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 77260)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:35:06 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:35:15 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 77444
+DEBUG: FRONTEND is running with PID 77444
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 77444)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:35:22 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:35:29 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Status: ✗ Unknown command: test
+DEBUG: Service Manager started at Wed Feb 26 22:35:34 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Status: ℹ Stopping all services...
+DEBUG: Stopping FRONTEND with PID 
+DEBUG: Status: ℹ FRONTEND is not running
+DEBUG: Stopping AI_SERVICE with PID 
+DEBUG: Status: ℹ AI_SERVICE is not running
+DEBUG: Stopping REDIS with PID 
+DEBUG: Status: ℹ REDIS is not running
+DEBUG: Status: ✓ All services stopped
+DEBUG: Service Manager ended at Wed Feb 26 22:35:34 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:35:39 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 6379 is already in use by another process
+DEBUG: Attempting to kill process on port 6379
+DEBUG: No process found using port 6379
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 77859
+DEBUG: REDIS is running with PID 77859
+DEBUG: Status: ✓ Redis server started on port 6379 (PID: 77859)
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:36:02 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:36:08 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 78183
+DEBUG: FRONTEND is running with PID 78183
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 78183)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:36:16 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 22:49:23 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 22:49:30 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 86703
+DEBUG: FRONTEND is running with PID 86703
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 86703)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 22:49:38 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 23:16:04 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 23:16:09 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 2329
+DEBUG: FRONTEND is running with PID 2329
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 2329)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 23:16:16 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 23:25:55 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ! Required Python module 'uvicorn' not found. Attempting to install...
+DEBUG: Status: ! Required Python module 'fastapi' not found. Attempting to install...
+DEBUG: Status: ! Required Python module 'redis' not found. Attempting to install...
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 23:26:03 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 51644
+DEBUG: FRONTEND is running with PID 51644
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 51644)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Wed Feb 26 23:26:10 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 23:34:48 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 23:34:51 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 52773
+DEBUG: FRONTEND process not found with PID 52773
+DEBUG: Status: ✗ Failed to start Frontend. Check logs/frontend.log for details.
+DEBUG: Service Manager ended at Wed Feb 26 23:34:55 AEDT 2025
+DEBUG: Service Manager started at Wed Feb 26 23:37:28 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Wed Feb 26 23:37:35 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 3000 is already in use by another process
+DEBUG: Attempting to kill process on port 3000
+DEBUG: No process found using port 3000
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking if FRONTEND is running, PID: 53457
+DEBUG: FRONTEND process not found with PID 53457
+DEBUG: Status: ✗ Failed to start Frontend. Check logs/frontend.log for details.
+DEBUG: Service Manager ended at Wed Feb 26 23:37:40 AEDT 2025
+DEBUG: Service Manager started at Thu Feb 27 01:15:40 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 6379 is already in use by another process
+DEBUG: Attempting to kill process on port 6379
+DEBUG: No process found using port 6379
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 62344
+DEBUG: REDIS is running with PID 62344
+DEBUG: Status: ✓ Redis server started on port 6379 (PID: 62344)
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Thu Feb 27 01:24:10 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 6379 is already in use by another process
+DEBUG: Attempting to kill process on port 6379
+DEBUG: No process found using port 6379
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 64135
+DEBUG: REDIS is running with PID 64135
+DEBUG: Status: ✓ Redis server started on port 6379 (PID: 64135)
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Thu Feb 27 01:34:31 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 6379 is already in use by another process
+DEBUG: Service Manager started at Thu Feb 27 01:36:29 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Exporting configuration to environment variables
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config verbose = false
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config log_level = info
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config environment = development
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config max_restart_attempts = 3
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config restart_cooldown = 30
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config check_updates = true
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config skip_redis = false
+DEBUG: Configuration exported to environment
+DEBUG: Status: ℹ Starting all services...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config redis_port = 6379
+DEBUG: Starting Redis on port 6379
+DEBUG: Checking if REDIS is running, PID: 
+DEBUG: REDIS PID is empty
+DEBUG: Checking if port 6379 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 6379 is already in use by another process
+DEBUG: Attempting to kill process on port 6379
+DEBUG: No process found using port 6379
+DEBUG: Checking command redis-server: 0
+DEBUG: Status: ⚙ Starting Redis server on port 6379...
+DEBUG: Checking if REDIS is running, PID: 66612
+DEBUG: REDIS is running with PID 66612
+DEBUG: Status: ✓ Redis server started on port 6379 (PID: 66612)
+DEBUG: Checking command python3: 0
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Starting AI Service on port 8000
+DEBUG: Checking if AI_SERVICE is running, PID: 
+DEBUG: AI_SERVICE PID is empty
+DEBUG: Checking if port 8000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Status: ⚠ Port 8000 is already in use by another process
+DEBUG: Attempting to kill process on port 8000
+DEBUG: No process found using port 8000
+DEBUG: Checking for Python3...
+DEBUG: Checking command python3: 0
+DEBUG: Python3 found
+DEBUG: Status: ✓ Python3 found: Python 3.13.1
+DEBUG: Status: ⚙ Starting AI Service on port 8000...
+DEBUG: Service Manager started at Thu Feb 27 02:14:47 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Restarting FRONTEND
+DEBUG: Stopping FRONTEND with PID 
+DEBUG: Status: ℹ FRONTEND is not running
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 69663)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Thu Feb 27 02:14:53 AEDT 2025
+DEBUG: Service Manager started at Thu Feb 27 02:25:40 AEDT 2025
+DEBUG: Checking dependencies
+DEBUG: Checking command bash: 0
+DEBUG: Checking command grep: 0
+DEBUG: Checking command sed: 0
+DEBUG: Checking command awk: 0
+DEBUG: Checking command ps: 0
+DEBUG: Checking command kill: 0
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Initializing configuration
+DEBUG: Configuration file already exists
+DEBUG: Status: ℹ Using existing configuration
+DEBUG: Restarting FRONTEND
+DEBUG: Stopping FRONTEND with PID 
+DEBUG: Status: ℹ FRONTEND is not running
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config frontend_port = 3000
+DEBUG: Starting Frontend on port 3000
+DEBUG: Checking if FRONTEND is running, PID: 
+DEBUG: FRONTEND PID is empty
+DEBUG: Checking if port 3000 is in use
+DEBUG: Checking command lsof: 0
+DEBUG: Checking command node: 0
+DEBUG: Checking command npm: 0
+DEBUG: Status: ⚙ Starting Frontend on port 3000...
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config api_port = 8000
+DEBUG: Status: ✓ Frontend started on port 3000 (PID: 70411)
+DEBUG: Checking command jq: 0
+DEBUG: Retrieved config auto_open_browser = true
+DEBUG: Attempting to open browser: http://localhost:3000
+DEBUG: Service Manager ended at Thu Feb 27 02:25:45 AEDT 2025

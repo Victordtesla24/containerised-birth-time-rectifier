@@ -1,0 +1,8 @@
+66612:C 27 Feb 2025 01:36:33.314 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+66612:C 27 Feb 2025 01:36:33.314 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=66612, just started
+66612:C 27 Feb 2025 01:36:33.314 * Configuration loaded
+66612:M 27 Feb 2025 01:36:33.315 * monotonic clock: POSIX clock_gettime
+66612:M 27 Feb 2025 01:36:33.316 * Running mode=standalone, port=6379.
+66612:M 27 Feb 2025 01:36:33.316 # WARNING: The TCP backlog setting of 511 cannot be enforced because kern.ipc.somaxconn is set to the lower value of 128.
+66612:M 27 Feb 2025 01:36:33.316 * Server initialized
+66612:M 27 Feb 2025 01:36:33.317 * Ready to accept connections tcp
