@@ -103,7 +103,7 @@ export interface DynamicQuestion {
   id: string;
   text: string;
   type: 'yes_no' | 'multiple_choice' | 'date' | 'text';
-  options?: string[];
+  options?: (string | QuestionOption)[];
   weight: number;
 }
 

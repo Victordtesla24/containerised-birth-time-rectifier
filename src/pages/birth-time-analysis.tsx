@@ -8,7 +8,7 @@ import { CelestialNavbar } from '@/components/common/CelestialNavbar';
 import { CelestialBackground } from '@/components/visualization/CelestialBackground';
 import { getAllPlanetImagePaths } from '@/utils/planetImages';
 import { geocodeBirthplace, geocodeBirthPlace } from '@/services/geocoding';
-import sessionStorage from '@/utils/sessionStorage';
+import { saveBirthDetails } from '@/utils/sessionStorage';
 
 // Form field type
 interface FormField {
@@ -151,12 +151,13 @@ export default function BirthTimeAnalysis() {
       };
 
       // Use the session storage utility to save birth details
-      sessionStorage.saveBirthDetails({
+      saveBirthDetails({
+        name: birthDetails.name,
+        gender: birthDetails.gender,
         birthDate: birthDetails.birthDate,
-        birthTime: birthDetails.approximateTime,
-        birthPlace: birthDetails.birthLocation,
-        latitude: birthDetails.coordinates?.latitude,
-        longitude: birthDetails.coordinates?.longitude,
+        approximateTime: birthDetails.approximateTime,
+        birthLocation: birthDetails.birthLocation,
+        coordinates: birthDetails.coordinates,
         timezone: birthDetails.timezone
       });
 

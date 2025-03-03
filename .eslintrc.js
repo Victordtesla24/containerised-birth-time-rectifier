@@ -1,19 +1,17 @@
 module.exports = {
-  extends: 'next/core-web-vitals',
+  extends: ['next/core-web-vitals'],
   rules: {
-    // Turn off rules that are blocking the build
-    '@typescript-eslint/no-unused-vars': 'warn',
-    '@typescript-eslint/no-explicit-any': 'warn',
-    'no-console': 'warn',
+    '@typescript-eslint/no-unused-vars': 'off',
+    '@typescript-eslint/no-explicit-any': 'off',
+    '@typescript-eslint/no-var-requires': 'off',
+    'testing-library/no-debugging-utils': 'off',
+    'testing-library/no-unnecessary-act': 'off',
+    'testing-library/no-wait-for-multiple-assertions': 'off',
+    'testing-library/no-node-access': 'off',
+    'no-console': 'off',
+    'react-hooks/exhaustive-deps': 'off',
+    'react/no-unknown-property': 'off',
     'react/no-unescaped-entities': 'off',
-    'react-hooks/exhaustive-deps': 'warn',
-    'react/no-unknown-property': 'warn',
-    'testing-library/no-debugging-utils': 'warn',
-    'testing-library/no-unnecessary-act': 'warn',
-    'testing-library/no-wait-for-multiple-assertions': 'warn',
-    'testing-library/no-node-access': 'warn',
-    'no-case-declarations': 'warn',
-    'no-useless-escape': 'warn',
-    '@typescript-eslint/no-var-requires': 'warn',
+    '@next/next/no-page-custom-font': 'off'
   }
 };

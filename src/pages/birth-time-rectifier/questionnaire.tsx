@@ -15,16 +15,16 @@ const CONFIDENCE_THRESHOLD = 80;
 
 export default function QuestionnairePage() {
   const router = useRouter();
-  const [birthDetails, setBirthDetails] = useState<BirthDetails | null>(null);
+  const [birthDetails, setBirthDetails] = useState<BirthDetails | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  
+
   useEffect(() => {
     // Preload images for better user experience
     const backgroundImage = '/images/backgrounds-2/space-galaxy-1.jpg';
     const planetImages = getAllPlanetImagePaths();
-    
+
     preloadImages([backgroundImage, ...planetImages])
       .then(() => {
         console.log('Images preloaded successfully');
@@ -32,26 +32,26 @@ export default function QuestionnairePage() {
       .catch(error => {
         console.error('Error preloading images:', error);
       });
-      
+
     // Retrieve birth details from session storage using the utility
     const storedDetails = getBirthDetails();
-    
-    if (!storedDetails) {
+
+    if (storedDetails === undefined) {
       // Redirect back to birth details form if no data found
       router.push('/birth-time-analysis');
       return;
     }
-    
+
     setBirthDetails(storedDetails);
     setIsLoading(false);
   }, [router]);
-  
+
   // Handle questionnaire submission
   const handleSubmit = async (questionnaireData: QuestionnaireResponse) => {
     // Show loading state
     setIsLoading(true);
     setError(null);
-    
+
     try {
       if (!birthDetails) {
         throw new Error('Birth details not found');
@@ -69,10 +69,10 @@ export default function QuestionnairePage() {
 
       // Store the questionnaire data in session storage using the utility
       saveQuestionnaireData(questionnaireData);
-      
+
       // In a real application, we might make an immediate API call here
       // or let the results page handle the API interaction
-      
+
       // For now, we'll just redirect to the results page
       setTimeout(() => {
         router.push('/results');
@@ -83,12 +83,12 @@ export default function QuestionnairePage() {
       setIsLoading(false);
     }
   };
-  
+
   // Handle progress updates from questionnaire
   const handleProgress = (progressValue: number) => {
     setProgress(progressValue);
   };
-  
+
   if (isLoading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-black">
@@ -99,7 +99,7 @@ export default function QuestionnairePage() {
       </div>
     );
   }
-  
+
   if (error) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-black">
@@ -107,7 +107,7 @@ export default function QuestionnairePage() {
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
           <h2 className="text-white text-2xl mb-4">Error</h2>
           <p className="text-blue-300 mb-6">{error}</p>
-          <button 
+          <button
             onClick={() => router.push('/birth-time-analysis')}
             className="celestial-button"
           >
@@ -117,17 +117,17 @@ export default function QuestionnairePage() {
       </div>
     );
   }
-  
+
   return (
     <>
       <Head>
         <title>Birth Time Questionnaire | Birth Time Rectifier</title>
         <meta name="description" content="Complete this questionnaire to refine your birth time analysis" />
       </Head>
-      
+
       {/* Canvas-based animated star background */}
       <CelestialBackground />
-      
+
       {/* Image background with higher z-index than canvas background */}
       <div style={{
         position: 'fixed',
@@ -142,10 +142,10 @@ export default function QuestionnairePage() {
         opacity: 0.6,
         mixBlendMode: 'screen'
       }}></div>
-      
+
       {/* Navbar */}
       <CelestialNavbar />
-      
+
       <main className="min-h-screen py-12 pt-28">
         <div className="container mx-auto px-4">
           <motion.div
@@ -161,14 +161,14 @@ export default function QuestionnairePage() {
                 enabling a more precise birth time calculation
               </p>
             </div>
-            
+
             {/* Questionnaire Component */}
-            <LifeEventsQuestionnaire 
+            <LifeEventsQuestionnaire
               birthDetails={birthDetails}
-              onSubmit={handleSubmit} 
+              onSubmit={handleSubmit}
               onProgress={handleProgress}
             />
-            
+
             {/* Info Card */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -189,4 +189,4 @@ export default function QuestionnairePage() {
       </main>
     </>
   );
-} 
+}

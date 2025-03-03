@@ -4,7 +4,7 @@
  */
 
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import { BirthDetails, RectificationResult, QuestionnaireResponse } from '@/types';
+import { BirthDetails, RectificationResult, QuestionnaireResponse, PlanetPosition, SignificantEvent } from '@/types';
 
 // Define interfaces for API requests and responses
 export interface GeocodeRequest {
@@ -91,7 +91,7 @@ const addErrorInterceptor = (client: AxiosInstance): AxiosInstance => {
     (error) => {
       // Centralized error handling
       let errorMessage = 'An unknown error occurred';
-      
+
       if (error.response) {
         // The request was made and the server responded with an error status
         errorMessage = error.response.data.detail || error.response.statusText;
@@ -102,11 +102,11 @@ const addErrorInterceptor = (client: AxiosInstance): AxiosInstance => {
         // Error in setting up the request
         errorMessage = error.message;
       }
-      
+
       return Promise.reject({ message: errorMessage, originalError: error });
     }
   );
-  
+
   return client;
 };
 
@@ -117,7 +117,7 @@ addErrorInterceptor(rootApiClient);
 // Birth Details API
 export const birthDetailsApi = {
   geocode: async (query: string): Promise<GeocodeResponse> => {
-    return await tryBothClients('/api/geocode', (client, path) => 
+    return await tryBothClients('/api/geocode', (client, path) =>
       client.get(path, { params: { query } })
     );
   },
@@ -126,33 +126,33 @@ export const birthDetailsApi = {
 // Questionnaire API
 export const questionnaireApi = {
   initialize: async (birthDetails: InitializeRequest): Promise<Record<string, unknown>> => {
-    return await tryBothClients('/api/initialize-questionnaire', (client, path) => 
+    return await tryBothClients('/api/initialize-questionnaire', (client, path) =>
       client.post(path, birthDetails)
     );
   },
-  
+
   getNextQuestion: async (sessionId: string, response: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    return await tryBothClients('/api/next-question', (client, path) => 
+    return await tryBothClients('/api/next-question', (client, path) =>
       client.post(path, { sessionId, response })
     );
   },
-  
+
   getAnalysisResults: async (sessionId: string): Promise<Record<string, unknown>> => {
-    return await tryBothClients('/api/analysis', (client, path) => 
+    return await tryBothClients('/api/analysis', (client, path) =>
       client.get(path, { params: { sessionId } })
     );
   },
-  
+
   processRectification: async (birthDetails: BirthDetails, questionnaireData: QuestionnaireResponse): Promise<RectificationResult> => {
     if (!questionnaireData.sessionId) {
       throw new Error('Missing sessionId. Please complete the questionnaire first.');
     }
-    
+
     // Use the analysis endpoint with the sessionId
-    const data = await tryBothClients('/api/analysis', (client, path) => 
+    const data = await tryBothClients('/api/analysis', (client, path) =>
       client.get(path, { params: { sessionId: questionnaireData.sessionId } })
     );
-    
+
     // Transform API response to our RectificationResult format
     return transformApiResponse(data, birthDetails);
   }
@@ -161,11 +161,11 @@ export const questionnaireApi = {
 // Chart API
 export const chartApi = {
   generateCharts: async (chartRequest: ChartRequest): Promise<ChartResponse> => {
-    return await tryBothClients('/api/charts', (client, path) => 
+    return await tryBothClients('/api/charts', (client, path) =>
       client.post(path, chartRequest)
     );
   },
-  
+
   generateChart: async (birthDetails: BirthDetails): Promise<Record<string, unknown>> => {
     // Format the request payload
     const payload = {
@@ -176,8 +176,8 @@ export const chartApi = {
       timezone: birthDetails.timezone || 'UTC',
       chartType: 'all'
     };
-    
-    return await tryBothClients('/api/charts', (client, path) => 
+
+    return await tryBothClients('/api/charts', (client, path) =>
       client.post(path, payload)
     );
   }
@@ -202,7 +202,7 @@ export const systemApi = {
       }
     }
   },
-  
+
   isApiAvailable: async (): Promise<boolean> => {
     try {
       await systemApi.checkHealth();
@@ -239,23 +239,40 @@ const transformApiResponse = (apiResponse: Record<string, unknown>, birthDetails
       future: Array<Record<string, unknown>>;
     };
   };
-  
+
   return {
     birthDetails,
     originalTime: birthDetails.approximateTime,
     suggestedTime: typedResponse.suggestedTime || typedResponse.rectifiedTime || birthDetails.approximateTime,
     confidence: typedResponse.confidence || typedResponse.confidenceScore || 85,
     reliability: typedResponse.reliability || "Medium",
-    taskPredictions: typedResponse.taskPredictions || {
-      time: typedResponse.timeAccuracy || 85,
-      ascendant: typedResponse.ascendantAccuracy || 85,
-      houses: typedResponse.housesAccuracy || 85
+    taskPredictions: {
+      time: typedResponse.taskPredictions?.time ?? typedResponse.timeAccuracy ?? 85,
+      ascendant: typedResponse.taskPredictions?.ascendant ?? typedResponse.ascendantAccuracy ?? 85,
+      houses: typedResponse.taskPredictions?.houses ?? typedResponse.housesAccuracy ?? 85
     },
     explanation: typedResponse.explanation || "Based on your birth details and life events questionnaire, we've analyzed planetary positions to determine a more accurate birth time.",
-    planetaryPositions: typedResponse.planetaryPositions || getDefaultPlanetaryPositions(),
-    significantEvents: typedResponse.significantEvents || {
-      past: [],
-      future: []
+    planetaryPositions: typedResponse.planetaryPositions?.map(pos => ({
+      planet: pos.planet as string,
+      sign: pos.sign as string,
+      degree: pos.degree as string,
+      house: pos.house as number,
+      retrograde: pos.retrograde as boolean || false,
+      description: pos.description as string || ''
+    })) || getDefaultPlanetaryPositions(),
+    significantEvents: {
+      past: typedResponse.significantEvents?.past?.map(event => ({
+        date: event.date as string || new Date().toISOString(),
+        description: event.description as string || '',
+        confidence: event.confidence as number || 0,
+        impactAreas: event.impactAreas as string[] || []
+      })) || [],
+      future: typedResponse.significantEvents?.future?.map(event => ({
+        date: event.date as string || new Date().toISOString(),
+        description: event.description as string || '',
+        confidence: event.confidence as number || 0,
+        impactAreas: event.impactAreas as string[] || []
+      })) || []
     }
   };
 };
@@ -263,49 +280,63 @@ const transformApiResponse = (apiResponse: Record<string, unknown>, birthDetails
 /**
  * Fallback method to get default planetary positions if API fails
  */
-const getDefaultPlanetaryPositions = (): Array<Record<string, unknown>> => {
+const getDefaultPlanetaryPositions = (): PlanetPosition[] => {
   return [
     {
       planet: 'Sun',
       sign: 'Leo',
       degree: '15°32\'',
-      house: 9
+      house: 9,
+      retrograde: false,
+      description: 'Core identity and life purpose'
     },
     {
       planet: 'Moon',
       sign: 'Taurus',
       degree: '3°14\'',
-      house: 6
+      house: 6,
+      retrograde: false,
+      description: 'Emotional patterns and instinctual responses'
     },
     {
       planet: 'Mercury',
       sign: 'Virgo',
       degree: '2°45\'',
-      house: 10
+      house: 10,
+      retrograde: false,
+      description: 'Communication and mental processes'
     },
     {
       planet: 'Venus',
       sign: 'Cancer',
       degree: '23°18\'',
-      house: 8
+      house: 8,
+      retrograde: false,
+      description: 'Love, values, and relationships'
     },
     {
       planet: 'Mars',
       sign: 'Aries',
       degree: '8°41\'',
-      house: 4
+      house: 4,
+      retrograde: false,
+      description: 'Energy, drive, and ambition'
     },
     {
       planet: 'Jupiter',
       sign: 'Sagittarius',
       degree: '17°56\'',
-      house: 1
+      house: 1,
+      retrograde: false,
+      description: 'Growth, expansion, and opportunities'
     },
     {
       planet: 'Saturn',
       sign: 'Capricorn',
       degree: '9°03\'',
-      house: 2
+      house: 2,
+      retrograde: false,
+      description: 'Structure, discipline, and responsibility'
     }
   ];
 };
@@ -321,4 +352,4 @@ const apiService = {
   isApiAvailable: systemApi.isApiAvailable
 };
 
-export default apiService; 
+export default apiService;

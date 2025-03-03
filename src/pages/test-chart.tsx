@@ -6,8 +6,8 @@ import { ChartData } from '@/types';
 
 // Zodiac signs in order
 const SIGNS = [
-  'Aries', 'Taurus', 'Gemini', 'Cancer', 
-  'Leo', 'Virgo', 'Libra', 'Scorpio', 
+  'Aries', 'Taurus', 'Gemini', 'Cancer',
+  'Leo', 'Virgo', 'Libra', 'Scorpio',
   'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
 ];
 
@@ -39,7 +39,7 @@ export default function TestChartPage() {
         setError(null);
 
         console.log("Fetching chart data with test data:", testData);
-        
+
         const response = await fetch('http://localhost:8000/api/charts', {
           method: 'POST',
           headers: {
@@ -56,7 +56,7 @@ export default function TestChartPage() {
 
         const data = await response.json();
         console.log("Received chart data:", data);
-        
+
         // Fix D1 chart data - add missing properties to make it compatible
         if (data.d1Chart) {
           const enhancedD1Chart: ChartData = {
@@ -82,7 +82,7 @@ export default function TestChartPage() {
               lightingSetup: {
                 ambient: { color: '#ffffff', intensity: 0.3 },
                 directional: [
-                  { 
+                  {
                     color: '#ffffff',
                     intensity: 0.7,
                     position: { x: 10, y: 10, z: 10 }
@@ -93,7 +93,7 @@ export default function TestChartPage() {
           };
           setD1ChartData(enhancedD1Chart);
         }
-        
+
         // Fix D9 chart data
         if (data.d9Chart) {
           const enhancedD9Chart: ChartData = {
@@ -113,7 +113,7 @@ export default function TestChartPage() {
               lightingSetup: {
                 ambient: { color: '#f8f0ff', intensity: 0.3 },
                 directional: [
-                  { 
+                  {
                     color: '#ffe0e0',
                     intensity: 0.7,
                     position: { x: 10, y: 10, z: 10 }
@@ -133,20 +133,21 @@ export default function TestChartPage() {
             ...baseChart,
             planets: baseChart.planets.map(planet => ({
               ...planet,
-              // Shift degree based on divisional number to create variety
-              degree: ((planet.degree || 0) + 30 * divisionalNumber) % 360,
+              // Shift degree based on divisional number to create variety and convert to string
+              degree: (((planet.degree ? parseFloat(planet.degree) : 0) + 30 * divisionalNumber) % 360).toString(),
               // Vary the house placement
               house: ((planet.house || 1) + divisionalNumber - 1) % 12 + 1
             })),
-            ascendant: {
-              ...baseChart.ascendant,
-              // Shift ascendant by divisional number * 30 degrees
-              degree: ((baseChart.ascendant?.degree || 0) + 30 * divisionalNumber) % 360,
-              sign: SIGNS[(SIGNS.indexOf(baseChart.ascendant?.sign || 'Aries') + divisionalNumber) % 12]
-            },
+            ascendant: typeof baseChart.ascendant === 'number' ?
+              ((baseChart.ascendant + 30 * divisionalNumber) % 360) :
+              {
+                sign: SIGNS[(SIGNS.indexOf(baseChart.ascendant?.sign || 'Aries') + divisionalNumber) % 12],
+                degree: ((baseChart.ascendant?.degree || 0) + 30 * divisionalNumber) % 360,
+                description: baseChart.ascendant?.description
+              },
           };
         };
-        
+
         // If we have D1 data, generate mock data for other charts
         if (d1ChartData) {
           setD3ChartData(generateMockChartData(d1ChartData, 3));
@@ -163,7 +164,7 @@ export default function TestChartPage() {
 
     fetchChartData();
   }, []);
-  
+
   const handlePlanetClick = (planetId: string) => {
     alert(`Clicked on planet: ${planetId}`);
   };
@@ -175,7 +176,7 @@ export default function TestChartPage() {
         <meta name="description" content="Testing chart visualization with test data" />
       </Head>
 
-      <CelestialBackground depthEffect={true} mouseInteraction={true} />
+      <CelestialBackground />
 
       <main className="container mx-auto px-4 py-8 relative z-10">
         <h1 className="text-3xl font-bold text-center mb-8 text-white">
@@ -335,7 +336,7 @@ export default function TestChartPage() {
                 </div>
               )}
             </div>
-            
+
             {/* Planetary Positions Table */}
             <div className="mt-8 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-4">
               <h2 className="text-xl font-semibold mb-4">
@@ -355,9 +356,9 @@ export default function TestChartPage() {
                   <tbody className="divide-y divide-gray-200">
                     {(activeTab === 'D1' ? d1ChartData?.planets : activeTab === 'D3' ? d3ChartData?.planets : activeTab === 'D9' ? d9ChartData?.planets : activeTab === 'D10' ? d10ChartData?.planets : d12ChartData?.planets)?.map((planet) => (
                       <tr key={planet.name}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{planet.name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{planet.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{planet.sign}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{planet.degree?.toFixed(2)}°</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{planet.degree}°</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">House {planet.house}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {planet.retrograde ? (
@@ -381,4 +382,4 @@ export default function TestChartPage() {
       </main>
     </div>
   );
-} 
+}

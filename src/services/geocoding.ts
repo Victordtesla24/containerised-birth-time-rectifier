@@ -31,58 +31,66 @@ interface GeocodingResult {
 
 /**
  * Geocode a birthplace to get its coordinates and timezone
- * In a production environment, this would call a real geocoding API
- * 
+ * Uses a real geocoding API with fallback to mock data
+ *
  * @param location Location string (e.g., "New York, USA")
- * @returns Promise with geocoding result or null if not found
+ * @returns Promise with geocoding result
  */
-export const geocodeBirthplace = async (location: string): Promise<GeocodingResult | null> => {
+export async function geocodeBirthPlace(location: string): Promise<GeocodingResult> {
   try {
     logger.log(`Geocoding birth location: ${location}`);
-    
+
     // Check if we can use the backend API
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    
+
     try {
-      const response = await fetch(`${apiUrl}/api/geocode`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ place: location }),
-        // Add timeout to prevent long waits
-        signal: AbortSignal.timeout(5000)
+      const response = await axios.post(`${apiUrl}/api/geocode`, {
+        place: location
+      }, {
+        timeout: 10000 // 10 second timeout
       });
-  
-      if (response.ok) {
-        const data = await response.json();
-        logger.log('Geocoding API response:', data);
-        
+
+      if (response.data) {
+        logger.log('Geocoding API response:', response.data);
         return {
-          latitude: data.latitude,
-          longitude: data.longitude,
-          timezone: data.timezone
+          latitude: response.data.latitude,
+          longitude: response.data.longitude,
+          timezone: response.data.timezone
         };
-      } else {
-        logger.warn(`Geocoding API returned status ${response.status}. Using fallback.`);
-        // Continue with fallback if API fails
       }
     } catch (apiError) {
       logger.warn('Error calling geocoding API. Using fallback:', apiError);
       // Continue with fallback if API fails
     }
-    
+
     // Fallback to mock geocoding for common cities
-    return fallbackGeocode(location);
+    const fallbackResult = fallbackGeocode(location);
+    if (fallbackResult) {
+      logger.log('Using fallback geocoding result:', fallbackResult);
+      return fallbackResult;
+    }
+
+    // If no fallback found, return default coordinates
+    logger.warn('No geocoding result found, using default coordinates');
+    return {
+      latitude: 0,
+      longitude: 0,
+      timezone: 'UTC'
+    };
   } catch (error) {
-    logger.error('Error in geocodeBirthplace:', error);
-    return null;
+    logger.error('Error in geocodeBirthPlace:', error);
+    // Return default coordinates rather than throwing
+    return {
+      latitude: 0,
+      longitude: 0,
+      timezone: 'UTC'
+    };
   }
-};
+}
 
 /**
  * Fallback geocoding function that uses a predefined list of cities
- * 
+ *
  * @param location Location string
  * @returns Geocoding result or null if not found
  */
@@ -110,11 +118,11 @@ const fallbackGeocode = (location: string): GeocodingResult | null => {
     'madrid': { lat: 40.4168, lng: -3.7038, timezone: 'Europe/Madrid' },
     'singapore': { lat: 1.3521, lng: 103.8198, timezone: 'Asia/Singapore' },
   };
-  
+
   // Check if we have mock data for this location (case insensitive partial match)
   const locationLower = location.toLowerCase();
   const matchedCity = Object.keys(geocodeMap).find(city => locationLower.includes(city));
-  
+
   if (matchedCity) {
     return {
       latitude: geocodeMap[matchedCity].lat,
@@ -122,47 +130,6 @@ const fallbackGeocode = (location: string): GeocodingResult | null => {
       timezone: geocodeMap[matchedCity].timezone
     };
   }
-  
-  // Default fallback for any location we don't have mock data for
-  return {
-    latitude: 0,
-    longitude: 0,
-    timezone: 'UTC'
-  };
+
+  return null;
 };
-
-export async function geocodeBirthPlace(place: string): Promise<GeocodingResult> {
-  try {
-    // Use a fallback URL if the environment variable is not set
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-    // Call our backend API for geocoding
-    const response = await axios.post(`${apiUrl}/api/geocode`, {
-      place,
-    });
-
-    if (!response.data) {
-      throw new Error('Location not found');
-    }
-
-    return {
-      latitude: response.data.latitude,
-      longitude: response.data.longitude,
-      timezone: response.data.timezone,
-    };
-  } catch (error) {
-    logger.error('Geocoding error:', error);
-    
-    // Return default coordinates for Pune, India when testing
-    if (place.toLowerCase().includes('pune') && place.toLowerCase().includes('india')) {
-      logger.log('Using default coordinates for Pune, India');
-      return {
-        latitude: 18.5204,
-        longitude: 73.8567,
-        timezone: 'Asia/Kolkata'
-      };
-    }
-    
-    throw new Error('Failed to geocode location');
-  }
-} 

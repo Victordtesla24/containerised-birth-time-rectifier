@@ -12,59 +12,34 @@ const MultipleChoiceQuestion: React.FC<MultipleChoiceQuestionProps> = ({
   value,
   onChange
 }) => {
-  // Handle different option formats (string[] or QuestionOption[])
   const renderOptions = () => {
     if (!question.options || question.options.length === 0) {
       return <p className="text-red-500">No options available</p>;
     }
 
-    // Check if options are strings or objects
-    const firstOption = question.options[0];
+    return (
+      <div className="grid grid-cols-1 gap-3">
+        {question.options.map((option, index) => {
+          const optionText = typeof option === 'string' ? option : option.text;
+          const optionId = typeof option === 'string' ? String(index) : option.id || String(index);
 
-    if (typeof firstOption === 'string') {
-      // Options are strings
-      return (
-        <div className="grid grid-cols-1 gap-3">
-          {question.options.map((option, index) => (
+          return (
             <button
-              key={index}
+              key={optionId}
               type="button"
-              onClick={() => onChange(option as string)}
+              onClick={() => onChange(optionText)}
               className={`py-3 px-4 rounded-lg text-left transition-colors ${
-                value === option
+                value === optionText
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
               }`}
             >
-              {option as string}
+              {optionText}
             </button>
-          ))}
-        </div>
-      );
-    } else {
-      // Options are objects with id and text
-      return (
-        <div className="grid grid-cols-1 gap-3">
-          {question.options.map((option, index) => {
-            const typedOption = option as QuestionOption;
-            return (
-              <button
-                key={typedOption.id || index}
-                type="button"
-                onClick={() => onChange(typedOption.text)}
-                className={`py-3 px-4 rounded-lg text-left transition-colors ${
-                  value === typedOption.text
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
-                }`}
-              >
-                {typedOption.text}
-              </button>
-            );
-          })}
-        </div>
-      );
-    }
+          );
+        })}
+      </div>
+    );
   };
 
   return (

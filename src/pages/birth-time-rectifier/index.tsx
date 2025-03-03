@@ -14,25 +14,25 @@ export default function BirthTimeRectifierPage() {
   const handleSubmit = async (data: BirthDetails) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       // Store birth details in session storage for the next pages
       sessionStorage.setItem('birthDetails', JSON.stringify(data));
 
       // Generate initial chart
       setIsGeneratingChart(true);
-      
+
       try {
         // Transform data to expected API format
         const apiPayload = {
-          birthDate: new Date(data.date).toISOString(),
-          birthTime: data.time,
-          latitude: data.coordinates.latitude,
-          longitude: data.coordinates.longitude,
+          birthDate: new Date(data.birthDate).toISOString(),
+          birthTime: data.approximateTime,
+          latitude: data.coordinates?.latitude,
+          longitude: data.coordinates?.longitude,
           timezone: data.timezone,
           chartType: "ALL"
         };
-        
+
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const response = await fetch(`${apiUrl}/api/charts`, {
           method: 'POST',
@@ -46,7 +46,7 @@ export default function BirthTimeRectifierPage() {
           const errorData = await response.json().catch(() => null);
           if (errorData?.detail) {
             // Format validation errors
-            const errorMessage = typeof errorData.detail === 'object' 
+            const errorMessage = typeof errorData.detail === 'object'
               ? (errorData.detail.message || JSON.stringify(errorData.detail))
               : errorData.detail;
             throw new Error(errorMessage);
@@ -63,13 +63,13 @@ export default function BirthTimeRectifierPage() {
       } finally {
         setIsGeneratingChart(false);
       }
-      
+
       // Redirect to questionnaire
       router.push('/birth-time-rectifier/questionnaire');
     } catch (err) {
       console.error('Form submission error:', err);
-      const errorMessage = err instanceof Error 
-        ? err.message 
+      const errorMessage = err instanceof Error
+        ? err.message
         : 'Failed to process birth details. Please try again.';
       setError(errorMessage);
       setIsLoading(false);
@@ -107,7 +107,7 @@ export default function BirthTimeRectifierPage() {
             isLoading={isLoading || isGeneratingChart}
             onValidation={() => {}}
           />
-          
+
           {isGeneratingChart && (
             <div className="mt-6 text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
@@ -118,4 +118,4 @@ export default function BirthTimeRectifierPage() {
       </main>
     </div>
   );
-} 
+}

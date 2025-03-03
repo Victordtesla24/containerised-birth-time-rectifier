@@ -17,7 +17,7 @@ This implementation plan details the integration of UI/UX with backend services 
 
 ### 2.1 System Integration Overview
 
-```mermaid
+```mermaid  
 graph TD
     A[Landing Page] --> B[Birth Details Form]
     B --> C{Valid Details?}

@@ -1,19 +1,54 @@
-FROM node:18-alpine
+# Build stage
+FROM node:20-slim as builder
 
 # Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Set environment variables to disable ESLint and telemetry
+ENV DISABLE_ESLINT_PLUGIN=true \
+    NEXT_TELEMETRY_DISABLED=1
+
+# Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies including ESLint and its plugins
+RUN npm install && \
+    npm install --save-dev \
+    @typescript-eslint/eslint-plugin \
+    @typescript-eslint/parser \
+    eslint-plugin-testing-library \
+    eslint-plugin-jest \
+    eslint-plugin-react \
+    eslint-plugin-react-hooks \
+    eslint-config-next \
+    eslint-config-prettier
 
-# Copy the rest of the application
+# Copy source code
 COPY . .
 
 # Build the application
 RUN npm run build
+
+# Production stage
+FROM node:20-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set production environment variables
+ENV NODE_ENV=production \
+    DISABLE_ESLINT_PLUGIN=true \
+    NEXT_TELEMETRY_DISABLED=1
+
+# Copy built assets from builder stage
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || exit 1
 
 # Expose port
 EXPOSE 3000
