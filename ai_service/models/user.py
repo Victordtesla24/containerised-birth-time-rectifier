@@ -1,67 +1,58 @@
 """
-User model for authentication and profile management.
+User models for Birth Time Rectifier API.
+Handles user data structures and validation.
 """
 
-from pydantic import BaseModel, Field, EmailStr
-from typing import Dict, List, Optional, Any
 from datetime import datetime
-import uuid
+from typing import Dict, List, Optional, Any
+from pydantic import BaseModel, EmailStr, Field, validator
 
-
-class UserBase(BaseModel):
-    """Base user model with common fields."""
+class UserCreate(BaseModel):
+    """Model for user registration"""
     email: EmailStr
-    username: str = Field(..., min_length=3, max_length=50)
-    full_name: Optional[str] = None
-
-
-class UserCreate(UserBase):
-    """User creation model with password."""
     password: str = Field(..., min_length=8)
+    full_name: str = Field(..., min_length=2)
 
-
-class UserInDB(UserBase):
-    """User model as stored in the database."""
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    hashed_password: str
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
-    is_active: bool = True
-    is_verified: bool = False
-    preferences: Dict[str, Any] = Field(default_factory=dict)
-    saved_charts: List[str] = Field(default_factory=list)
-
-
-class UserOut(UserBase):
-    """User model for API responses."""
-    id: str
-    created_at: datetime
-    preferences: Dict[str, Any]
-    saved_charts: List[str]
-
-
-class UserLogin(BaseModel):
-    """User login model."""
-    email: EmailStr
-    password: str
-
+    @validator('password')
+    def password_strength(cls, v):
+        """Validate password strength"""
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+        if not any(c.isalpha() for c in v):
+            raise ValueError('Password must contain at least one letter')
+        return v
 
 class UserUpdate(BaseModel):
-    """User update model."""
+    """Model for user profile updates"""
     full_name: Optional[str] = None
-    password: Optional[str] = None
     preferences: Optional[Dict[str, Any]] = None
 
+class UserOut(BaseModel):
+    """Model for user information returned to client"""
+    id: str
+    email: EmailStr
+    full_name: str
+    created_at: datetime
+    updated_at: datetime
+    preferences: Optional[Dict[str, Any]] = None
 
 class Token(BaseModel):
-    """Token model for authentication."""
+    """Model for authentication token"""
     access_token: str
-    token_type: str = "bearer"
+    token_type: str
     expires_at: datetime
     user_id: str
 
-
-class TokenData(BaseModel):
-    """Token data for JWT payload."""
-    user_id: str
-    exp: datetime
+class User:
+    """User model for internal use"""
+    def __init__(self, id: str, email: str, full_name: str,
+                 hashed_password: str, created_at: Optional[datetime] = None,
+                 updated_at: Optional[datetime] = None, preferences: Optional[Dict[str, Any]] = None):
+        self.id = id
+        self.email = email
+        self.full_name = full_name
+        self.hashed_password = hashed_password
+        self.created_at = created_at if created_at is not None else datetime.now()
+        self.updated_at = updated_at if updated_at is not None else datetime.now()
+        self.preferences = preferences if preferences is not None else {}
+        self.saved_charts = []

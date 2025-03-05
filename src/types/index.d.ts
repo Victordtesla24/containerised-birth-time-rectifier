@@ -1,15 +1,30 @@
-// Birth Details
+// Module declarations
+declare module 'react';
+declare module 'react-dom';
+declare module 'next/router';
+declare module 'next/head';
+
+// BirthDetails interface used in the application
 export interface BirthDetails {
-  date: Date;
-  time: string;
+  name?: string;
+  birthDate: string;
+  approximateTime: string;
   birthPlace: string;
-  latitude: number;
-  longitude: number;
-  timezone: string;
-  additionalFactors?: {
-    majorLifeEvents?: string[];
-    healthHistory?: string[];
+  coordinates?: {
+    latitude: number;
+    longitude: number;
   };
+  timezone: string;
+}
+
+// This adds the 'process.env' object to the global scope
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      NODE_ENV: 'development' | 'production' | 'test';
+      NEXT_PUBLIC_API_URL?: string;
+    }
+  }
 }
 
 // Questionnaire Response
@@ -95,4 +110,4 @@ export interface ModelPrediction {
   rectifiedTime: Date;
   confidence: number;
   explanation: string;
-} 
+}

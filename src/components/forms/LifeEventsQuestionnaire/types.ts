@@ -1,4 +1,4 @@
-import { BirthDetails, QuestionnaireResponse } from '@/types';
+import { BirthDetails, QuestionnaireResponse, QuestionOption } from '@/types';
 
 /**
  * Props for the LifeEventsQuestionnaire component
@@ -7,29 +7,29 @@ export interface LifeEventsQuestionnaireProps {
   /**
    * Optional birth details for context-aware questioning
    */
-  birthDetails?: BirthDetails;
-  
+  birthDetails: BirthDetails;
+
   /**
    * Callback function when questionnaire is submitted
    * @param data The questionnaire response data
    */
-  onSubmit: (data: QuestionnaireResponse) => Promise<void>;
-  
+  onSubmit?: (data: QuestionnaireSubmitData) => void;
+
   /**
    * Optional callback function to report questionnaire progress
-   * @param progress The current progress as a percentage
+   * @param data The questionnaire progress data
    */
-  onProgress?: (progress: number) => void;
-  
+  onProgress?: (data: QuestionnaireProgressData) => void;
+
   /**
    * Flag to indicate if questionnaire is in a loading state
    */
   isLoading?: boolean;
-  
+
   /**
    * Optional initial data to pre-populate questionnaire
    */
-  initialData?: any;
+  initialData?: QuestionnaireResponse;
 }
 
 /**
@@ -39,42 +39,32 @@ export interface QuestionResponse {
   /**
    * Unique identifier for the question
    */
-  questionId: string;
-  
+  id: string;
+
   /**
    * The question text
    */
-  question: string;
-  
+  text: string;
+
   /**
-   * The user's answer
+   * The question options
    */
-  answer: string;
+  options: QuestionOption[];
+}
+
+export interface QuestionnaireSubmitData {
+  answers: Record<string, string>;
+  confidence: number;
+  questionIds: string[];
+}
+
+export interface QuestionnaireProgressData {
+  answeredQuestions: number;
+  totalQuestions: number;
+  confidence: number;
 }
 
 export interface QuestionState {
-  currentStep: number;
-  lifeEvents: {
-    type: string;
-    date: string;
-    description: string;
-    impact: 'low' | 'medium' | 'high';
-  }[];
-  healthEvents: {
-    type: string;
-    date: string;
-    description: string;
-    duration: string;
-  }[];
-  relationships: {
-    type: 'romantic' | 'friendship' | 'family' | 'professional';
-    startDate: string;
-    endDate?: string;
-    description: string;
-  }[];
-  careerChanges: {
-    type: 'job' | 'promotion' | 'education' | 'business';
-    date: string;
-    description: string;
-  }[];
-} 
+  id: string;
+  answer: string | null;
+}

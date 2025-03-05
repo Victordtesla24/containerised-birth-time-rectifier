@@ -517,3 +517,5 @@ INFO:     Waiting for application shutdown.
 INFO:ai_service.api.main:Application shutdown, resources cleaned up
 INFO:     Application shutdown complete.
 INFO:     Finished server process [19862]
+2025-03-05 21:22:57,681 - httpx - INFO - HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-03-05 21:23:07,661 - httpx - INFO - HTTP Request: GET http://testserver/api/health "HTTP/1.1 200 OK"

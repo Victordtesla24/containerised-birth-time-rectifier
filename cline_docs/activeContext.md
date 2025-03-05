@@ -30,6 +30,10 @@
    - Mock implementations for browser APIs
    - Coverage thresholds and reporting
    - Test environment configuration
+   - Consolidated test scripts for improved maintenance
+   - Single test runner script with flexible configuration
+   - Menu-driven testing interface
+   - Consistent API endpoint management
 
 5. Kubernetes Deployment Configuration
    - Implemented context-based deployment with KUBE_CONTEXT
@@ -45,6 +49,10 @@
    - Enhanced validation state management
    - Added proper async operation handling
    - Fixed coordinate display testing
+   - Consolidated test scripts into a single, robust test script
+   - Added comprehensive test patterns for all application flows
+   - Created constants file for API endpoints and test data
+   - Ensured consistent API endpoint usage across all tests
 
 7. TypeScript Linter Error Resolution
    - Fixed missing 'aspects' property in ChartData objects across test files
@@ -75,286 +83,116 @@
    - Security scanning (Complete)
    - Preview deployments (Ready)
    - Kubernetes deployment (Enhanced with context validation)
+   - Consolidated test scripts (Complete)
 
 ### Current Focus
-Code Quality and Test Stability
+Test Consolidation and API Endpoint Architecture Consistency
 
 ### Latest Changes
-1. **TypeScript Linter Error Fixes**
-   - Resolved 25+ TypeScript errors across multiple files
-   - Implemented proper type checking for complex properties
-   - Fixed nested object structure mismatches
-   - Updated all test files for type compatibility
-   - Added proper type declarations for component interfaces
+1. **Consolidated Test Scripts**
+   - Merged run-app-flow-test.sh and run-application-and-tests.sh into a single script
+   - Added comprehensive CLI options for flexibility
+   - Implemented menu-driven testing interface
+   - Enhanced error handling and service management
+   - Improved test pattern support for all application flows
+   - Added consistent API endpoint handling
+   - Created constants.js file for centralized test data and endpoints
 
-2. **Test Suite Improvements**
-   - All 82 tests passing across 11 test suites
-   - Fixed LifeEventsQuestionnaire component tests
-   - Improved mock implementations for complex objects
-   - Enhanced test selectors for better reliability
-   - Fixed date/time type handling in tests
+2. **API Endpoint Architecture Management**
+   - Created constants.js file for centralized API endpoint definitions
+   - Ensured consistent usage of API endpoints across all tests
+   - Added health check endpoint handling
+   - Improved validation of API endpoint consistency
+   - Implemented dual-registration pattern with proper documentation:
+     - Primary endpoints with `/api/` prefix (e.g., `/api/chart/validate`)
+     - Alternative endpoints without prefix (e.g., `/chart/validate`)
+   - Enhanced error reporting for endpoint issues
+   - Verified proper nesting of chart endpoints under `/api/chart/` and `/chart/`
+   - Updated implementation_plan.md with comprehensive API architecture details
+   - Created detailed api_architecture_docs.md documentation
+   - Removed redundant backup files and consolidated router implementations
+   - Standardized API response formats across all endpoints
 
-3. **Component Stability Enhancements**
-   - Improved error handling in form components
-   - Added proper type checking for conditional rendering
-   - Enhanced chart data handling with complete type definitions
-   - Fixed component props interfaces for better type safety
+3. **Test Flow Enhancement**
+   - Added support for testing all user flows from implementation plan:
+     - Complete astrological chart application flow (A→B→C→D→E→F→G→H→I→K→L→M)
+     - Validation failure path (A→B→C→B)
+     - Low confidence path (G→H→J→G)
+     - Boundary cases with extreme coordinates
+     - API endpoint validation
 
 ### Active Files
-1. `tsconfig.json`: TypeScript configuration with improved module resolution
-2. `src/components/charts/BirthChart/__tests__/BirthChart.test.tsx`: Fixed ChartData mock objects
-3. `src/components/charts/ChartRenderer/__tests__/ChartRenderer.test.tsx`: Improved type definitions
-4. `src/components/containers/BirthTimeRectifier/index.tsx`: Updated API integration
-5. `src/components/forms/BirthDetailsForm/index.tsx`: Fixed BirthDetails structure handling
-6. `src/components/forms/LifeEventsQuestionnaire/__tests__/LifeEventsQuestionnaire.test.tsx`: Improved test reliability
+1. `consolidated-app-flow-test.sh`: New unified test script
+2. `tests/e2e/constants.js`: Centralized test constants
+3. `tests/e2e/chart.spec.js`: Chart application tests
+4. `docker-compose.yml`: Services configuration
+5. `tests/e2e/`: End-to-end test directory
 
 ### Next Steps
-1. **Additional Error Prevention**
-   - Review remaining components for potential type issues
-   - Implement stricter TypeScript configuration
-   - Add comprehensive prop validation
-   - Consider runtime type checking for critical data
+1. **Additional Test Improvements**
+   - Add more edge case tests
+   - Enhance API endpoint verification
+   - Improve service health checking
+   - Add support for custom test configurations
+   - Enhance test reporting
 
 2. **Documentation Updates**
-   - Update component interface documentation
-   - Document type definitions and expected structures
-   - Add examples of properly typed component usage
-   - Document testing patterns for complex components
+   - Update testing documentation
+   - Document test script usage
+   - Ensure API endpoint documentation consistency across all files
+   - Create test pattern documentation
+   - Document test data management
+   - Update implementation_plan.md to reflect current API architecture
 
-3. **Performance Review**
-   - Analyze impact of stricter type checking
-   - Identify optimization opportunities
-   - Consider performance improvements
+3. **CI/CD Integration**
+   - Integrate consolidated test script with CI pipeline
+   - Add test report generation
+   - Enhance test result visualization
+   - Implement automated test analysis
 
 ### Technical Decisions
-1. **Type Management**
-   - Used union types for flexible properties like 'ascendant'
-   - Implemented proper nested object structures
-   - Added type guards for conditional rendering
-   - Enhanced interface definitions for API communication
+1. **Test Consolidation**
+   - Used a single script for all testing needs
+   - Implemented menu-driven interface for ease of use
+   - Added flexible CLI options for CI/CD integration
+   - Enhanced error handling and reporting
+   - Improved service management
 
-2. **Test Optimization**
-   - Improved selector specificity for test reliability
-   - Added proper type definitions for test mocks
-   - Enhanced component test isolation
-   - Implemented better test data structures
+2. **Constants Management**
+   - Centralized API endpoints in constants.js
+   - Defined test data in a single location
+   - Added utility functions for common operations
+   - Enhanced test case handling with specialized data
 
 ### Current Priorities
-1. Monitor type stability across components
-2. Complete documentation updates
-3. Review remaining type definitions
-4. Consider additional type safety improvements
+1. Verify consolidated test script functionality
+2. Test all application flows
+3. Ensure API endpoint architecture consistency across documentation and code
+4. Document testing approach
+5. Consolidate redundant script files (chart calculation scripts)
 
 ### Known Issues
 - None currently identified
 
 ### Recent Achievements
-- Successfully resolved 25+ TypeScript linter errors
-- Maintained test suite reliability with all tests passing
-- Improved component type safety
-- Enhanced testing reliability
-- Implemented proper interface definitions for API communication
+- Successfully consolidated test scripts
+- Created centralized constants file
+- Improved test organization
+- Enhanced API endpoint management
+- Ensured all application flows are testable
 
-## Next Steps
+## Summary
 
-### Immediate Tasks
-1. Configure Production Monitoring
-   - Set up Prometheus and Grafana
-   - Configure logging infrastructure
-   - Implement performance metrics
-   - Set up error tracking and alerting
+The API endpoint architecture has been fully standardized and documented. The application now implements a dual-registration pattern for all API endpoints, providing both primary endpoints (with `/api/` prefix) and alternative endpoints (without prefix) for backward compatibility.
 
-2. Documentation
-   - Create comprehensive user documentation
-   - Update API documentation
-   - Add deployment guides
-   - Document monitoring setup
-   - Document type definitions and interfaces
+Key accomplishments:
+1. Implemented a consistent dual-registration pattern for all API endpoints
+2. Removed all redundant router backup files and other backup files
+3. Updated documentation in implementation_plan.md, technical_state.md, and systemPatterns.md
+4. Created comprehensive api_architecture_docs.md with detailed information
+5. Updated progress.md to reflect the completion of the API endpoint architecture tasks
+6. Ensured consistent endpoint usage across frontend and tests through constants.js
+7. Standardized API response formats across all endpoints
+8. Added proper error handling for all endpoints
 
-### Short-term Tasks
-1. Monitoring Infrastructure
-   - Configure Prometheus metrics
-   - Set up Grafana dashboards
-   - Implement logging pipeline
-   - Configure alerting rules
-
-2. Performance Optimization
-   - Analyze current performance metrics
-   - Identify optimization opportunities
-   - Implement performance improvements
-   - Monitor resource usage
-
-## Technical Decisions
-1. CI/CD Configuration
-   - GitHub Actions for automation
-   - Multi-stage Docker builds
-   - Comprehensive test coverage
-   - Security scanning integration
-
-2. Testing Strategy
-   - Unit tests with Jest
-   - Integration tests with pytest
-   - End-to-end testing
-   - Coverage requirements (80%)
-   - Proper type definitions for test mocks
-
-## Current Challenges
-1. Technical
-   - Setting up comprehensive monitoring
-   - Configuring alerting thresholds
-   - Optimizing resource usage
-   - Ensuring scalability
-
-2. Implementation
-   - Monitoring infrastructure setup
-   - Performance metric collection
-   - Log aggregation
-   - Alert configuration
-
-## Recent Test Results
-1. CI Pipeline Tests
-   - All validation checks passing
-   - Test coverage meeting requirements
-   - Security scans passing
-   - Docker builds successful
-   - 77/77 tests passing across 11 test suites
-
-## Immediate Focus
-1. Priority Tasks
-   - Set up Prometheus and Grafana
-   - Configure logging infrastructure
-   - Implement performance metrics
-   - Configure alerting
-
-2. Monitoring Requirements
-   - Resource usage tracking
-   - Performance metrics
-   - Error tracking
-   - User experience monitoring
-
-## Dependencies
-- Prometheus for metrics
-- Grafana for visualization
-- ELK Stack for logging
-- AlertManager for alerts
-
-## Current Phase
-Production Preparation - Phase 1: Monitoring Setup
-
-## Recent Changes
-- Implemented comprehensive form validation
-- Added chart generation and visualization
-- Set up continuous integration pipeline
-- Enhanced testing infrastructure
-- Fixed TypeScript linter errors
-- Improved component type safety
-
-## Current Technical State
-- Project: Production-ready with enhanced type safety
-- Environment: All services operational with verified contexts
-- Testing: 77/77 tests passing with improved validation
-- CI/CD: Pipeline operational with secure deployment
-- TypeScript: All linter errors resolved with proper type checking
-
-## Blockers/Risks
-- None currently identified
-- Monitoring setup complexity being assessed
-
-## Success Metrics for Current Phase
-- [✓] Form validation complete with HTML5 input handling
-- [✓] Chart visualization implemented
-- [✓] CI pipeline operational with security enhancements
-- [✓] Kubernetes deployment configured with context validation
-- [✓] TypeScript errors resolved across all components
-- [ ] Monitoring infrastructure configured
-- [ ] Logging pipeline established
-
-## Current Work
-1. Form Components Development
-   - BirthDetailsForm component implementation complete with:
-     - Real-time validation
-     - Geocoding integration
-     - Error handling
-     - Test coverage
-   - LifeEventsQuestionnaire component implementation complete with:
-     - Dynamic question rendering
-     - Answer state management
-     - Test coverage
-
-2. Testing Infrastructure
-   - Jest and React Testing Library setup complete
-   - Test coverage for form components
-   - Geocoding service mocking
-   - Error handling tests
-
-## Recent Changes
-1. BirthDetailsForm Component
-   - Added proper role attributes for error messages
-   - Updated coordinate display format
-   - Enhanced validation logic
-   - Improved geocoding error handling
-
-2. LifeEventsQuestionnaire Component
-   - Implemented core functionality
-   - Added comprehensive test suite
-   - Integrated with form validation system
-
-## Current Issues
-1. Test Failures
-   - Error message role attributes need updating
-   - Coordinate text split causing test failures
-   - React state updates not wrapped in act()
-
-## Next Steps
-1. Fix Test Issues
-   - Update error message elements with proper role attributes
-   - Modify coordinate text testing approach
-   - Wrap state updates in act()
-
-2. Enhance Form Components
-   - Add loading states for geocoding
-   - Implement error boundary
-   - Add accessibility improvements
-
-3. Integration Tasks
-   - Connect form components to AI service
-   - Implement data persistence
-   - Add error recovery mechanisms
-
-## Dependencies
-- Geocoding service integration
-- Redux store setup (pending)
-- AI service connection (pending)
-- Data persistence layer (pending)
-
-## Active Issues
-- None currently identified
-
-## Recent Decisions
-1. Used both input and change events for time validation to handle HTML5 input behavior
-2. Implemented proper error state management in form component
-3. Added comprehensive validation for time format and values
-
-## Test Fixes (Latest)
-1. Fixed BirthDetailsForm time validation test:
-   - Implemented proper HTML5 time input validation handling
-   - Added both input and change event handling
-   - Improved validation state management
-   - Fixed test assertions for error messages
-
-2. Fixed ProgressiveLoader test:
-   - Properly mocked WebGL context
-   - Added proper cleanup of test mocks
-   - Improved error handling in implementation
-
-## Current State
-- All 62 tests passing across 9 test suites
-- Form validation working correctly for all fields
-- Progressive texture loading working with proper fallbacks
-- Test coverage maintained
-
-## Next Steps
-1. Continue with any remaining feature implementations
-2. Consider adding more edge case tests
-3. Implement any remaining UI/UX improvements
-4. Consider performance optimizations if needed 
+The API endpoint architecture is now fully documented and implemented consistently across the application, with a clear pattern for future development.

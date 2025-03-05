@@ -200,3 +200,385 @@
 1:M 02 Mar 2025 22:34:37.684 * Saving the final RDB snapshot before exiting.
 1:M 02 Mar 2025 22:34:37.688 * DB saved on disk
 1:M 02 Mar 2025 22:34:37.689 # Redis is now ready to exit, bye bye...
+1:C 03 Mar 2025 12:47:03.722 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 03 Mar 2025 12:47:03.724 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 03 Mar 2025 12:47:03.724 * Configuration loaded
+1:M 03 Mar 2025 12:47:03.724 * monotonic clock: POSIX clock_gettime
+1:M 03 Mar 2025 12:47:03.725 * Running mode=standalone, port=6379.
+1:M 03 Mar 2025 12:47:03.725 * Server initialized
+1:M 03 Mar 2025 12:47:03.728 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 03 Mar 2025 12:47:03.729 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 03 Mar 2025 12:47:03.729 * Ready to accept connections tcp
+1:signal-handler (1741006096) Received SIGTERM scheduling shutdown...
+1:M 03 Mar 2025 12:48:16.139 * User requested shutdown...
+1:M 03 Mar 2025 12:48:16.139 * Calling fsync() on the AOF file.
+1:M 03 Mar 2025 12:48:16.140 * Saving the final RDB snapshot before exiting.
+1:M 03 Mar 2025 12:48:16.142 * DB saved on disk
+1:M 03 Mar 2025 12:48:16.142 # Redis is now ready to exit, bye bye...
+1:C 03 Mar 2025 15:36:37.115 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 03 Mar 2025 15:36:37.115 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 03 Mar 2025 15:36:37.116 * Configuration loaded
+1:M 03 Mar 2025 15:36:37.116 * monotonic clock: POSIX clock_gettime
+1:M 03 Mar 2025 15:36:37.116 * Running mode=standalone, port=6379.
+1:M 03 Mar 2025 15:36:37.117 * Server initialized
+1:M 03 Mar 2025 15:36:37.117 * Reading RDB base file on AOF loading...
+1:M 03 Mar 2025 15:36:37.117 * Loading RDB produced by version 7.2.7
+1:M 03 Mar 2025 15:36:37.118 * RDB age 10174 seconds
+1:M 03 Mar 2025 15:36:37.118 * RDB memory usage when created 0.86 Mb
+1:M 03 Mar 2025 15:36:37.118 * RDB is base AOF
+1:M 03 Mar 2025 15:36:37.118 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 03 Mar 2025 15:36:37.118 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 03 Mar 2025 15:36:37.118 * DB loaded from append only file: 0.001 seconds
+1:M 03 Mar 2025 15:36:37.118 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 03 Mar 2025 15:36:37.118 * Ready to accept connections tcp
+1:signal-handler (1741016261) Received SIGTERM scheduling shutdown...
+1:M 03 Mar 2025 15:37:41.751 * User requested shutdown...
+1:M 03 Mar 2025 15:37:41.751 * Calling fsync() on the AOF file.
+1:M 03 Mar 2025 15:37:41.752 * Saving the final RDB snapshot before exiting.
+1:M 03 Mar 2025 15:37:41.753 * DB saved on disk
+1:M 03 Mar 2025 15:37:41.753 # Redis is now ready to exit, bye bye...
+1:C 03 Mar 2025 15:42:01.265 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 03 Mar 2025 15:42:01.265 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 03 Mar 2025 15:42:01.265 * Configuration loaded
+1:M 03 Mar 2025 15:42:01.266 * monotonic clock: POSIX clock_gettime
+1:M 03 Mar 2025 15:42:01.266 * Running mode=standalone, port=6379.
+1:M 03 Mar 2025 15:42:01.267 * Server initialized
+1:M 03 Mar 2025 15:42:01.268 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 03 Mar 2025 15:42:01.270 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 03 Mar 2025 15:42:01.270 * Ready to accept connections tcp
+1:signal-handler (1741016589) Received SIGTERM scheduling shutdown...
+1:M 03 Mar 2025 15:43:09.555 * User requested shutdown...
+1:M 03 Mar 2025 15:43:09.555 * Calling fsync() on the AOF file.
+1:M 03 Mar 2025 15:43:09.555 * Saving the final RDB snapshot before exiting.
+1:M 03 Mar 2025 15:43:09.557 * DB saved on disk
+1:M 03 Mar 2025 15:43:09.557 # Redis is now ready to exit, bye bye...
+1:C 03 Mar 2025 15:43:18.140 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 03 Mar 2025 15:43:18.141 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 03 Mar 2025 15:43:18.141 * Configuration loaded
+1:M 03 Mar 2025 15:43:18.142 * monotonic clock: POSIX clock_gettime
+1:M 03 Mar 2025 15:43:18.143 * Running mode=standalone, port=6379.
+1:M 03 Mar 2025 15:43:18.143 * Server initialized
+1:M 03 Mar 2025 15:43:18.143 * Reading RDB base file on AOF loading...
+1:M 03 Mar 2025 15:43:18.143 * Loading RDB produced by version 7.2.7
+1:M 03 Mar 2025 15:43:18.144 * RDB age 77 seconds
+1:M 03 Mar 2025 15:43:18.144 * RDB memory usage when created 0.86 Mb
+1:M 03 Mar 2025 15:43:18.144 * RDB is base AOF
+1:M 03 Mar 2025 15:43:18.144 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 03 Mar 2025 15:43:18.144 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 03 Mar 2025 15:43:18.144 * DB loaded from append only file: 0.001 seconds
+1:M 03 Mar 2025 15:43:18.144 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 03 Mar 2025 15:43:18.144 * Ready to accept connections tcp
+1:signal-handler (1741016658) Received SIGTERM scheduling shutdown...
+1:M 03 Mar 2025 15:44:18.855 * User requested shutdown...
+1:M 03 Mar 2025 15:44:18.855 * Calling fsync() on the AOF file.
+1:M 03 Mar 2025 15:44:18.856 * Saving the final RDB snapshot before exiting.
+1:M 03 Mar 2025 15:44:18.858 * DB saved on disk
+1:M 03 Mar 2025 15:44:18.858 # Redis is now ready to exit, bye bye...
+1:C 03 Mar 2025 15:44:26.412 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 03 Mar 2025 15:44:26.412 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 03 Mar 2025 15:44:26.412 * Configuration loaded
+1:M 03 Mar 2025 15:44:26.412 * monotonic clock: POSIX clock_gettime
+1:M 03 Mar 2025 15:44:26.413 * Running mode=standalone, port=6379.
+1:M 03 Mar 2025 15:44:26.413 * Server initialized
+1:M 03 Mar 2025 15:44:26.413 * Reading RDB base file on AOF loading...
+1:M 03 Mar 2025 15:44:26.413 * Loading RDB produced by version 7.2.7
+1:M 03 Mar 2025 15:44:26.414 * RDB age 145 seconds
+1:M 03 Mar 2025 15:44:26.414 * RDB memory usage when created 0.86 Mb
+1:M 03 Mar 2025 15:44:26.414 * RDB is base AOF
+1:M 03 Mar 2025 15:44:26.414 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 03 Mar 2025 15:44:26.414 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 03 Mar 2025 15:44:26.414 * DB loaded from append only file: 0.001 seconds
+1:M 03 Mar 2025 15:44:26.414 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 03 Mar 2025 15:44:26.414 * Ready to accept connections tcp
+1:signal-handler (1741016715) Received SIGTERM scheduling shutdown...
+1:M 03 Mar 2025 15:45:15.876 * User requested shutdown...
+1:M 03 Mar 2025 15:45:15.876 * Calling fsync() on the AOF file.
+1:M 03 Mar 2025 15:45:15.877 * Saving the final RDB snapshot before exiting.
+1:M 03 Mar 2025 15:45:15.878 * DB saved on disk
+1:M 03 Mar 2025 15:45:15.879 # Redis is now ready to exit, bye bye...
+1:C 03 Mar 2025 15:45:27.113 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 03 Mar 2025 15:45:27.113 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 03 Mar 2025 15:45:27.113 * Configuration loaded
+1:M 03 Mar 2025 15:45:27.113 * monotonic clock: POSIX clock_gettime
+1:M 03 Mar 2025 15:45:27.114 * Running mode=standalone, port=6379.
+1:M 03 Mar 2025 15:45:27.114 * Server initialized
+1:M 03 Mar 2025 15:45:27.115 * Reading RDB base file on AOF loading...
+1:M 03 Mar 2025 15:45:27.115 * Loading RDB produced by version 7.2.7
+1:M 03 Mar 2025 15:45:27.115 * RDB age 206 seconds
+1:M 03 Mar 2025 15:45:27.115 * RDB memory usage when created 0.86 Mb
+1:M 03 Mar 2025 15:45:27.115 * RDB is base AOF
+1:M 03 Mar 2025 15:45:27.115 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 03 Mar 2025 15:45:27.115 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 03 Mar 2025 15:45:27.115 * DB loaded from append only file: 0.001 seconds
+1:M 03 Mar 2025 15:45:27.115 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 03 Mar 2025 15:45:27.116 * Ready to accept connections tcp
+1:signal-handler (1741018213) Received SIGTERM scheduling shutdown...
+1:M 03 Mar 2025 16:10:13.210 * User requested shutdown...
+1:M 03 Mar 2025 16:10:13.211 * Calling fsync() on the AOF file.
+1:M 03 Mar 2025 16:10:13.211 * Saving the final RDB snapshot before exiting.
+1:M 03 Mar 2025 16:10:13.215 * DB saved on disk
+1:M 03 Mar 2025 16:10:13.215 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 01:35:12.322 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 01:35:12.323 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 01:35:12.323 * Configuration loaded
+1:M 04 Mar 2025 01:35:12.323 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 01:35:12.324 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 01:35:12.324 * Server initialized
+1:M 04 Mar 2025 01:35:12.325 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 04 Mar 2025 01:35:12.326 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 01:35:12.326 * Ready to accept connections tcp
+1:signal-handler (1741052156) Received SIGTERM scheduling shutdown...
+1:M 04 Mar 2025 01:35:56.712 * User requested shutdown...
+1:M 04 Mar 2025 01:35:56.712 * Calling fsync() on the AOF file.
+1:M 04 Mar 2025 01:35:56.712 * Saving the final RDB snapshot before exiting.
+1:M 04 Mar 2025 01:35:56.714 * DB saved on disk
+1:M 04 Mar 2025 01:35:56.714 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 04:01:25.330 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 04:01:25.330 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 04:01:25.330 * Configuration loaded
+1:M 04 Mar 2025 04:01:25.330 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 04:01:25.331 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 04:01:25.331 * Server initialized
+1:M 04 Mar 2025 04:01:25.332 * Reading RDB base file on AOF loading...
+1:M 04 Mar 2025 04:01:25.332 * Loading RDB produced by version 7.2.7
+1:M 04 Mar 2025 04:01:25.332 * RDB age 8773 seconds
+1:M 04 Mar 2025 04:01:25.332 * RDB memory usage when created 0.86 Mb
+1:M 04 Mar 2025 04:01:25.332 * RDB is base AOF
+1:M 04 Mar 2025 04:01:25.332 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 04 Mar 2025 04:01:25.332 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 04 Mar 2025 04:01:25.332 * DB loaded from append only file: 0.001 seconds
+1:M 04 Mar 2025 04:01:25.332 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 04:01:25.333 * Ready to accept connections tcp
+1:signal-handler (1741060929) Received SIGTERM scheduling shutdown...
+1:M 04 Mar 2025 04:02:10.041 * User requested shutdown...
+1:M 04 Mar 2025 04:02:10.041 * Calling fsync() on the AOF file.
+1:M 04 Mar 2025 04:02:10.041 * Saving the final RDB snapshot before exiting.
+1:M 04 Mar 2025 04:02:10.044 * DB saved on disk
+1:M 04 Mar 2025 04:02:10.044 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 04:15:51.243 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 04:15:51.243 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 04:15:51.243 * Configuration loaded
+1:M 04 Mar 2025 04:15:51.243 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 04:15:51.244 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 04:15:51.244 * Server initialized
+1:M 04 Mar 2025 04:15:51.245 * Reading RDB base file on AOF loading...
+1:M 04 Mar 2025 04:15:51.245 * Loading RDB produced by version 7.2.7
+1:M 04 Mar 2025 04:15:51.245 * RDB age 9639 seconds
+1:M 04 Mar 2025 04:15:51.245 * RDB memory usage when created 0.86 Mb
+1:M 04 Mar 2025 04:15:51.245 * RDB is base AOF
+1:M 04 Mar 2025 04:15:51.245 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 04 Mar 2025 04:15:51.245 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 04 Mar 2025 04:15:51.245 * DB loaded from append only file: 0.001 seconds
+1:M 04 Mar 2025 04:15:51.245 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 04:15:51.245 * Ready to accept connections tcp
+1:signal-handler (1741061779) Received SIGTERM scheduling shutdown...
+1:M 04 Mar 2025 04:16:19.433 * User requested shutdown...
+1:M 04 Mar 2025 04:16:19.433 * Calling fsync() on the AOF file.
+1:M 04 Mar 2025 04:16:19.433 * Saving the final RDB snapshot before exiting.
+1:M 04 Mar 2025 04:16:19.435 * DB saved on disk
+1:M 04 Mar 2025 04:16:19.435 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 04:18:07.567 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 04:18:07.568 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 04:18:07.568 * Configuration loaded
+1:M 04 Mar 2025 04:18:07.568 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 04:18:07.569 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 04:18:07.569 * Server initialized
+1:M 04 Mar 2025 04:18:07.570 * Reading RDB base file on AOF loading...
+1:M 04 Mar 2025 04:18:07.570 * Loading RDB produced by version 7.2.7
+1:M 04 Mar 2025 04:18:07.570 * RDB age 9775 seconds
+1:M 04 Mar 2025 04:18:07.570 * RDB memory usage when created 0.86 Mb
+1:M 04 Mar 2025 04:18:07.570 * RDB is base AOF
+1:M 04 Mar 2025 04:18:07.570 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 04 Mar 2025 04:18:07.570 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 04 Mar 2025 04:18:07.571 * DB loaded from append only file: 0.001 seconds
+1:M 04 Mar 2025 04:18:07.571 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 04:18:07.571 * Ready to accept connections tcp
+1:signal-handler (1741061916) Received SIGTERM scheduling shutdown...
+1:M 04 Mar 2025 04:18:36.074 * User requested shutdown...
+1:M 04 Mar 2025 04:18:36.074 * Calling fsync() on the AOF file.
+1:M 04 Mar 2025 04:18:36.074 * Saving the final RDB snapshot before exiting.
+1:M 04 Mar 2025 04:18:36.076 * DB saved on disk
+1:M 04 Mar 2025 04:18:36.076 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 08:26:25.424 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 08:26:25.424 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 08:26:25.424 * Configuration loaded
+1:M 04 Mar 2025 08:26:25.424 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 08:26:25.425 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 08:26:25.425 * Server initialized
+1:M 04 Mar 2025 08:26:25.426 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 04 Mar 2025 08:26:25.427 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 08:26:25.427 * Ready to accept connections tcp
+1:signal-handler (1741076814) Received SIGTERM scheduling shutdown...
+1:M 04 Mar 2025 08:26:54.553 * User requested shutdown...
+1:M 04 Mar 2025 08:26:54.554 * Calling fsync() on the AOF file.
+1:M 04 Mar 2025 08:26:54.554 * Saving the final RDB snapshot before exiting.
+1:M 04 Mar 2025 08:26:54.556 * DB saved on disk
+1:M 04 Mar 2025 08:26:54.556 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 09:27:13.474 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 09:27:13.474 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 09:27:13.474 * Configuration loaded
+1:M 04 Mar 2025 09:27:13.475 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 09:27:13.475 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 09:27:13.475 * Server initialized
+1:M 04 Mar 2025 09:27:13.476 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 04 Mar 2025 09:27:13.477 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 09:27:13.477 * Ready to accept connections tcp
+1:signal-handler (1741080664) Received SIGTERM scheduling shutdown...
+1:M 04 Mar 2025 09:31:04.083 * User requested shutdown...
+1:M 04 Mar 2025 09:31:04.084 * Calling fsync() on the AOF file.
+1:M 04 Mar 2025 09:31:04.084 * Saving the final RDB snapshot before exiting.
+1:M 04 Mar 2025 09:31:04.086 * DB saved on disk
+1:M 04 Mar 2025 09:31:04.086 # Redis is now ready to exit, bye bye...
+1:C 04 Mar 2025 09:31:26.182 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 09:31:26.182 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 09:31:26.182 * Configuration loaded
+1:M 04 Mar 2025 09:31:26.182 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 09:31:26.183 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 09:31:26.183 * Server initialized
+1:M 04 Mar 2025 09:31:26.184 * Reading RDB base file on AOF loading...
+1:M 04 Mar 2025 09:31:26.184 * Loading RDB produced by version 7.2.7
+1:M 04 Mar 2025 09:31:26.184 * RDB age 253 seconds
+1:M 04 Mar 2025 09:31:26.184 * RDB memory usage when created 0.86 Mb
+1:M 04 Mar 2025 09:31:26.184 * RDB is base AOF
+1:M 04 Mar 2025 09:31:26.184 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 04 Mar 2025 09:31:26.184 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 04 Mar 2025 09:31:26.184 * DB loaded from append only file: 0.001 seconds
+1:M 04 Mar 2025 09:31:26.184 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 09:31:26.185 * Ready to accept connections tcp
+1:C 04 Mar 2025 12:17:45.214 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 04 Mar 2025 12:17:45.214 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 04 Mar 2025 12:17:45.214 * Configuration loaded
+1:M 04 Mar 2025 12:17:45.214 * monotonic clock: POSIX clock_gettime
+1:M 04 Mar 2025 12:17:45.215 * Running mode=standalone, port=6379.
+1:M 04 Mar 2025 12:17:45.215 * Server initialized
+1:M 04 Mar 2025 12:17:45.216 * Reading RDB base file on AOF loading...
+1:M 04 Mar 2025 12:17:45.216 * Loading RDB produced by version 7.2.7
+1:M 04 Mar 2025 12:17:45.217 * RDB age 10232 seconds
+1:M 04 Mar 2025 12:17:45.217 * RDB memory usage when created 0.86 Mb
+1:M 04 Mar 2025 12:17:45.217 * RDB is base AOF
+1:M 04 Mar 2025 12:17:45.217 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 04 Mar 2025 12:17:45.217 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 04 Mar 2025 12:17:45.217 * DB loaded from append only file: 0.002 seconds
+1:M 04 Mar 2025 12:17:45.217 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 04 Mar 2025 12:17:45.217 * Ready to accept connections tcp
+1:C 05 Mar 2025 04:41:27.080 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 05 Mar 2025 04:41:27.080 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 05 Mar 2025 04:41:27.081 * Configuration loaded
+1:M 05 Mar 2025 04:41:27.081 * monotonic clock: POSIX clock_gettime
+1:M 05 Mar 2025 04:41:27.081 * Running mode=standalone, port=6379.
+1:M 05 Mar 2025 04:41:27.082 * Server initialized
+1:M 05 Mar 2025 04:41:27.084 * Reading RDB base file on AOF loading...
+1:M 05 Mar 2025 04:41:27.084 * Loading RDB produced by version 7.2.7
+1:M 05 Mar 2025 04:41:27.084 * RDB age 69254 seconds
+1:M 05 Mar 2025 04:41:27.084 * RDB memory usage when created 0.86 Mb
+1:M 05 Mar 2025 04:41:27.084 * RDB is base AOF
+1:M 05 Mar 2025 04:41:27.084 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 05 Mar 2025 04:41:27.085 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 05 Mar 2025 04:41:27.085 * DB loaded from append only file: 0.002 seconds
+1:M 05 Mar 2025 04:41:27.085 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 05 Mar 2025 04:41:27.085 * Ready to accept connections tcp
+1:signal-handler (1741150140) Received SIGTERM scheduling shutdown...
+1:M 05 Mar 2025 04:49:00.449 * User requested shutdown...
+1:M 05 Mar 2025 04:49:00.452 * Calling fsync() on the AOF file.
+1:M 05 Mar 2025 04:49:00.511 * Saving the final RDB snapshot before exiting.
+1:M 05 Mar 2025 04:49:00.522 * DB saved on disk
+1:M 05 Mar 2025 04:49:00.522 # Redis is now ready to exit, bye bye...
+1:C 05 Mar 2025 04:49:12.441 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 05 Mar 2025 04:49:12.441 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 05 Mar 2025 04:49:12.441 * Configuration loaded
+1:M 05 Mar 2025 04:49:12.441 * monotonic clock: POSIX clock_gettime
+1:M 05 Mar 2025 04:49:12.441 * Running mode=standalone, port=6379.
+1:M 05 Mar 2025 04:49:12.442 * Server initialized
+1:M 05 Mar 2025 04:49:12.443 * Reading RDB base file on AOF loading...
+1:M 05 Mar 2025 04:49:12.443 * Loading RDB produced by version 7.2.7
+1:M 05 Mar 2025 04:49:12.443 * RDB age 69719 seconds
+1:M 05 Mar 2025 04:49:12.443 * RDB memory usage when created 0.86 Mb
+1:M 05 Mar 2025 04:49:12.443 * RDB is base AOF
+1:M 05 Mar 2025 04:49:12.444 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 05 Mar 2025 04:49:12.444 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 05 Mar 2025 04:49:12.444 * DB loaded from append only file: 0.002 seconds
+1:M 05 Mar 2025 04:49:12.444 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 05 Mar 2025 04:49:12.444 * Ready to accept connections tcp
+1:signal-handler (1741156320) Received SIGTERM scheduling shutdown...
+1:M 05 Mar 2025 06:32:00.646 * User requested shutdown...
+1:M 05 Mar 2025 06:32:00.647 * Calling fsync() on the AOF file.
+1:M 05 Mar 2025 06:32:00.647 * Saving the final RDB snapshot before exiting.
+1:M 05 Mar 2025 06:32:00.681 * DB saved on disk
+1:M 05 Mar 2025 06:32:00.683 # Redis is now ready to exit, bye bye...
+1:C 05 Mar 2025 06:51:25.330 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 05 Mar 2025 06:51:25.331 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 05 Mar 2025 06:51:25.334 * Configuration loaded
+1:M 05 Mar 2025 06:51:25.347 * monotonic clock: POSIX clock_gettime
+1:M 05 Mar 2025 06:51:25.351 * Running mode=standalone, port=6379.
+1:M 05 Mar 2025 06:51:25.364 * Server initialized
+1:M 05 Mar 2025 06:51:25.399 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 05 Mar 2025 06:51:25.409 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 05 Mar 2025 06:51:25.410 * Ready to accept connections tcp
+1:signal-handler (1741160027) Received SIGTERM scheduling shutdown...
+1:M 05 Mar 2025 07:33:47.169 * User requested shutdown...
+1:M 05 Mar 2025 07:33:47.169 * Calling fsync() on the AOF file.
+1:M 05 Mar 2025 07:33:47.170 * Saving the final RDB snapshot before exiting.
+1:M 05 Mar 2025 07:33:47.175 * DB saved on disk
+1:M 05 Mar 2025 07:33:47.175 # Redis is now ready to exit, bye bye...
+1:C 05 Mar 2025 08:41:51.321 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 05 Mar 2025 08:41:51.329 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 05 Mar 2025 08:41:51.330 * Configuration loaded
+1:M 05 Mar 2025 08:41:51.331 * monotonic clock: POSIX clock_gettime
+1:M 05 Mar 2025 08:41:51.334 * Running mode=standalone, port=6379.
+1:M 05 Mar 2025 08:41:51.337 * Server initialized
+1:M 05 Mar 2025 08:41:51.352 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 05 Mar 2025 08:41:51.363 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 05 Mar 2025 08:41:51.363 * Ready to accept connections tcp
+1:C 05 Mar 2025 08:51:30.165 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 05 Mar 2025 08:51:30.166 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 05 Mar 2025 08:51:30.166 * Configuration loaded
+1:M 05 Mar 2025 08:51:30.166 * monotonic clock: POSIX clock_gettime
+1:M 05 Mar 2025 08:51:30.167 * Running mode=standalone, port=6379.
+1:M 05 Mar 2025 08:51:30.168 * Server initialized
+1:M 05 Mar 2025 08:51:30.174 * Reading RDB base file on AOF loading...
+1:M 05 Mar 2025 08:51:30.178 * Loading RDB produced by version 7.2.7
+1:M 05 Mar 2025 08:51:30.180 * RDB age 579 seconds
+1:M 05 Mar 2025 08:51:30.184 * RDB memory usage when created 0.86 Mb
+1:M 05 Mar 2025 08:51:30.187 * RDB is base AOF
+1:M 05 Mar 2025 08:51:30.191 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 05 Mar 2025 08:51:30.193 * DB loaded from base file appendonly.aof.1.base.rdb: 0.020 seconds
+1:M 05 Mar 2025 08:51:30.194 * DB loaded from append only file: 0.025 seconds
+1:M 05 Mar 2025 08:51:30.200 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 05 Mar 2025 08:51:30.203 * Ready to accept connections tcp
+1:signal-handler (1741173985) Received SIGTERM scheduling shutdown...
+1:M 05 Mar 2025 11:26:25.458 * User requested shutdown...
+1:M 05 Mar 2025 11:26:25.460 * Calling fsync() on the AOF file.
+1:M 05 Mar 2025 11:26:25.462 * Saving the final RDB snapshot before exiting.
+1:M 05 Mar 2025 11:26:25.468 * DB saved on disk
+1:M 05 Mar 2025 11:26:25.469 # Redis is now ready to exit, bye bye...
+1:C 05 Mar 2025 12:41:04.788 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 05 Mar 2025 12:41:04.790 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 05 Mar 2025 12:41:04.792 * Configuration loaded
+1:M 05 Mar 2025 12:41:04.800 * monotonic clock: POSIX clock_gettime
+1:M 05 Mar 2025 12:41:04.813 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 05 Mar 2025 12:41:04.831 * Server initialized
+1:M 05 Mar 2025 12:41:04.847 * Ready to accept connections tcp
+1:signal-handler (1741178930) Received SIGTERM scheduling shutdown...
+1:M 05 Mar 2025 12:48:50.248 * User requested shutdown...
+1:M 05 Mar 2025 12:48:50.249 * Saving the final RDB snapshot before exiting.
+1:M 05 Mar 2025 12:48:50.268 * DB saved on disk
+1:M 05 Mar 2025 12:48:50.268 * Removing the pid file.
+1:M 05 Mar 2025 12:48:50.272 # Redis is now ready to exit, bye bye...

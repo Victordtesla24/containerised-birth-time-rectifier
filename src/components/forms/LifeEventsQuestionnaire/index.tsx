@@ -1,8 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { LifeEventsQuestionnaireProps } from './types';
-import { QuestionnaireResponse, DynamicQuestion, QuestionAnswer } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  LifeEventsQuestionnaireProps,
+  QuestionResponse,
+  QuestionState,
+  QuestionnaireSubmitData
+} from './types';
+import {
+  QuestionnaireResponse,
+  DynamicQuestion,
+  QuestionAnswer,
+  BirthDetails,
+  QuestionOption
+} from '@/types';
+
+// Add type declaration for process.env if needed
+declare const process: {
+  env: {
+    NEXT_PUBLIC_API_URL?: string;
+  };
+};
 
 // Confidence threshold for birth time rectification
 const CONFIDENCE_THRESHOLD = 90;
@@ -17,6 +35,11 @@ import {
   DateQuestion,
   TextQuestion
 } from './question-types';
+
+// Import components
+import Question from './Question';
+import QuestionnaireProgress from './QuestionnaireProgress';
+import QuestionnaireComplete from './QuestionnaireComplete';
 
 const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   birthDetails,
@@ -40,6 +63,7 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   const [questionHistory, setQuestionHistory] = useState<DynamicQuestion[]>([]);
   const [answerHistory, setAnswerHistory] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Function to fetch the initial chart data for more accurate question generation
   const fetchInitialChart = async () => {
@@ -115,16 +139,45 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+      // Ensure all required fields are present in the birthDetails object
+      const enhancedBirthDetails = {
+        ...birthDetails,
+        // Ensure approximateTime is present and in the correct format (HH:MM:SS)
+        approximateTime: birthDetails.approximateTime ||
+                        (birthDetails.birthTime ? birthDetails.birthTime + (birthDetails.birthTime.length === 5 ? ':00' : '') : '00:00:00'),
+        // Ensure gender is present and has a valid value
+        gender: birthDetails.gender || 'unknown',
+        // Ensure birthLocation is present with a fallback value that's descriptive
+        birthLocation: birthDetails.birthLocation || birthDetails.location || 'Unknown Location',
+        // Additional field mapping for API compatibility
+        name: birthDetails.name || 'Anonymous User',
+        // Ensure coordinates are properly formatted with fallbacks
+        latitude: parseFloat(String(birthDetails?.coordinates?.latitude || birthDetails?.latitude || '0')),
+        longitude: parseFloat(String(birthDetails?.coordinates?.longitude || birthDetails?.longitude || '0')),
+        // Ensure timezone is present
+        timezone: birthDetails.timezone || 'UTC',
+        // Add birthDate in consistent format
+        birthDate: formatDateSafely(birthDetails?.birthDate, birthDetails?.approximateTime)
+      };
+
+      console.log('Sending questionnaire request with birthDetails:', JSON.stringify(enhancedBirthDetails, null, 2));
+
       // Prepare the request payload
       const payload = {
-        birthDetails,
+        birthDetails: enhancedBirthDetails,
         currentConfidence: confidenceScore,
-        previousAnswers: answers,
+        previousAnswers: Object.keys(answers).length > 0 ? answers : [],
         chartData: chartData || null,
-        sessionId: sessionId || null,
-        questionHistory: questionHistory.map(q => q.id),
-        answerHistory
+        sessionId: sessionId || `session_${Date.now()}`,
+        questionHistory: questionHistory.map((q: DynamicQuestion) => q.id),
+        answerHistory: answerHistory,
+        maxQuestions: 5 // Limit questions per batch
       };
+
+      console.log('Full questionnaire request payload:', JSON.stringify(payload, null, 2));
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
       const response = await fetch(`${apiUrl}/api/questionnaire/generate`, {
         method: 'POST',
@@ -132,28 +185,50 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
-        // Add timeout to prevent long waits
-        signal: AbortSignal.timeout(10000)
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = { detail: `Failed to parse error response: ${e}` };
+        }
+
         let errorMessage = `Failed to fetch questions (Status: ${response.status})`;
 
         if (errorData?.detail) {
           if (Array.isArray(errorData.detail)) {
-            errorMessage = `Validation error: ${errorData.detail.map((err: any) => err.msg).join(', ')}`;
+            // Format validation errors in a more structured way
+            const validationErrors = errorData.detail.map((err: any) => {
+              const location = Array.isArray(err.loc) ? err.loc.join('.') : err.loc;
+              return `${location}: ${err.msg}`;
+            }).join('\n');
+
+            console.error('API validation errors:', validationErrors);
+            errorMessage = `Validation error: ${validationErrors}`;
           } else {
             errorMessage = `Error: ${errorData.detail}`;
           }
         }
 
+        console.error('API request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData
+        });
+
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
+      console.log('Questionnaire API response:', JSON.stringify(data, null, 2));
 
       if (!data.questions || data.questions.length === 0) {
+        console.warn('No questions received from the server, using fallback questions');
         throw new Error('No questions received from the server');
       }
 
@@ -176,12 +251,13 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     } catch (error) {
       console.error('Error fetching questions:', error);
       setError(`Failed to fetch questions: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setQuestionFetchAttempts(prev => prev + 1);
+      setQuestionFetchAttempts((prev: number) => prev + 1);
 
       // If we have no questions yet, try to use fallback questions
       if (questions.length === 0) {
         const fallbackQuestions = generateFallbackQuestions();
         if (fallbackQuestions.length > 0) {
+          console.log('Using fallback questions due to API error');
           setQuestions(fallbackQuestions);
           setCurrentQuestionIndex(0);
         }
@@ -567,22 +643,70 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   if (questions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] w-full">
-        {isLoading ? (
+        {isLoading || isLoadingQuestions ? (
           <div className="flex flex-col items-center">
             <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mb-4"></div>
             <p className="text-gray-600">Loading questionnaire...</p>
           </div>
         ) : (
-          <div className="text-center">
-            <p className="text-gray-600 mb-4">No questions available.</p>
-            <button
-              onClick={() => router.push('/birth-time-rectifier')}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Return to Birth Details
-            </button>
+          // Show the start button if not yet started
+          <div className="w-full max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6">
+              <h2 className="text-2xl font-bold text-white">Life Events Questionnaire</h2>
+              <p className="text-indigo-100">
+                Answer questions about life events to help us rectify your birth time
+              </p>
+            </div>
+
+            <div className="p-6 text-center">
+              <p className="text-lg text-gray-700 mb-6">
+                This questionnaire will ask about significant events in your life to help improve the accuracy of your birth time rectification.
+              </p>
+
+              <button
+                data-testid="start-questionnaire"
+                onClick={() => {
+                  setHasStarted(true);
+                  fetchQuestions(chartData);
+                }}
+                className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow-md transition-all duration-300"
+              >
+                Start Questionnaire
+              </button>
+            </div>
           </div>
         )}
+      </div>
+    );
+  }
+
+  // Show the start button if not yet started
+  if (!hasStarted) {
+    return (
+      <div className="w-full max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6">
+          <h2 className="text-2xl font-bold text-white">Life Events Questionnaire</h2>
+          <p className="text-indigo-100">
+            Answer questions about life events to help us rectify your birth time
+          </p>
+        </div>
+
+        <div className="p-6 text-center">
+          <p className="text-lg text-gray-700 mb-6">
+            This questionnaire will ask about significant events in your life to help improve the accuracy of your birth time rectification.
+          </p>
+
+          <button
+            data-testid="start-questionnaire"
+            onClick={() => {
+              setHasStarted(true);
+              fetchQuestions(chartData);
+            }}
+            className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow-md transition-all duration-300"
+          >
+            Start Questionnaire
+          </button>
+        </div>
       </div>
     );
   }

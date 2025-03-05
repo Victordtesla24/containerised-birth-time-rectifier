@@ -27,10 +27,29 @@
    - Proper handling of ascendant (number or object)
 
 ### Backend
-1. API Endpoints
-   - /health (Operational)
-   - /rectify (Complete with timezone support)
-   - Proper error handling and validation
+1. API Endpoints (Dual-Registration Pattern)
+   - Primary endpoints with `/api/` prefix:
+     - `/api/health` (Operational)
+     - `/api/chart/rectify` (Complete with timezone support)
+     - `/api/chart/validate` (Form validation)
+     - `/api/geocode` (Location geocoding)
+     - `/api/chart/generate` (Chart generation)
+     - `/api/chart/{id}` (Chart retrieval)
+     - `/api/questionnaire` (Dynamic questionnaire)
+     - `/api/chart/export` (Chart export)
+
+   - Alternative endpoints without `/api/` prefix (for backward compatibility):
+     - `/health` (Operational)
+     - `/chart/rectify` (Complete with timezone support)
+     - `/chart/validate` (Form validation)
+     - `/geocode` (Location geocoding)
+     - `/chart/generate` (Chart generation)
+     - `/chart/{id}` (Chart retrieval)
+     - `/questionnaire` (Dynamic questionnaire)
+     - `/chart/export` (Chart export)
+
+   - All endpoints include proper error handling and validation
+   - Comprehensive documentation in `api_architecture_docs.md`
 
 2. Time Processing
    - UTC conversion utilities
@@ -43,6 +62,30 @@
    - Model loading and optimization
    - Tokenizer integration
    - Prediction pipeline
+
+### Testing Infrastructure
+1. Consolidated Testing Framework
+   - Single unified test script (consolidated-app-flow-test.sh)
+   - Support for all application flows
+   - Menu-driven interface for interactive testing
+   - CLI options for CI/CD integration
+   - Comprehensive service management
+   - Enhanced error handling and reporting
+   - Flexible worker configuration
+
+2. Test Constants Management
+   - Centralized API endpoint definitions
+   - Test data sets for different scenarios
+   - Utility functions for common operations
+   - Organized by test pattern needs
+
+3. Test Pattern Implementation
+   - Complete application flow testing (A→B→C→D→E→F→G→H→I→K→L→M)
+   - Validation failure path testing (A→B→C→B)
+   - Low confidence path testing (G→H→J→G)
+   - Boundary cases testing with extreme coordinates
+   - API endpoint validation testing
+   - Health check verification
 
 ## Implementation Details
 
@@ -74,6 +117,36 @@
    - Aspects visualization
    ```
 
+### Testing Components
+1. Consolidated Test Script
+   ```bash
+   - Menu-driven and CLI interfaces
+   - Service management (start, check, stop)
+   - API endpoint validation
+   - Test pattern selection
+   - Worker configuration
+   - Verbose mode for debugging
+   - Docker integration
+   - CI mode for automation
+   ```
+
+2. Test Constants Management
+   ```javascript
+   - API_ENDPOINTS object for centralized endpoint definitions
+   - TEST_DATA object with test case variations
+   - Utility functions for common operations
+   - Boundary case definitions
+   ```
+
+3. Test Patterns
+   ```javascript
+   - Complete flow: Landing → Export/Share
+   - Validation failure: Form validation handling
+   - Low confidence: Additional question handling
+   - Boundary cases: Extreme coordinate handling
+   - API validation: Endpoint consistency
+   ```
+
 ### Backend Services
 1. Rectification Endpoint
    ```python
@@ -91,50 +164,51 @@
    ```
 
 ## Current Technical Priorities
-1. Type Safety Enhancements
+1. Test Consolidation and Consistency
+   - Unified testing approach
+   - Consistent API endpoint usage
+   - Comprehensive flow testing
+   - Enhanced error reporting
+   - Improved test data management
+
+2. Type Safety Enhancements
    - Review remaining components for potential type issues
    - Consider stricter TypeScript configuration
    - Add runtime type checking for critical paths
    - Document type definitions and interfaces
 
-2. Test Reliability
-   - Maintain passing tests
-   - Improve selector specificity for tests
-   - Enhanced mock implementations with proper types
-   - Better async test handling
+3. API Endpoint Standardization
+   - Consistent /api/ prefix usage
+   - Proper error handling
+   - Response format standardization
+   - Documentation improvements
 
-3. Chart Generation
-   - Component architecture
-   - Data transformation
-   - Visualization library integration
-   - Interactive controls
+4. Test Coverage
+   - All application flows covered
+   - Edge cases handled
+   - API consistency checked
+   - Performance testing
 
-4. Production Pipeline
-   - CI/CD configuration
-   - Environment setup
-   - Testing automation
-   - Deployment scripts
-
-5. Monitoring
-   - Logging setup
-   - Performance tracking
-   - Error monitoring
+5. CI/CD Integration
+   - Test script automation
+   - Report generation
+   - Result visualization
    - Alert configuration
 
 ## Technical Debt
 1. Test Coverage
-   - Frontend component tests (77/77 passing)
+   - Frontend component tests (all passing)
    - Type safety in test mocks improved
    - Selector specificity enhanced
    - Event handling optimization
-   - Integration tests
+   - Integration tests consolidated
 
 2. Documentation
    - API documentation
    - Component documentation
-   - Utility function documentation
-   - Setup guides
+   - Test script documentation
    - Type definition documentation
+   - Setup guides
 
 3. Optimization
    - Form performance
@@ -156,7 +230,13 @@
    - CUDA support
    - Time zone libraries
 
-3. Infrastructure
+3. Testing
+   - Playwright for browser testing
+   - Jest for component testing
+   - Docker for containerized testing
+   - Shell scripting for test automation
+
+4. Infrastructure
    - Docker
    - Redis
    - GPU support
@@ -176,7 +256,13 @@
    - Health Check: Passing
    - Dependencies: PyTorch, FastAPI, transformers
 
-3. Redis Service
+3. Testing Service
+   - Type: Consolidated shell script
+   - Status: Operational
+   - Features: Menu-driven, CLI options, Docker integration
+   - Supported Flows: All application flows from implementation plan
+
+4. Redis Service
    - Port: 6379
    - Status: Operational
    - Health Check: Passing
@@ -191,37 +277,36 @@
    - Volume mounts configured for development
    - Hot-reload enabled for frontend and AI service
 
-2. Production Environment
-   - Multi-stage builds optimized
-   - Environment variable configuration ready
-   - Resource limits defined
-   - Health check endpoints configured
-   - Logging setup prepared
+2. Testing Environment
+   - Playwright in Docker
+   - Shared network with services
+   - Volume mounting for test files
+   - Memory configuration for browser testing
+   - Improved worker configuration
 
 ## Testing Infrastructure
-1. Component Tests
-   - BirthDetailsForm tests implemented with:
-     - Proper event simulation
-     - Geocoding service mocking
-     - Debounce handling
-     - Loading state management
-     - Coordinate display verification
-     - Proper BirthDetails structure testing
-   - Chart component tests with:
-     - ChartData mock objects with complete type definition
-     - WebGL context mocking
-     - Event handling verification
-     - Proper type checking
-   - Time format validation testing
-   - Button state management
-   - 77/77 tests passing
+1. Test File Organization
+   - Consolidated script at project root
+   - Constants in tests/e2e/constants.js
+   - Test specifications in tests/e2e/chart.spec.js
+   - Helpers and utilities in tests/e2e/helpers
+   - Configuration in playwright.config.js
 
-2. Integration Tests
-   - Service readiness checks implemented
-   - Timeout settings optimized (60s)
-   - Enhanced logging for debugging
-   - All tests passing
-   - Type safety improved with interface definitions
+2. Test Features
+   - Menu-driven interface
+   - CLI option support
+   - Service management
+   - API validation
+   - Test pattern selection
+   - Result reporting
+   - Error handling
+
+3. Test Patterns
+   - Complete application flow: A→B→C→D→E→F→G→H→I→K→L→M
+   - Validation failure path: A→B→C→B
+   - Low confidence path: G→H→J→G
+   - Boundary cases with extreme coordinates
+   - API endpoint validation
 
 ## Current Technical Status
 1. Development Environment
@@ -232,64 +317,172 @@
    - Testing infrastructure complete
    - TypeScript linter errors resolved
 
-2. Performance
+2. Test Infrastructure
+   - Consolidated script operational
+   - All patterns testable
+   - API endpoints centralized
+   - Test data organized
+   - Service management improved
+   - Error handling enhanced
+
+3. Performance
    - Service startup times within acceptable range
    - CPU resource usage optimized
    - Memory management configured
    - Response times meeting requirements
    - Type checking overhead minimized
 
-3. Monitoring
+4. Monitoring
    - Basic health checks operational
    - Container logs accessible
    - Service status monitoring ready
    - Resource usage tracking prepared
 
-## TypeScript Configuration
-1. Implemented
-   - esModuleInterop enabled for React compatibility
-   - Strict type checking enabled
-   - Module resolution set to 'node'
-   - Path aliases configured for '@/' imports
-   - JSX support enabled with 'preserve' option
+## API Endpoint Architecture
 
-2. Interface Definitions
-   - ChartData interface with proper aspects array
-   - BirthDetails with nested coordinates structure
-   - Union types for complex properties (e.g., ascendant)
-   - API communication interfaces
-   - Component prop interfaces
+The application implements a dual-registration pattern for API endpoints to ensure backward compatibility while following modern API design principles:
 
-3. Type Safety Measures
-   - Type guards for conditional rendering
-   - Proper handling of nullable values
-   - Interface definitions for API responses
-   - Mock object type checking
-   - Date/String type handling
+1. **Primary Endpoints** - Using `/api/` prefix:
+   - Chart-related endpoints follow nested routing: `/api/chart/[endpoint]`
+   - Other service endpoints follow flat routing: `/api/[endpoint]`
 
-## Security Considerations
-1. Implemented
-   - Container isolation
-   - Environment variable management
-   - Basic access controls
-   - Health check security
+2. **Alternative Endpoints** - Without `/api/` prefix:
+   - Chart-related endpoints: `/chart/[endpoint]`
+   - Other service endpoints: `/[endpoint]`
 
-2. Pending
-   - API rate limiting
-   - Enhanced authentication
-   - Security scanning setup
-   - Audit logging
+This architecture is implemented in `ai_service/main.py` with explicit router registration for both patterns:
 
-## Documentation Status
-1. Available
-   - Setup instructions
-   - Development guidelines
-   - Container configuration
-   - Testing procedures
+```python
+# Register all routers with the /api prefix (primary endpoints)
+app.include_router(health_router, prefix=API_PREFIX)
+app.include_router(validate_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(geocode_router, prefix=API_PREFIX)
+app.include_router(chart_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(questionnaire_router, prefix=f"{API_PREFIX}/questionnaire")
+app.include_router(rectify_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(export_router, prefix=f"{API_PREFIX}/chart")
 
-2. In Progress
-   - API documentation
-   - Deployment guides
-   - Monitoring setup
-   - Troubleshooting guides
-   - Type definition documentation 
+# Also register routers at root level (alternative endpoints)
+app.include_router(health_router)
+app.include_router(validate_router, prefix="/chart")
+app.include_router(geocode_router)
+app.include_router(chart_router, prefix="/chart")
+app.include_router(questionnaire_router, prefix="/questionnaire")
+app.include_router(rectify_router, prefix="/chart")
+app.include_router(export_router, prefix="/chart")
+```
+
+### Implementation Details
+
+1. **Router Organization**:
+   - Each functionality has its own router file (chart.py, validate.py, geocode.py, etc.)
+   - Routers are organized by domain area in the `ai_service/api/routers/` directory
+   - All redundant and backup files have been removed for clarity
+
+2. **Standardized Response Structure**:
+   - Consistent JSON format across all endpoints
+   - Appropriate HTTP status codes for different scenarios
+   - Detailed error messages with error codes
+   - Proper validation error handling
+
+3. **Documentation**:
+   - Comprehensive API documentation in `api_architecture_docs.md`
+   - Endpoint details in `implementation_plan.md`
+   - Centralized endpoint definitions in `tests/e2e/constants.js`
+
+### Endpoint Status
+
+#### Primary Endpoints (with /api/ prefix)
+| Endpoint | Method | Status | Description |
+|----------|--------|--------|-------------|
+| `/api/chart/validate` | POST | Operational | Form validation |
+| `/api/geocode` | GET/POST | Operational | Location geocoding |
+| `/api/chart/generate` | POST | Operational | Chart generation |
+| `/api/chart/{id}` | GET | Operational | Chart retrieval |
+| `/api/questionnaire` | GET | Operational | Questionnaire retrieval |
+| `/api/chart/rectify` | POST | Operational | Birth time rectification |
+| `/api/chart/export` | POST | Operational | Chart export |
+| `/api/health` | GET | Operational | Health check |
+
+#### Alternative Endpoints (without /api/ prefix)
+| Endpoint | Method | Status | Description |
+|----------|--------|--------|-------------|
+| `/chart/validate` | POST | Operational | Form validation |
+| `/geocode` | GET/POST | Operational | Location geocoding |
+| `/chart/generate` | POST | Operational | Chart generation |
+| `/chart/{id}` | GET | Operational | Chart retrieval |
+| `/questionnaire` | GET | Operational | Questionnaire retrieval |
+| `/chart/rectify` | POST | Operational | Birth time rectification |
+| `/chart/export` | POST | Operational | Chart export |
+| `/health` | GET | Operational | Health check |
+
+Both endpoint patterns are maintained for backward compatibility, with the `/api/` prefixed versions recommended for new development.
+
+### Testing and Frontend Implementation
+
+The frontend and test suite use a centralized constants file (`tests/e2e/constants.js`) that defines both primary and alternative endpoints:
+
+```javascript
+export const API_ENDPOINTS = {
+    // Primary endpoints (with /api/ prefix)
+    validate: '/api/chart/validate',
+    geocode: '/api/geocode',
+    chartGenerate: '/api/chart/generate',
+    // ...
+
+    // Alternative endpoints without /api/ prefix (for backward compatibility)
+    validateAlt: '/chart/validate',
+    geocodeAlt: '/geocode',
+    chartGenerateAlt: '/chart/generate',
+    // ...
+}
+```
+
+This approach ensures consistent endpoint usage across the application and tests.
+
+## Test Pattern Status
+| Test Pattern | Status | Coverage |
+|--------------|--------|----------|
+| Complete Flow | Implemented | 8 steps (A→M) |
+| Validation Failure | Implemented | Form validation (A→B→C→B) |
+| Low Confidence | Implemented | Additional questions (G→H→J→G) |
+| Boundary Cases | Implemented | 3 geographic extremes |
+| API Validation | Implemented | 7 core endpoints |
+
+## Current Challenges
+1. Technical
+   - Maintaining API endpoint consistency
+   - Ensuring comprehensive test coverage
+   - Handling edge cases in test data
+   - Optimizing test performance
+
+2. Implementation
+   - Documenting test approach
+   - Integrating with CI/CD pipeline
+   - Enhancing error reporting
+   - Improving test data management
+
+## Recent Test Improvements
+1. Script Consolidation
+   - Merged duplicate scripts
+   - Enhanced functionality
+   - Improved interface
+   - Better error handling
+
+2. Test Data Management
+   - Centralized test data
+   - Organized by test pattern
+   - Enhanced utility functions
+   - Improved boundary case handling
+
+3. API Endpoint Management
+   - Centralized endpoint definitions
+   - Consistent usage across tests
+   - Alternative path support
+   - Enhanced validation
+
+4. Test Flow Implementation
+   - All implementation flows covered
+   - Complete application flow testing
+   - Edge case handling
+   - Error case testing

@@ -3,7 +3,6 @@ Test module for chart_calculator.py
 Tests the accuracy of astrological calculations, especially Ketu and Ascendant positions
 """
 
-import pytest
 import datetime
 import math
 from ai_service.core.chart_calculator import (

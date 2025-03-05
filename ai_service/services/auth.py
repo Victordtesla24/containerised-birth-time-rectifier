@@ -1,188 +1,279 @@
 """
-Authentication service for the Birth Time Rectifier API.
-Handles user authentication, token generation and verification.
+Authentication service for Birth Time Rectifier API.
+Handles user management, authentication, and authorization.
 """
 
+import logging
+import time
+import jwt
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
-import jwt
-import bcrypt
-import os
-from pydantic import EmailStr
-import uuid
-import json
-import logging
 
-from ai_service.models.user import UserInDB, UserCreate, UserOut, TokenData
+from ai_service.models.user import User, UserCreate, UserUpdate, Token
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Configure bcrypt
-SALT_ROUNDS = 12
+# Mock database for users
+# In a real implementation, this would be a database connection
+_users_db = {}
+_user_emails = {}
+_user_charts = {}
 
-# JWT settings
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "insecure-development-key")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+# JWT configuration
+JWT_SECRET = "dev_secret_key"  # In production, use a secure environment variable
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_MINUTES = 30
 
-# Mock database for development
-# In production, this would be replaced with a real database
-USERS_DB: Dict[str, UserInDB] = {}
-USERS_EMAIL_INDEX: Dict[str, str] = {}  # Email to user_id mapping
+def create_user(user_create: UserCreate) -> User:
+    """
+    Create a new user.
 
+    Args:
+        user_create: User creation data
 
-def get_password_hash(password: str) -> str:
-    """Generate a password hash using bcrypt."""
-    salt = bcrypt.gensalt(rounds=SALT_ROUNDS)
-    return bcrypt.hashpw(password.encode(), salt).decode()
+    Returns:
+        Created user object
 
+    Raises:
+        ValueError: If email is already taken
+    """
+    # Check if email exists
+    if user_create.email in _user_emails:
+        raise ValueError("Email already registered")
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against a hash using bcrypt."""
-    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    # Generate user ID
+    user_id = str(uuid.uuid4())
 
+    # Hash password - in a real implementation, use a secure hashing algorithm
+    # For the mock, we'll just add a prefix to simulate hashing
+    hashed_password = f"hashed_{user_create.password}"
 
-def get_user_by_email(email: str) -> Optional[UserInDB]:
-    """Get a user by email address."""
-    user_id = USERS_EMAIL_INDEX.get(email.lower())
-    if user_id:
-        return USERS_DB.get(user_id)
-    return None
+    # Create timestamp
+    now = datetime.now()
 
-
-def get_user_by_id(user_id: str) -> Optional[UserInDB]:
-    """Get a user by ID."""
-    return USERS_DB.get(user_id)
-
-
-def create_user(user_create: UserCreate) -> UserInDB:
-    """Create a new user."""
-    # Check if email already exists
-    if get_user_by_email(user_create.email):
-        raise ValueError(f"User with email {user_create.email} already exists")
-
-    # Create user with hashed password
-    user_dict = user_create.dict()
-    hashed_password = get_password_hash(user_dict.pop("password"))
-
-    user_in_db = UserInDB(
-        **user_dict,
-        hashed_password=hashed_password
+    # Create user
+    user = User(
+        id=user_id,
+        email=user_create.email,
+        full_name=user_create.full_name,
+        hashed_password=hashed_password,
+        created_at=now,
+        updated_at=now,
+        preferences={}
     )
 
-    # Add to mock DB
-    USERS_DB[user_in_db.id] = user_in_db
-    USERS_EMAIL_INDEX[user_in_db.email.lower()] = user_in_db.id
+    # Store user
+    _users_db[user_id] = user
+    _user_emails[user_create.email] = user_id
+    _user_charts[user_id] = []
 
-    return user_in_db
+    logger.info(f"Created user: {user_id}")
 
-
-def authenticate_user(email: str, password: str) -> Optional[UserInDB]:
-    """Authenticate a user with email and password."""
-    user = get_user_by_email(email)
-    if not user:
-        return None
-    if not verify_password(password, user.hashed_password):
-        return None
     return user
 
+def authenticate_user(email: str, password: str) -> Optional[User]:
+    """
+    Authenticate a user by email and password.
+
+    Args:
+        email: User email
+        password: User password
+
+    Returns:
+        User object if authentication successful, None otherwise
+    """
+    # Check if email exists
+    if email not in _user_emails:
+        return None
+
+    # Get user ID
+    user_id = _user_emails[email]
+
+    # Get user
+    user = _users_db[user_id]
+
+    # Check password - in a real implementation, verify hash
+    # For the mock, just compare with our simulated hash
+    expected_hash = f"hashed_{password}"
+
+    if user.hashed_password != expected_hash:
+        return None
+
+    return user
 
 def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Create a JWT access token."""
+    """
+    Create a JWT access token for the user.
+
+    Args:
+        user_id: User ID
+        expires_delta: Token expiration time
+
+    Returns:
+        JWT access token
+    """
+    # Set expiration
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=JWT_EXPIRATION_MINUTES)
 
-    to_encode = TokenData(user_id=user_id, exp=expire)
-    encoded_jwt = jwt.encode(to_encode.dict(), SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    # Create token payload
+    payload = {
+        "sub": user_id,
+        "exp": expire.timestamp(),
+        "iat": datetime.utcnow().timestamp()
+    }
 
+    # Create token
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+    return token
 
 def verify_token(token: str) -> Optional[str]:
-    """Verify a JWT token and return the user ID if valid."""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        token_data = TokenData(**payload)
+    """
+    Verify and decode a JWT token.
 
-        # Check if token is expired
-        if datetime.utcnow() > token_data.exp:
-            return None
+    Args:
+        token: JWT token to verify
+
+    Returns:
+        User ID if token is valid, None otherwise
+    """
+    try:
+        # Decode token
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+        # Extract user ID
+        user_id = payload.get("sub")
 
         # Check if user exists
-        if not get_user_by_id(token_data.user_id):
+        if user_id not in _users_db:
             return None
 
-        return token_data.user_id
+        return user_id
     except jwt.PyJWTError:
         return None
-    except Exception as e:
-        logger.error(f"Error verifying token: {e}")
-        return None
 
+def get_user_by_id(user_id: str) -> Optional[User]:
+    """
+    Get a user by ID.
 
-def add_chart_to_user(user_id: str, chart_id: str) -> bool:
-    """Add a chart to a user's saved charts."""
-    user = get_user_by_id(user_id)
-    if not user:
-        return False
+    Args:
+        user_id: User ID
 
-    if chart_id not in user.saved_charts:
-        user.saved_charts.append(chart_id)
-        user.updated_at = datetime.now()
-        USERS_DB[user_id] = user
+    Returns:
+        User object if found, None otherwise
+    """
+    return _users_db.get(user_id)
 
-    return True
+def convert_to_user_out(user: User) -> Dict[str, Any]:
+    """
+    Convert a User object to a UserOut model.
 
+    Args:
+        user: User object
 
-def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
-    """Remove a chart from a user's saved charts."""
-    user = get_user_by_id(user_id)
-    if not user:
-        return False
-
-    if chart_id in user.saved_charts:
-        user.saved_charts.remove(chart_id)
-        user.updated_at = datetime.now()
-        USERS_DB[user_id] = user
-
-    return True
-
-
-def get_user_charts(user_id: str) -> List[str]:
-    """Get all chart IDs saved by a user."""
-    user = get_user_by_id(user_id)
-    if not user:
-        return []
-
-    return user.saved_charts.copy()
-
+    Returns:
+        Dictionary representation of UserOut
+    """
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+        "preferences": user.preferences
+    }
 
 def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> bool:
-    """Update a user's preferences."""
-    user = get_user_by_id(user_id)
-    if not user:
+    """
+    Update a user's preferences.
+
+    Args:
+        user_id: User ID
+        preferences: New or updated preferences
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # Check if user exists
+    if user_id not in _users_db:
         return False
 
-    # Update preferences
-    for key, value in preferences.items():
-        user.preferences[key] = value
+    # Get user
+    user = _users_db[user_id]
 
+    # Update preferences
+    user.preferences.update(preferences)
+
+    # Update timestamp
     user.updated_at = datetime.now()
-    USERS_DB[user_id] = user
 
     return True
 
+def get_user_charts(user_id: str) -> List[str]:
+    """
+    Get a user's saved charts.
 
-def convert_to_user_out(user: UserInDB) -> UserOut:
-    """Convert an internal user model to the external response model."""
-    return UserOut(
-        id=user.id,
-        email=user.email,
-        username=user.username,
-        full_name=user.full_name,
-        created_at=user.created_at,
-        preferences=user.preferences,
-        saved_charts=user.saved_charts
-    )
+    Args:
+        user_id: User ID
+
+    Returns:
+        List of chart IDs
+    """
+    # Check if user exists
+    if user_id not in _user_charts:
+        return []
+
+    return _user_charts[user_id]
+
+def add_chart_to_user(user_id: str, chart_id: str) -> bool:
+    """
+    Add a chart to a user's saved charts.
+
+    Args:
+        user_id: User ID
+        chart_id: Chart ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # Check if user exists
+    if user_id not in _user_charts:
+        return False
+
+    # Check if chart already saved
+    if chart_id in _user_charts[user_id]:
+        return True
+
+    # Add chart
+    _user_charts[user_id].append(chart_id)
+
+    return True
+
+def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
+    """
+    Remove a chart from a user's saved charts.
+
+    Args:
+        user_id: User ID
+        chart_id: Chart ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # Check if user exists
+    if user_id not in _user_charts:
+        return False
+
+    # Check if chart exists
+    if chart_id not in _user_charts[user_id]:
+        return False
+
+    # Remove chart
+    _user_charts[user_id].remove(chart_id)
+
+    return True

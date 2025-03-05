@@ -10,14 +10,13 @@ from datetime import datetime
 import platform
 import psutil
 
-# Create router
+# Create router without prefix (will be added in main.py)
 router = APIRouter(
-    prefix="/health",
-    tags=["Health"],
+    tags=["health"],
     responses={404: {"description": "Not found"}},
 )
 
-@router.get("")
+@router.get("/health")
 async def health_check():
     """
     Health check endpoint to verify the API is running.
@@ -49,5 +48,3 @@ async def health_details():
 async def metrics():
     """Prometheus metrics endpoint."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-# Root health endpoint is defined in main.py to ensure it's available at the root level

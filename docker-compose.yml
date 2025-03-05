@@ -1,67 +1,109 @@
 version: '3.8'
 
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./ai_service:/app/ai_service
-      - ./requirements.txt:/app/requirements.txt
-    environment:
-      - PYTHONUNBUFFERED=1
-      - DEBUG=True
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
-    ports:
-      - "3000:3000"
+      dockerfile: docker/frontend.Dockerfile
+      target: development
+    container_name: birth-rectifier-frontend
     volumes:
       - ./src:/app/src
       - ./public:/app/public
-      - ./.next:/app/.next
-      - node_modules:/app/node_modules
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      - ./next.config.js:/app/next.config.js
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tailwind.config.js:/app/tailwind.config.js
+      - ./postcss.config.js:/app/postcss.config.js
+      - ./jest.config.js:/app/jest.config.js
+      - ./jest.setup.js:/app/jest.setup.js
+      - ./.eslintrc.json:/app/.eslintrc.json
+      - /app/node_modules
+      - /app/.next
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://localhost:8000
-    depends_on:
-      - backend
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    command: npm run dev
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"]
-      interval: 30s
+      test: ["CMD-SHELL", "curl -s -f http://localhost:3000/api/health || (echo 'Fixing permissions' && sudo chown -R node:node /app/.next && exit 1)"]
+      interval: 15s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 40s
+    depends_on:
+      ai_service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ai_service:
+    build:
+      context: .
+      dockerfile: docker/ai_service.Dockerfile
+      target: development
+    container_name: birth-rectifier-ai
+    volumes:
+      - ./ai_service:/app/ai_service
+      - ./requirements.txt:/app/requirements.txt
+      - ./setup.py:/app/setup.py
+      - ai_service_venv:/app/.venv
+      - ephemeris_data:/app/ephemeris
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=development
+      - APP_ENV=development
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+      - SWISSEPH_PATH=/app/ephemeris
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}  # Pass from host environment or empty if not set
+      - OPENAI_API_KEY_DEV=${OPENAI_API_KEY_DEV:-}  # Pass from host environment or empty if not set
+      - API_TIMEOUT=30
+      - CACHE_EXPIRY=3600
+      - GPU_MEMORY_FRACTION=0.7
+      - MODEL_CACHE_SIZE=100
+    ports:
+      - "8000:8000"
+    command: /app/.venv/bin/python -m uvicorn ai_service.api.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.2-alpine
+    container_name: birth-rectifier-redis
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - ./docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
+      - ./docker/redis/log:/var/log/redis
+    command: redis-server /usr/local/etc/redis/redis.conf
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
-  redis-data:
-  node_modules:
+  redis_data:
+    driver: local
+  ai_service_venv:
+    driver: local
+  ephemeris_data:
+    driver: local

@@ -1,688 +1,255 @@
 """
-AI-powered questionnaire generation engine for birth time rectification.
-
-This module provides functionality to dynamically generate questions
-based on birth chart analysis and user responses to improve birth time accuracy.
+Questionnaire engine for Birth Time Rectifier API.
+Handles generation and processing of questions for birth time rectification.
 """
 
-import random
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
-import math
-import numpy as np
-from collections import Counter
-
 import logging
+import uuid
+from typing import Dict, List, Any
+import random
+
+# Configure logging
 logger = logging.getLogger(__name__)
-
-# Question types
-YES_NO = "yes_no"
-MULTIPLE_CHOICE = "multiple_choice"
-DATE_PICKER = "date_picker"
-TIME_PICKER = "time_picker"
-TEXT_INPUT = "text_input"
-
-# Relevance levels
-HIGH = "high"
-MEDIUM = "medium"
-LOW = "low"
-
-# Question categories
-GENERAL = "general"
-PERSONALITY = "personality"
-LIFE_EVENTS = "life_events"
-PLANETARY = "planetary"
-HOUSE = "house"
-TIMING = "timing"
-RELATIONAL = "relational"
 
 class QuestionnaireEngine:
     """
-    Engine for generating dynamic questionnaires for birth time rectification.
-
-    This class handles the generation of questions based on the user's birth chart
-    and previous answers, with the goal of narrowing down the possible birth time.
+    Engine for generating and processing questionnaire questions for birth time rectification.
     """
 
-    def __init__(self, chart_data: Optional[Dict[str, Any]] = None):
-        """
-        Initialize the questionnaire engine.
+    def __init__(self):
+        """Initialize the questionnaire engine"""
+        # Set maximum number of questions
+        self.max_questions = 10
 
-        Args:
-            chart_data: Initial chart data to base questions on
-        """
-        self.chart_data = chart_data if chart_data is not None else {}
-        self.question_history = []
-        self.answers = {}
-        self.confidence_levels = {
-            "ascendant": 0.0,
-            "houses": 0.0,
-            "planets": 0.0,
-            "overall": 0.0
-        }
-
-        # Dynamic category weights based on confidence levels
-        self.category_weights = {
-            GENERAL: 1.0,
-            PERSONALITY: 1.0,
-            LIFE_EVENTS: 1.0,
-            PLANETARY: 1.0,
-            HOUSE: 1.0,
-            TIMING: 1.0,
-            RELATIONAL: 1.0
-        }
-
-        # Initialize question bank
-        self._initialize_question_bank()
-
-    def _initialize_question_bank(self):
-        """Initialize the bank of potential questions."""
-        self.question_bank = {
-            GENERAL: self._generate_general_questions(),
-            PERSONALITY: self._generate_personality_questions(),
-            LIFE_EVENTS: self._generate_life_event_questions(),
-            PLANETARY: self._generate_planetary_questions(),
-            HOUSE: self._generate_house_questions(),
-            TIMING: [],  # Will be generated dynamically
-            RELATIONAL: self._generate_relational_questions()
-        }
-
-    def generate_next_question(self) -> Dict[str, Any]:
-        """
-        Generate the next most relevant question based on chart data and previous answers.
-
-        Returns:
-            Dict containing the next question
-        """
-        # Reset question history if it's too long to avoid repetitive questions
-        if len(self.question_history) > 20:
-            self.question_history = self.question_history[-10:]
-
-        # Adjust category weights based on confidence levels
-        self._adjust_category_weights()
-
-        # Generate timing and aspect questions dynamically based on current knowledge
-        self.question_bank[TIMING] = self._generate_timing_questions()
-
-        # Generate candidate questions from various categories
-        candidate_questions = []
-        for category, weight in self.category_weights.items():
-            # Skip categories with no questions
-            if not self.question_bank[category]:
-                continue
-
-            # Get questions from this category
-            category_questions = self.question_bank[category]
-
-            # Score questions based on relevance
-            scored_questions = self._score_questions(category_questions, weight)
-
-            # Add top questions to candidates
-            candidate_questions.extend(scored_questions[:3])
-
-        # Sort candidates by score
-        candidate_questions.sort(key=lambda q: q["score"], reverse=True)
-
-        # Select the highest scoring question
-        if candidate_questions:
-            next_question = candidate_questions[0]
-            # Remove score before returning
-            score = next_question.pop("score", 0)
-            # Add to question history
-            self.question_history.append(next_question["id"])
-            return next_question
-
-        # Fallback to a general question if no candidates
-        fallback_question = {
-            "id": f"fallback_{len(self.question_history)}",
-            "text": "Is there any significant life event you can recall that might help determine your birth time?",
-            "type": TEXT_INPUT,
-            "category": GENERAL
-        }
-        self.question_history.append(fallback_question["id"])
-        return fallback_question
-
-    def _adjust_category_weights(self):
-        """Adjust category weights based on confidence levels and previous answers."""
-        # If we have low confidence in ascendant, prioritize house and personality questions
-        if self.confidence_levels["ascendant"] < 0.3:
-            self.category_weights[HOUSE] = 1.5
-            self.category_weights[PERSONALITY] = 1.3
-
-        # If we have high confidence in ascendant but low in planets, focus on planetary
-        elif self.confidence_levels["ascendant"] > 0.7 and self.confidence_levels["planets"] < 0.5:
-            self.category_weights[PLANETARY] = 1.5
-            self.category_weights[TIMING] = 1.3
-
-        # If we have good confidence overall, focus on timing for refinement
-        elif self.confidence_levels["overall"] > 0.6:
-            self.category_weights[TIMING] = 1.8
-            self.category_weights[LIFE_EVENTS] = 1.5
-
-        # Analyze answer patterns to adjust weights
-        if len(self.answers) > 5:
-            # Count categories of answered questions
-            category_counts = Counter([q.get("category", GENERAL) for q in self.answers.values()])
-
-            # Boost underrepresented categories
-            for category in self.category_weights:
-                if category_counts.get(category, 0) < 2:
-                    self.category_weights[category] *= 1.2
-
-    def _score_questions(self, questions: List[Dict[str, Any]], category_weight: float) -> List[Dict[str, Any]]:
-        """
-        Score questions based on relevance, variety, and information gain.
-
-        Args:
-            questions: List of question dictionaries
-            category_weight: Weight of the category
-
-        Returns:
-            List of questions with added score field, sorted by score
-        """
-        scored_questions = []
-
-        for question in questions:
-            # Skip questions already asked
-            if question["id"] in self.question_history:
-                continue
-
-            # Base score is the question's relevance * category weight
-            relevance = question.get("relevance", MEDIUM)
-            relevance_score = 1.0
-            if relevance == HIGH:
-                relevance_score = 1.5
-            elif relevance == LOW:
-                relevance_score = 0.7
-
-            base_score = relevance_score * category_weight
-
-            # Adjust for variety (avoid similar questions)
-            variety_penalty = 0
-            for asked_id in self.question_history[-5:]:  # Look at last 5 questions
-                # Check if this question is similar to recently asked ones
-                if self._is_similar_question(question, asked_id):
-                    variety_penalty += 0.2  # Penalize similar questions
-
-            # Adjust for potential information gain
-            info_gain = 1.0
-            if question.get("type") == MULTIPLE_CHOICE and len(question.get("options", [])) > 3:
-                info_gain = 1.2  # More options = more information
-            elif question.get("type") == DATE_PICKER or question.get("type") == TIME_PICKER:
-                info_gain = 1.3  # Precise date/time data is valuable
-
-            # Calculate final score
-            final_score = base_score * (1 - variety_penalty) * info_gain
-
-            # Add score to question
-            scored_question = question.copy()
-            scored_question["score"] = final_score
-            scored_questions.append(scored_question)
-
-        # Sort by score
-        scored_questions.sort(key=lambda q: q["score"], reverse=True)
-        return scored_questions
-
-    def _is_similar_question(self, question: Dict[str, Any], asked_id: str) -> bool:
-        """
-        Check if a question is semantically similar to an already asked question.
-
-        Args:
-            question: The question to check
-            asked_id: ID of a previously asked question
-
-        Returns:
-            True if questions are similar, False otherwise
-        """
-        # Get the asked question from history
-        asked_question = None
-        for q in self.question_bank.get(question.get("category", GENERAL), []):
-            if q.get("id") == asked_id:
-                asked_question = q
-                break
-
-        if not asked_question:
-            return False
-
-        # Check if they're in the same subcategory
-        if question.get("subcategory") and asked_question.get("subcategory"):
-            if question["subcategory"] == asked_question["subcategory"]:
-                return True
-
-        # Check for keyword overlap in the question text
-        q1_words = set(question["text"].lower().split())
-        q2_words = set(asked_question["text"].lower().split())
-        overlap = len(q1_words.intersection(q2_words)) / len(q1_words.union(q2_words))
-
-        return overlap > 0.5  # If more than 50% of words overlap
-
-    def _generate_timing_questions(self) -> List[Dict[str, Any]]:
-        """Generate questions about timing and daily patterns."""
-        timing_questions = [
-            {
-                "id": f"timing_daily_energy_{len(self.question_history)}",
-                "text": "What time of day do you typically feel most energetic?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "morning", "text": "Morning (6am-12pm)"},
-                    {"id": "afternoon", "text": "Afternoon (12pm-6pm)"},
-                    {"id": "evening", "text": "Evening (6pm-12am)"},
-                    {"id": "night", "text": "Night (12am-6am)"}
-                ],
-                "category": TIMING,
-                "subcategory": "daily_energy",
-                "relevance": HIGH
-            }
-        ]
-
-        # Add Jupiter timing question
-        timing_questions.append({
-            "id": f"timing_jupiter_{len(self.question_history)}",
-            "text": "Can you recall a year when you experienced significant growth, expansion, or good fortune?",
-            "type": DATE_PICKER,
-            "category": TIMING,
-            "subcategory": "jupiter_transit",
-            "relevance": MEDIUM
-        })
-
-        # Add more dynamic timing questions based on chart data
-        if "planets" in self.chart_data:
-            # Check for Mars position for questions about energy/action timing
-            mars_position = next((p for p in self.chart_data["planets"] if p["name"] == "Mars"), None)
-            if mars_position:
-                timing_questions.append({
-                    "id": f"timing_mars_{len(self.question_history)}",
-                    "text": "Do you tend to feel most energetic in the morning, afternoon, evening, or night?",
-                    "type": MULTIPLE_CHOICE,
+        # Define question templates by category
+        self.question_templates = {
+            "personality": [
+                {
+                    "text": "Does your personality align with your sun sign traits?",
+                    "type": "yes_no",
+                    "relevance": "high"
+                },
+                {
+                    "text": "Do you consider yourself more introverted than extroverted?",
+                    "type": "yes_no",
+                    "relevance": "medium"
+                },
+                {
+                    "text": "Which of these personality traits best describes you?",
+                    "type": "multiple_choice",
                     "options": [
-                        {"id": "morning", "text": "Morning (6am-12pm)"},
-                        {"id": "afternoon", "text": "Afternoon (12pm-6pm)"},
-                        {"id": "evening", "text": "Evening (6pm-12am)"},
-                        {"id": "night", "text": "Night (12am-6am)"}
+                        {"id": "analytical", "text": "Analytical and logical"},
+                        {"id": "creative", "text": "Creative and intuitive"},
+                        {"id": "practical", "text": "Practical and grounded"},
+                        {"id": "emotional", "text": "Emotional and sensitive"}
                     ],
-                    "category": TIMING,
-                    "subcategory": "mars_energy",
-                    "relevance": MEDIUM
-                })
-
-        return timing_questions
-
-    def _generate_aspect_questions(self) -> List[Dict[str, Any]]:
-        """
-        Generate questions about planetary aspects based on current chart data.
-
-        Returns:
-            List of aspect-related questions
-        """
-        aspect_questions = []
-
-        # Generate questions based on Sun-Moon aspect
-        aspect_questions.append({
-            "id": f"aspect_sun_moon_{len(self.question_history)}",
-            "text": "Do you feel your emotional needs (Moon) align with your conscious goals (Sun)?",
-            "type": MULTIPLE_CHOICE,
-            "options": [
-                {"id": "strongly_agree", "text": "Strongly agree"},
-                {"id": "agree", "text": "Agree"},
-                {"id": "neutral", "text": "Neutral"},
-                {"id": "disagree", "text": "Disagree"},
-                {"id": "strongly_disagree", "text": "Strongly disagree"}
+                    "relevance": "high"
+                }
             ],
-            "category": PLANETARY,
-            "subcategory": "sun_moon_aspect",
-            "relevance": HIGH
-        })
-
-        # Add more aspect questions based on chart data
-        if "aspects" in self.chart_data:
-            # Check for Venus-Mars aspect for questions about relationship dynamics
-            venus_mars_aspect = next((a for a in self.chart_data["aspects"]
-                                    if (a["planet1"] == "Venus" and a["planet2"] == "Mars") or
-                                       (a["planet1"] == "Mars" and a["planet2"] == "Venus")), None)
-            if venus_mars_aspect:
-                aspect_questions.append({
-                    "id": f"aspect_venus_mars_{len(self.question_history)}",
-                    "text": "How would you describe the balance of giving and receiving in your relationships?",
-                    "type": MULTIPLE_CHOICE,
+            "life_events": [
+                {
+                    "text": "Which area of your life has seen the most significant changes in the past year?",
+                    "type": "multiple_choice",
                     "options": [
-                        {"id": "mostly_give", "text": "I tend to give more than I receive"},
-                        {"id": "balanced", "text": "My relationships are generally balanced"},
-                        {"id": "mostly_receive", "text": "I tend to receive more than I give"},
-                        {"id": "varies", "text": "It varies significantly between relationships"}
+                        {"id": "career", "text": "Career/Work"},
+                        {"id": "relationships", "text": "Relationships"},
+                        {"id": "health", "text": "Health/Wellbeing"},
+                        {"id": "home", "text": "Home/Living situation"},
+                        {"id": "none", "text": "No significant changes"}
                     ],
-                    "category": PLANETARY,
-                    "subcategory": "venus_mars_aspect",
-                    "relevance": MEDIUM
-                })
-
-        return aspect_questions
-
-    def _generate_general_questions(self) -> List[Dict[str, Any]]:
-        """Generate general questions about birth time knowledge."""
-        return [
-            {
-                "id": "general_birth_time_knowledge",
-                "text": "Do you have any information about what time of day you were born?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "morning", "text": "Morning (6am-12pm)"},
-                    {"id": "afternoon", "text": "Afternoon (12pm-6pm)"},
-                    {"id": "evening", "text": "Evening (6pm-12am)"},
-                    {"id": "night", "text": "Night (12am-6am)"},
-                    {"id": "no_idea", "text": "I have no idea"}
-                ],
-                "category": GENERAL,
-                "relevance": HIGH
-            },
-            {
-                "id": "general_birth_certificate",
-                "text": "Is there a birth time recorded on your birth certificate?",
-                "type": YES_NO,
-                "category": GENERAL,
-                "relevance": HIGH
-            },
-            {
-                "id": "general_family_recollection",
-                "text": "Has anyone in your family mentioned anything about the time you were born?",
-                "type": TEXT_INPUT,
-                "category": GENERAL,
-                "relevance": MEDIUM
-            }
-        ]
-
-    def _generate_personality_questions(self) -> List[Dict[str, Any]]:
-        """Generate questions about personality traits related to ascendant signs."""
-        return [
-            {
-                "id": "personality_first_impression",
-                "text": "How do people typically describe you when they first meet you?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "confident", "text": "Confident and assertive"},
-                    {"id": "calm", "text": "Calm and grounded"},
-                    {"id": "talkative", "text": "Talkative and curious"},
-                    {"id": "nurturing", "text": "Nurturing and supportive"},
-                    {"id": "charismatic", "text": "Charismatic and dramatic"},
-                    {"id": "analytical", "text": "Analytical and detail-oriented"},
-                    {"id": "diplomatic", "text": "Diplomatic and harmonious"},
-                    {"id": "intense", "text": "Intense and mysterious"},
-                    {"id": "adventurous", "text": "Adventurous and philosophical"},
-                    {"id": "ambitious", "text": "Ambitious and disciplined"},
-                    {"id": "unique", "text": "Unique and unconventional"},
-                    {"id": "compassionate", "text": "Compassionate and dreamy"}
-                ],
-                "category": PERSONALITY,
-                "subcategory": "ascendant",
-                "relevance": HIGH
-            },
-            {
-                "id": "personality_physical_appearance",
-                "text": "Which of these best describes your physical appearance?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "athletic", "text": "Athletic build, strong features"},
-                    {"id": "solid", "text": "Solid build, strong neck/shoulders"},
-                    {"id": "slim", "text": "Slim build, expressive hands/face"},
-                    {"id": "soft", "text": "Soft features, nurturing presence"},
-                    {"id": "regal", "text": "Regal posture, noticeable hair/eyes"},
-                    {"id": "proportioned", "text": "Well-proportioned, neat appearance"},
-                    {"id": "balanced", "text": "Balanced features, graceful movement"},
-                    {"id": "magnetic", "text": "Magnetic eyes, strong presence"},
-                    {"id": "tall", "text": "Tall or long limbs, open expression"},
-                    {"id": "structured", "text": "Structured features, mature appearance"},
-                    {"id": "unusual", "text": "Unusual features, distinctive look"},
-                    {"id": "ethereal", "text": "Ethereal quality, gentle eyes"}
-                ],
-                "category": PERSONALITY,
-                "subcategory": "ascendant_physical",
-                "relevance": MEDIUM
-            }
-        ]
-
-    def _generate_life_event_questions(self) -> List[Dict[str, Any]]:
-        """Generate questions about significant life events."""
-        return [
-            {
-                "id": "life_events_career_change",
-                "text": "When did you experience a significant career change or achievement?",
-                "type": DATE_PICKER,
-                "category": LIFE_EVENTS,
-                "subcategory": "career",
-                "relevance": HIGH
-            },
-            {
-                "id": "life_events_relationship",
-                "text": "When did you meet a significant partner or experience an important relationship milestone?",
-                "type": DATE_PICKER,
-                "category": LIFE_EVENTS,
-                "subcategory": "relationship",
-                "relevance": HIGH
-            },
-            {
-                "id": "life_events_relocation",
-                "text": "When did you relocate to a different city or country?",
-                "type": DATE_PICKER,
-                "category": LIFE_EVENTS,
-                "subcategory": "relocation",
-                "relevance": MEDIUM
-            },
-            {
-                "id": "life_events_health",
-                "text": "Have you experienced any significant health events? If so, when?",
-                "type": DATE_PICKER,
-                "category": LIFE_EVENTS,
-                "subcategory": "health",
-                "relevance": MEDIUM
-            }
-        ]
-
-    def _generate_planetary_questions(self) -> List[Dict[str, Any]]:
-        """Generate questions related to planetary positions."""
-        return [
-            {
-                "id": "planetary_moon_emotions",
-                "text": "How would you describe your emotional nature?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "fiery", "text": "Passionate and expressive"},
-                    {"id": "earthy", "text": "Stable and practical"},
-                    {"id": "airy", "text": "Intellectual and communicative"},
-                    {"id": "watery", "text": "Deep and intuitive"}
-                ],
-                "category": PLANETARY,
-                "subcategory": "moon_sign",
-                "relevance": HIGH
-            },
-            {
-                "id": "planetary_mercury_communication",
-                "text": "How would you describe your communication style?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "direct", "text": "Direct and to the point"},
-                    {"id": "methodical", "text": "Methodical and thorough"},
-                    {"id": "quick", "text": "Quick and adaptable"},
-                    {"id": "empathetic", "text": "Empathetic and understanding"},
-                    {"id": "dramatic", "text": "Dramatic and expressive"},
-                    {"id": "analytical", "text": "Analytical and precise"},
-                    {"id": "diplomatic", "text": "Diplomatic and balanced"},
-                    {"id": "probing", "text": "Probing and investigative"},
-                    {"id": "philosophical", "text": "Philosophical and expansive"},
-                    {"id": "structured", "text": "Structured and serious"},
-                    {"id": "innovative", "text": "Innovative and unconventional"},
-                    {"id": "intuitive", "text": "Intuitive and compassionate"}
-                ],
-                "category": PLANETARY,
-                "subcategory": "mercury_sign",
-                "relevance": MEDIUM
-            }
-        ]
-
-    def _generate_house_questions(self) -> List[Dict[str, Any]]:
-        """Generate questions related to house placements."""
-        return [
-            {
-                "id": "house_career_focus",
-                "text": "Which area of your life do you feel most driven to succeed in?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "self_identity", "text": "Personal identity and self-expression"},
-                    {"id": "finances", "text": "Financial security and resources"},
-                    {"id": "communication", "text": "Communication and learning"},
-                    {"id": "home_family", "text": "Home and family life"},
-                    {"id": "creativity", "text": "Creative expression and romance"},
-                    {"id": "daily_work", "text": "Daily work and health routines"},
-                    {"id": "relationships", "text": "One-on-one relationships"},
-                    {"id": "transformation", "text": "Transformation and shared resources"},
-                    {"id": "philosophy", "text": "Philosophy and higher education"},
-                    {"id": "career", "text": "Career and public reputation"},
-                    {"id": "community", "text": "Community and social groups"},
-                    {"id": "spirituality", "text": "Spirituality and inner world"}
-                ],
-                "category": HOUSE,
-                "subcategory": "mc_focus",
-                "relevance": HIGH
-            },
-            {
-                "id": "house_challenge_area",
-                "text": "Which area of life has presented the most challenges for you?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "self_identity", "text": "Personal identity and self-expression"},
-                    {"id": "finances", "text": "Financial security and resources"},
-                    {"id": "communication", "text": "Communication and learning"},
-                    {"id": "home_family", "text": "Home and family life"},
-                    {"id": "creativity", "text": "Creative expression and romance"},
-                    {"id": "daily_work", "text": "Daily work and health routines"},
-                    {"id": "relationships", "text": "One-on-one relationships"},
-                    {"id": "transformation", "text": "Transformation and shared resources"},
-                    {"id": "philosophy", "text": "Philosophy and higher education"},
-                    {"id": "career", "text": "Career and public reputation"},
-                    {"id": "community", "text": "Community and social groups"},
-                    {"id": "spirituality", "text": "Spirituality and inner world"}
-                ],
-                "category": HOUSE,
-                "subcategory": "saturn_house",
-                "relevance": MEDIUM
-            }
-        ]
-
-    def _generate_relational_questions(self) -> List[Dict[str, Any]]:
-        """Generate questions about relationship patterns."""
-        return [
-            {
-                "id": "relational_partner_type",
-                "text": "What qualities do you tend to look for in a partner?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "independence", "text": "Independence and strength"},
-                    {"id": "stability", "text": "Stability and reliability"},
-                    {"id": "intellect", "text": "Intellect and communication skills"},
-                    {"id": "nurturing", "text": "Nurturing and emotional support"},
-                    {"id": "passion", "text": "Passion and creativity"},
-                    {"id": "practicality", "text": "Practicality and attention to detail"},
-                    {"id": "harmony", "text": "Harmony and fairness"},
-                    {"id": "intensity", "text": "Intensity and depth"},
-                    {"id": "adventure", "text": "Adventure and optimism"},
-                    {"id": "ambition", "text": "Ambition and responsibility"},
-                    {"id": "uniqueness", "text": "Uniqueness and innovation"},
-                    {"id": "compassion", "text": "Compassion and spiritual connection"}
-                ],
-                "category": RELATIONAL,
-                "subcategory": "venus_sign",
-                "relevance": MEDIUM
-            },
-            {
-                "id": "relational_friendship_pattern",
-                "text": "How would you describe your approach to friendships?",
-                "type": MULTIPLE_CHOICE,
-                "options": [
-                    {"id": "few_close", "text": "A few very close friends"},
-                    {"id": "large_network", "text": "A large network of connections"},
-                    {"id": "selective", "text": "Selective but loyal"},
-                    {"id": "community", "text": "Community-oriented"}
-                ],
-                "category": RELATIONAL,
-                "subcategory": "moon_venus",
-                "relevance": LOW
-            }
-        ]
-
-    def process_answer(self, question_id: str, answer: Any) -> None:
-        """
-        Process a user's answer to update confidence levels and store the answer.
-
-        Args:
-            question_id: ID of the answered question
-            answer: User's answer
-        """
-        # Find the question
-        question = None
-        for category in self.question_bank:
-            for q in self.question_bank[category]:
-                if q.get("id") == question_id:
-                    question = q
-                    break
-            if question:
-                break
-
-        if not question:
-            logger.warning(f"Question with ID {question_id} not found")
-            return
-
-        # Store the answer
-        self.answers[question_id] = {
-            "question": question,
-            "answer": answer,
-            "timestamp": datetime.now().isoformat()
+                    "relevance": "medium"
+                },
+                {
+                    "text": "Have you experienced major life transitions at times when Saturn formed aspects to your natal planets?",
+                    "type": "yes_no",
+                    "relevance": "high"
+                }
+            ],
+            "career": [
+                {
+                    "text": "Which of these career areas have you felt most drawn to?",
+                    "type": "multiple_choice",
+                    "options": [
+                        {"id": "creative", "text": "Creative/Artistic"},
+                        {"id": "analytical", "text": "Analytical/Scientific"},
+                        {"id": "social", "text": "Social/Humanitarian"},
+                        {"id": "business", "text": "Business/Leadership"}
+                    ],
+                    "relevance": "high"
+                },
+                {
+                    "text": "Have your career changes aligned with Jupiter transits?",
+                    "type": "yes_no",
+                    "relevance": "medium"
+                }
+            ],
+            "relationships": [
+                {
+                    "text": "Do you tend to be attracted to people with strong placements in your 7th house?",
+                    "type": "yes_no",
+                    "relevance": "high"
+                },
+                {
+                    "text": "Which planet's energy do you feel most strongly in your relationships?",
+                    "type": "multiple_choice",
+                    "options": [
+                        {"id": "venus", "text": "Venus (harmony, beauty)"},
+                        {"id": "mars", "text": "Mars (passion, conflict)"},
+                        {"id": "jupiter", "text": "Jupiter (growth, optimism)"},
+                        {"id": "saturn", "text": "Saturn (commitment, restriction)"}
+                    ],
+                    "relevance": "medium"
+                }
+            ]
         }
 
-        # Update confidence levels based on the answer
-        self._update_confidence_levels(question, answer)
-
-    def _update_confidence_levels(self, question: Dict[str, Any], answer: Any) -> None:
+    def get_first_question(self, chart_data: Dict[str, Any], birth_details: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Update confidence levels based on the answer.
+        Generate the first question for a new questionnaire session.
 
         Args:
-            question: The question that was answered
-            answer: The user's answer
-        """
-        category = question.get("category", GENERAL)
-        subcategory = question.get("subcategory", "")
-
-        # Update specific confidence areas based on question category
-        if category == PERSONALITY and subcategory == "ascendant":
-            self.confidence_levels["ascendant"] += 0.1
-        elif category == HOUSE:
-            self.confidence_levels["houses"] += 0.1
-        elif category == PLANETARY:
-            self.confidence_levels["planets"] += 0.1
-
-        # Cap confidence levels at 1.0
-        for key in self.confidence_levels:
-            self.confidence_levels[key] = min(self.confidence_levels[key], 1.0)
-
-        # Update overall confidence as weighted average
-        self.confidence_levels["overall"] = (
-            self.confidence_levels["ascendant"] * 0.4 +
-            self.confidence_levels["houses"] * 0.3 +
-            self.confidence_levels["planets"] * 0.3
-        )
-
-    def get_confidence_levels(self) -> Dict[str, float]:
-        """
-        Get the current confidence levels.
+            chart_data: The natal chart data
+            birth_details: Birth details provided by the user
 
         Returns:
-            Dictionary of confidence levels
+            Dictionary containing the first question
         """
-        return self.confidence_levels.copy()
+        # In a real implementation, we would analyze the chart to determine
+        # the most relevant first question. For now, we'll use a standard first question.
 
-    def get_answer_history(self) -> Dict[str, Dict[str, Any]]:
+        # Use a personality question as the first question
+        template = self.question_templates["personality"][0]
+
+        # Create a unique ID for this question
+        question_id = f"q_{uuid.uuid4()}"
+
+        # Format options if multiple choice
+        options = None
+        if template.get("type") == "multiple_choice" and "options" in template:
+            options = template["options"]
+        elif template.get("type") == "yes_no":
+            options = [
+                {"id": "yes", "text": "Yes, definitely"},
+                {"id": "somewhat", "text": "Somewhat"},
+                {"id": "no", "text": "No, not at all"}
+            ]
+
+        # Create question
+        question = {
+            "id": question_id,
+            "type": template.get("type", "yes_no"),
+            "text": template["text"],
+            "options": options,
+            "relevance": template.get("relevance", "medium")
+        }
+
+        return question
+
+    def get_next_question(self, chart_data: Dict[str, Any], birth_details: Dict[str, Any],
+                         previous_answers: Dict[str, Any], current_confidence: float) -> Dict[str, Any]:
         """
-        Get the history of answers.
+        Generate the next question based on previous answers and chart data.
+
+        Args:
+            chart_data: The natal chart data
+            birth_details: Birth details provided by the user
+            previous_answers: Dictionary of answers to previous questions
+            current_confidence: Current confidence level (0-100)
 
         Returns:
-            Dictionary of answers by question ID
+            Dictionary containing the next question
         """
-        return self.answers.copy()
+        # In a real implementation, we would analyze previous answers and the chart
+        # to determine the most relevant next question.
+
+        # Choose a category based on what hasn't been asked yet
+        all_categories = list(self.question_templates.keys())
+
+        # Filter out categories we've already asked about
+        used_categories = set()
+        for q_id, answer in previous_answers.items():
+            # In a real implementation, we would store the category with each question
+            # For now, we just rotate through categories
+            if len(used_categories) < len(all_categories):
+                used_categories.add(all_categories[len(used_categories)])
+
+        available_categories = [c for c in all_categories if c not in used_categories]
+
+        # If all categories used, pick a random one
+        if not available_categories:
+            available_categories = all_categories
+
+        category = random.choice(available_categories)
+
+        # Choose a random question from that category
+        template = random.choice(self.question_templates[category])
+
+        # Create a unique ID for this question
+        question_id = f"q_{uuid.uuid4()}"
+
+        # Format options if multiple choice
+        options = None
+        if template.get("type") == "multiple_choice" and "options" in template:
+            options = template["options"]
+        elif template.get("type") == "yes_no":
+            options = [
+                {"id": "yes", "text": "Yes, definitely"},
+                {"id": "somewhat", "text": "Somewhat"},
+                {"id": "no", "text": "No, not at all"}
+            ]
+
+        # Create question
+        question = {
+            "id": question_id,
+            "type": template.get("type", "yes_no"),
+            "text": template["text"],
+            "options": options,
+            "relevance": template.get("relevance", "medium")
+        }
+
+        return question
+
+    def calculate_confidence(self, answers: Dict[str, Any]) -> float:
+        """
+        Calculate the confidence level based on answers provided.
+
+        Args:
+            answers: Dictionary of answers to previous questions
+
+        Returns:
+            Confidence level (0-100)
+        """
+        # In a real implementation, we would use a sophisticated algorithm
+        # to calculate confidence based on answer quality, consistency, etc.
+
+        # For now, we'll use a simple formula based on number of questions answered
+        base_confidence = 30  # Start with some base confidence
+        question_value = 10   # Each question contributes this much
+        max_confidence = 95   # Cap at this level
+
+        confidence = min(base_confidence + (len(answers) * question_value), max_confidence)
+
+        return confidence
+
+    def analyze_answers(self, chart_data: Dict[str, Any], answers: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze answers to determine birth time adjustment.
+
+        Args:
+            chart_data: Original chart data
+            answers: Dictionary of answers to questions
+
+        Returns:
+            Analysis results including suggested birth time adjustment
+        """
+        # In a real implementation, this would use sophisticated analysis
+        # based on the answers and chart data.
+
+        # For now, return a simple mock result
+        return {
+            "confidence": self.calculate_confidence(answers),
+            "suggested_adjustment_minutes": random.randint(-30, 30),
+            "reliability": "moderate",
+            "suggested_houses_to_review": [1, 10, 7],  # Ascendant, MC, Descendant
+            "critical_time_markers": ["Mars-Saturn aspects", "Moon house placement"]
+        }

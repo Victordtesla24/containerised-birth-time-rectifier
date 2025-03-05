@@ -10,8 +10,8 @@ interface BirthChartProps {
 
 // Names for zodiac signs in order (starting with Aries)
 const zodiacSigns = [
-  "Aries", "Taurus", "Gemini", "Cancer", 
-  "Leo", "Virgo", "Libra", "Scorpio", 
+  "Aries", "Taurus", "Gemini", "Cancer",
+  "Leo", "Virgo", "Libra", "Scorpio",
   "Sagittarius", "Capricorn", "Aquarius", "Pisces"
 ];
 
@@ -70,92 +70,109 @@ const BirthChart: React.FC<BirthChartProps> = ({
     };
   });
 
+  // Add a hidden div with chart data for testing
+  const chartDataString = JSON.stringify(data);
+
   return (
-    <div 
-      className="birth-chart-container" 
-      style={{ width: `${width}px`, height: `${height}px` }}
-    >
-      <div 
-        className="indian-vedic-chart"
-        style={{ 
-          width: '100%', 
-          height: '100%', 
+    <div className="chart-ready">
+      <div
+        style={{
+          width: `${width}px`,
+          height: `${height}px`,
+          position: 'relative',
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)',
           gridTemplateRows: 'repeat(3, 1fr)',
-          border: '2px solid #333',
-          backgroundColor: '#f8f8f8'
+          gap: '2px',
+          margin: '0 auto'
         }}
       >
-        {/* North Indian chart style (12 houses arranged in a square) */}
-        {/* Top row (houses 12, 1, 2, 3) */}
-        <div style={{ gridArea: '1 / 1 / 2 / 2', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[11])} {/* House 12 */}
+        {/* Hidden div with chart data for testing */}
+        <div data-testid="chart-data" style={{ display: 'none' }}>
+          {chartDataString}
         </div>
-        <div style={{ gridArea: '1 / 2 / 2 / 3', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[0])} {/* House 1 (Ascendant) */}
-        </div>
-        <div style={{ gridArea: '1 / 3 / 2 / 4', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[1])} {/* House 2 */}
-        </div>
-        <div style={{ gridArea: '1 / 4 / 2 / 5', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[2])} {/* House 3 */}
-        </div>
-        
-        {/* Middle row (houses 11, central space, 4) */}
-        <div style={{ gridArea: '2 / 1 / 3 / 2', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[10])} {/* House 11 */}
-        </div>
-        <div style={{ gridArea: '2 / 2 / 3 / 4', border: '1px solid #666', padding: '8px' }}>
-          {/* Center area - can display chart details */}
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-            <div className="text-lg font-bold">Birth Chart</div>
-            <div>Ascendant: {houses[0].sign}</div>
+        <div
+          className="indian-vedic-chart"
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateRows: 'repeat(3, 1fr)',
+            border: '2px solid #333',
+            backgroundColor: '#f8f8f8'
+          }}
+        >
+          {/* North Indian chart style (12 houses arranged in a square) */}
+          {/* Top row (houses 12, 1, 2, 3) */}
+          <div style={{ gridArea: '1 / 1 / 2 / 2', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[11])} {/* House 12 */}
           </div>
-        </div>
-        <div style={{ gridArea: '2 / 4 / 3 / 5', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[3])} {/* House 4 */}
-        </div>
-        
-        {/* Bottom row (houses 10, 9, 8, 5) */}
-        <div style={{ gridArea: '3 / 1 / 4 / 2', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[9])} {/* House 10 */}
-        </div>
-        <div style={{ gridArea: '3 / 2 / 4 / 3', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[8])} {/* House 9 */}
-        </div>
-        <div style={{ gridArea: '3 / 3 / 4 / 4', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[7])} {/* House 8 */}
-        </div>
-        <div style={{ gridArea: '3 / 4 / 4 / 5', border: '1px solid #666', padding: '8px' }}>
-          {renderHouse(houses[4])} {/* House 5 */}
-        </div>
-        
-        {/* We're missing houses 6 and 7 in the 4x3 grid layout */}
-        {/* Let's add them as overlay boxes on the right middle side */}
-        <div style={{ 
-          position: 'absolute', 
-          right: '-100px', 
-          top: '33.3%', 
-          width: '90px', 
-          height: '33.3%', 
-          border: '1px solid #666', 
-          padding: '8px',
-          backgroundColor: '#f8f8f8'
-        }}>
-          {renderHouse(houses[5])} {/* House 6 */}
-        </div>
-        <div style={{ 
-          position: 'absolute', 
-          right: '-100px', 
-          top: '66.6%', 
-          width: '90px', 
-          height: '33.3%', 
-          border: '1px solid #666', 
-          padding: '8px',
-          backgroundColor: '#f8f8f8'
-        }}>
-          {renderHouse(houses[6])} {/* House 7 */}
+          <div style={{ gridArea: '1 / 2 / 2 / 3', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[0])} {/* House 1 (Ascendant) */}
+          </div>
+          <div style={{ gridArea: '1 / 3 / 2 / 4', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[1])} {/* House 2 */}
+          </div>
+          <div style={{ gridArea: '1 / 4 / 2 / 5', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[2])} {/* House 3 */}
+          </div>
+
+          {/* Middle row (houses 11, central space, 4) */}
+          <div style={{ gridArea: '2 / 1 / 3 / 2', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[10])} {/* House 11 */}
+          </div>
+          <div style={{ gridArea: '2 / 2 / 3 / 4', border: '1px solid #666', padding: '8px' }}>
+            {/* Center area - can display chart details */}
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+              <div className="text-lg font-bold">Birth Chart</div>
+              <div>Ascendant: {houses[0].sign}</div>
+            </div>
+          </div>
+          <div style={{ gridArea: '2 / 4 / 3 / 5', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[3])} {/* House 4 */}
+          </div>
+
+          {/* Bottom row (houses 10, 9, 8, 5) */}
+          <div style={{ gridArea: '3 / 1 / 4 / 2', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[9])} {/* House 10 */}
+          </div>
+          <div style={{ gridArea: '3 / 2 / 4 / 3', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[8])} {/* House 9 */}
+          </div>
+          <div style={{ gridArea: '3 / 3 / 4 / 4', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[7])} {/* House 8 */}
+          </div>
+          <div style={{ gridArea: '3 / 4 / 4 / 5', border: '1px solid #666', padding: '8px' }}>
+            {renderHouse(houses[4])} {/* House 5 */}
+          </div>
+
+          {/* We're missing houses 6 and 7 in the 4x3 grid layout */}
+          {/* Let's add them as overlay boxes on the right middle side */}
+          <div style={{
+            position: 'absolute',
+            right: '-100px',
+            top: '33.3%',
+            width: '90px',
+            height: '33.3%',
+            border: '1px solid #666',
+            padding: '8px',
+            backgroundColor: '#f8f8f8'
+          }}>
+            {renderHouse(houses[5])} {/* House 6 */}
+          </div>
+          <div style={{
+            position: 'absolute',
+            right: '-100px',
+            top: '66.6%',
+            width: '90px',
+            height: '33.3%',
+            border: '1px solid #666',
+            padding: '8px',
+            backgroundColor: '#f8f8f8'
+          }}>
+            {renderHouse(houses[6])} {/* House 7 */}
+          </div>
         </div>
       </div>
     </div>
@@ -172,7 +189,7 @@ function renderHouse(house: { number: number, sign: string, sanskritName: string
       </div>
       <div className="flex flex-wrap gap-1">
         {house.planets.map((planet, idx) => (
-          <div 
+          <div
             key={idx}
             className="text-xs bg-blue-100 px-1 rounded"
             title={`${planet.name} at ${(planet.longitude % 30).toFixed(1)}°`}
@@ -186,4 +203,4 @@ function renderHouse(house: { number: number, sign: string, sanskritName: string
   );
 }
 
-export default BirthChart; 
+export default BirthChart;

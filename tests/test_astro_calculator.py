@@ -174,7 +174,7 @@ class TestAstroCalculator(unittest.TestCase):
             self.assertIn(house["sign"], ZODIAC_SIGNS,
                           f"House sign {house['sign']} should be a valid zodiac sign")
 
-        print(f"Verified all 12 houses in the chart")
+        print("Verified all 12 houses in the chart")
 
 
 # Define zodiac signs for testing

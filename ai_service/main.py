@@ -1,27 +1,99 @@
-from fastapi import FastAPI, Request, APIRouter
+"""
+Birth Time Rectifier API - Main Application
+
+This is the main FastAPI application that serves the Birth Time Rectifier API.
+"""
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 import time
 from datetime import datetime
-from typing import Union, Dict, List, Optional
-from pydantic import BaseModel, Field
+import os
+from contextlib import asynccontextmanager
+try:
+    from prometheus_client import Counter, Histogram, Gauge
+except ImportError:
+    # Allow execution without Prometheus for development
+    print("Warning: Prometheus client not installed, metrics will be disabled")
+    Counter = lambda *args, **kwargs: None
+    Histogram = lambda *args, **kwargs: None
+    Gauge = lambda *args, **kwargs: None
 
-# Import routers
-from ai_service.api.routers import health_router, chart_router, questionnaire_router, geocoding_router, auth_router
+# Import routers - using 'router' as the standard name for all router modules
+# Import all router modules
+from ai_service.api.routers.health import router as health_router
+from ai_service.api.routers.chart import router as chart_router
+from ai_service.api.routers.questionnaire import router as questionnaire_router
+from ai_service.api.routers.geocode import router as geocode_router
+from ai_service.api.routers.validate import router as validate_router
+from ai_service.api.routers.rectify import router as rectify_router
+from ai_service.api.routers.export import router as export_router
+from ai_service.api.routers.ai_integration_test import router as ai_integration_test_router
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    filename=os.path.join("logs", "ai_service.log") if os.path.exists("logs") else None,
 )
 logger = logging.getLogger("birth-time-rectifier")
 
-# Create FastAPI application
+# Initialize metrics
+REQUESTS = Counter('birth_time_rectifier_requests_total', 'Total requests processed')
+PROCESSING_TIME = Histogram('birth_time_rectifier_processing_seconds', 'Time spent processing request')
+GPU_MEMORY_USAGE = Gauge('birth_time_rectifier_gpu_memory_mb', 'GPU memory usage in MB')
+MODEL_INFERENCE_TIME = Histogram('birth_time_rectifier_model_inference_seconds', 'Time spent on model inference')
+
+# Define lifespan context manager for proper setup/cleanup
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Setup: initialize code on startup
+    logger.info("Application starting up")
+
+    # Initialize GPU manager
+    try:
+        from ai_service.utils.gpu_manager import GPUMemoryManager
+        # Initialize GPU manager if available
+        gpu_manager = GPUMemoryManager(model_allocation=float(os.getenv("GPU_MEMORY_FRACTION", 0.7)))
+        app.state.gpu_manager = gpu_manager
+        logger.info("GPU memory manager initialized")
+    except ImportError:
+        logger.info("GPU memory manager not available")
+        app.state.gpu_manager = None
+    except Exception as e:
+        logger.error(f"Error initializing GPU manager: {e}")
+        app.state.gpu_manager = None
+
+    # Preload AI models
+    try:
+        from ai_service.models.unified_model import UnifiedRectificationModel
+        logger.info("Preloading AI models for continuous operation...")
+        app.state.rectification_model = UnifiedRectificationModel()
+        logger.info("AI models preloaded successfully")
+
+        # Initialize global model reference for backward compatibility
+        global model
+        model = app.state.rectification_model
+    except Exception as e:
+        logger.error(f"Error preloading AI models: {e}")
+        app.state.rectification_model = None
+
+    yield
+
+    # Cleanup: shutdown code on app exit
+    logger.info("Application shutdown, cleaning up resources")
+    if hasattr(app.state, 'gpu_manager') and app.state.gpu_manager:
+        logger.info("Cleaning up GPU resources")
+        app.state.gpu_manager.cleanup()
+
+# Create FastAPI application with lifespan
 app = FastAPI(
     title="Birth Time Rectifier API",
     description="API for astrological chart generation and birth time rectification",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS
@@ -51,88 +123,67 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "An unexpected error occurred. Please try again later."},
     )
 
-# Include health router at root level for easy monitoring access
-app.include_router(health_router)
-
-# Include individual routers twice - once with /api prefix and once at root level
-# This ensures both /api/charts/* and /charts/* work, providing backward compatibility
-# and fixing the API router issue
-
-# With /api prefix
-app.include_router(chart_router, prefix="/api/charts", tags=["charts"])
-app.include_router(questionnaire_router, prefix="/api/questionnaire", tags=["questionnaire"])
-app.include_router(geocoding_router, prefix="/api/geocoding", tags=["geocoding"])
-app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-
-# At root level
-app.include_router(chart_router, prefix="/charts", tags=["charts"])
-app.include_router(questionnaire_router, prefix="/questionnaire", tags=["questionnaire"])
-app.include_router(geocoding_router, prefix="/geocoding", tags=["geocoding"])
-app.include_router(auth_router, prefix="/auth", tags=["auth"])
-
 # Root endpoint for health check
 @app.get("/")
 async def root():
+    """Root endpoint returning basic service information"""
     return {
+        "service": "Birth Time Rectifier API",
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "Birth Time Rectifier API",
+        "version": "1.0.0",
     }
 
-# Models for documentation
-class PlanetPosition(BaseModel):
-    planet: str
-    sign: str
-    degree: str
-    house: int
-    longitude: Optional[float] = None
-    latitude: Optional[float] = None
-    speed: Optional[float] = None
-    retrograde: Optional[bool] = None
-    description: Optional[str] = None
+# Standard API prefix for all endpoints
+API_PREFIX = "/api"
 
-class HouseData(BaseModel):
-    number: int
-    sign: str
-    startDegree: float
-    endDegree: float
-    planets: List[PlanetPosition] = []
+# Register all routers with the /api prefix (primary endpoints)
+app.include_router(health_router, prefix=API_PREFIX)
+app.include_router(validate_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(geocode_router, prefix=API_PREFIX)
+app.include_router(chart_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(questionnaire_router, prefix=f"{API_PREFIX}/questionnaire")
+app.include_router(rectify_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(export_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(ai_integration_test_router, prefix=f"{API_PREFIX}/ai")
 
-class Aspect(BaseModel):
-    planet1: str
-    planet2: str
-    aspectType: str
-    orb: float
-    influence: str = Field(..., description="Influence can be 'positive', 'negative', or 'neutral'")
-    description: Optional[str] = None
+# Also register routers at root level for backward compatibility (alternative endpoints)
+app.include_router(health_router)
+app.include_router(validate_router, prefix="/chart")
+app.include_router(geocode_router)
+app.include_router(chart_router, prefix="/chart")
+app.include_router(questionnaire_router, prefix="/questionnaire")
+app.include_router(rectify_router, prefix="/chart")
+app.include_router(export_router, prefix="/chart")
+app.include_router(ai_integration_test_router, prefix="/ai")
 
-class ChartData(BaseModel):
-    ascendant: Union[float, Dict[str, Union[str, float, None]]]
-    planets: List[PlanetPosition]
-    houses: List[HouseData]
-    aspects: List[Aspect] = []
+# Initialize model instance for AI services
+model = None
 
-class QuestionOption(BaseModel):
-    id: str
-    text: str
+def init_model():
+    """
+    Initialize AI model for birth time rectification.
+    This is called lazily when needed.
+    """
+    global model
 
-class DynamicQuestion(BaseModel):
-    id: str
-    text: str
-    type: str = Field(..., description="Question type can be 'yes_no', 'multiple_choice', 'date', or 'text'")
-    options: Union[List[str], List[QuestionOption]] = []
-    weight: float = 1.0
+    # Import model lazily to avoid circular imports
+    from ai_service.models.unified_model import UnifiedRectificationModel
 
-class QuestionAnswer(BaseModel):
-    questionId: str
-    question: str
-    answer: str
+    if model is None:
+        try:
+            logger.info("Initializing AI model...")
+            model = UnifiedRectificationModel()
+            logger.info("AI model initialized successfully.")
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing AI model: {e}")
+            return False
 
-class QuestionnaireResponse(BaseModel):
-    answers: List[QuestionAnswer]
-    confidenceScore: float
-    sessionId: Optional[str] = None
+    return True
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # Initialize AI model at startup
+    init_model()
+    uvicorn.run("ai_service.main:app", host="0.0.0.0", port=8000, reload=True)

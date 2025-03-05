@@ -6,7 +6,6 @@ import os
 # Add the parent directory to the path to allow imports from the ai_service package
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from ai_service.utils.astro_calculator import AstroCalculator, PLACIDUS, WHOLE_SIGN
-import math
 
 class TestAstroCalculations(unittest.TestCase):
 

@@ -413,7 +413,7 @@ const BirthDetailsForm: React.FC<Props> = ({ onSubmit }) => {
 // Chart Container
 const BirthChart: React.FC<Props> = ({ data }) => {
   const [settings, setSettings] = useState(defaultSettings);
-  
+
   return (
     <>
       <ChartControls settings={settings} onChange={setSettings} />
@@ -426,7 +426,7 @@ const BirthChart: React.FC<Props> = ({ data }) => {
 // Chart Renderer
 const ChartRenderer: React.FC<Props> = ({ data, settings }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  
+
   useEffect(() => {
     if (canvasRef.current) {
       renderChart(canvasRef.current, data, settings);
@@ -443,7 +443,7 @@ const ChartRenderer: React.FC<Props> = ({ data, settings }) => {
 describe('BirthDetailsForm', () => {
   it('validates required fields', async () => {
     render(<BirthDetailsForm />);
-    
+
     fireEvent.click(screen.getByRole('button', { name: /submit/i }));
 
     expect(screen.getByText(/required/i)).toBeInTheDocument();
@@ -454,13 +454,13 @@ describe('BirthDetailsForm', () => {
 describe('BirthTimeRectifier', () => {
   it('submits form and displays chart', async () => {
     render(<BirthTimeRectifier />);
-    
+
     // Fill form
     await userEvent.type(screen.getByLabelText(/date/i), '2000-01-01');
-    
+
     // Submit
     fireEvent.click(screen.getByRole('button', { name: /submit/i }));
-    
+
     // Verify chart
     await waitFor(() => {
       expect(screen.getByTestId('chart')).toBeInTheDocument();
@@ -525,7 +525,7 @@ graph TD
 - Code splitting
 - Lazy loading
 - Caching strategies
-- Resource optimization 
+- Resource optimization
 
 ## Deployment Patterns
 1. **Kubernetes Deployment**
@@ -587,4 +587,91 @@ graph TD
    // Combined event handling
    fireEvent.input(element, { target: { value: value } });
    fireEvent.change(element, { target: { value: value } });
-   ``` 
+   ```
+
+## API Endpoint Architecture
+
+### Dual-Registration Pattern
+
+The application implements a dual-registration pattern for API endpoints to ensure backward compatibility while following modern API design principles:
+
+1. **Primary Endpoints** - Using `/api/` prefix:
+   - Chart-related endpoints follow nested routing: `/api/chart/[endpoint]`
+   - Other service endpoints follow flat routing: `/api/[endpoint]`
+
+2. **Alternative Endpoints** - Without `/api/` prefix:
+   - Chart-related endpoints: `/chart/[endpoint]`
+   - Other service endpoints: `/[endpoint]`
+
+This architecture is implemented in `ai_service/main.py` with explicit router registration for both patterns:
+
+```python
+# Register all routers with the /api prefix (primary endpoints)
+app.include_router(health_router, prefix=API_PREFIX)
+app.include_router(validate_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(geocode_router, prefix=API_PREFIX)
+app.include_router(chart_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(questionnaire_router, prefix=f"{API_PREFIX}/questionnaire")
+app.include_router(rectify_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(export_router, prefix=f"{API_PREFIX}/chart")
+
+# Also register routers at root level (alternative endpoints)
+app.include_router(health_router)
+app.include_router(validate_router, prefix="/chart")
+app.include_router(geocode_router)
+app.include_router(chart_router, prefix="/chart")
+app.include_router(questionnaire_router, prefix="/questionnaire")
+app.include_router(rectify_router, prefix="/chart")
+app.include_router(export_router, prefix="/chart")
+```
+
+### Benefits of Dual Registration
+
+1. **Backward Compatibility**: Ensures existing clients continue to work
+2. **Modern API Design**: Follows RESTful conventions with `/api` prefix
+3. **Flexibility**: Allows gradual migration to preferred endpoint patterns
+4. **Testing Simplicity**: Makes testing more robust by supporting multiple paths
+5. **Clear Organization**: Provides logical grouping of related endpoints
+
+### Standardized Response Structure
+
+All API endpoints follow a standardized response structure:
+
+1. **Success Responses**:
+   - Appropriate HTTP status code (200, 201, etc.)
+   - Consistent JSON structure with data payload
+   - Metadata when applicable (pagination, timestamps, etc.)
+
+2. **Error Responses**:
+   - Appropriate HTTP status code (400, 404, 500, etc.)
+   - Consistent error format:
+     ```json
+     {
+       "error": {
+         "code": "ERROR_CODE",
+         "message": "Human-readable error message",
+         "details": { /* Additional error details */ }
+       }
+     }
+     ```
+   - Validation errors with field-specific information
+
+### Frontend Implementation
+
+The frontend uses constants to manage these endpoints, as defined in `tests/e2e/constants.js`:
+
+```javascript
+export const API_ENDPOINTS = {
+    // Primary endpoints (with /api/ prefix)
+    validate: '/api/chart/validate',
+    geocode: '/api/geocode',
+    chartGenerate: '/api/chart/generate',
+    // ...
+
+    // Alternative endpoints without /api/ prefix (for backward compatibility)
+    validateAlt: '/chart/validate',
+    geocodeAlt: '/geocode',
+    chartGenerateAlt: '/chart/generate',
+    // ...
+}
+```

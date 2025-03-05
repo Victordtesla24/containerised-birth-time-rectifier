@@ -3,22 +3,22 @@
  */
 
 // Planet types
-export type PlanetType = 
-  | 'sun' 
-  | 'moon' 
-  | 'mercury' 
-  | 'venus' 
-  | 'mars' 
-  | 'jupiter' 
-  | 'saturn' 
-  | 'uranus' 
-  | 'neptune' 
+export type PlanetType =
+  | 'sun'
+  | 'moon'
+  | 'mercury'
+  | 'venus'
+  | 'mars'
+  | 'jupiter'
+  | 'saturn'
+  | 'uranus'
+  | 'neptune'
   | 'pluto';
 
 // Function to get a standardized planet image path
 export const getPlanetImagePath = (planetName: string): string => {
   const planet = planetName.toLowerCase() as PlanetType;
-  
+
   // Define available images for each planet - using absolute paths to prevent path resolution issues
   const planetImages: Record<PlanetType, string[]> = {
     sun: [
@@ -30,7 +30,7 @@ export const getPlanetImagePath = (planetName: string): string => {
     ],
     moon: [
       '/images/planets/moon/moon-1.jpg',
-      '/images/planets/sun/sun-5.jpg', // Fallback if moon images don't exist
+      '/images/planets/moon/moon-2.jpg',
     ],
     mercury: [
       '/images/planets/mercury/mercury-1.jpg',
@@ -68,10 +68,10 @@ export const getPlanetImagePath = (planetName: string): string => {
       '/images/planets/mercury/mercury-2.jpg', // Fallback to Mercury if Pluto images don't exist
     ],
   };
-  
+
   // Get the image array for the specified planet or default to sun
   const images = planetImages[planet] || planetImages.sun;
-  
+
   // Return first image, or a random one if returnRandom is true
   return images[0];
 };
@@ -79,20 +79,20 @@ export const getPlanetImagePath = (planetName: string): string => {
 // Get a specific planet image by index (0-based)
 export const getPlanetImageByIndex = (planetName: string, index: number): string => {
   const planet = planetName.toLowerCase() as PlanetType;
-  
+
   // Get the image array for the specified planet or default to sun
   const images = getPlanetImagePaths(planet);
-  
+
   // Ensure index is within bounds
   const safeIndex = Math.max(0, Math.min(index, images.length - 1));
-  
+
   return images[safeIndex];
 };
 
 // Get all image paths for a specific planet
 export const getPlanetImagePaths = (planetName: string): string[] => {
   const planet = planetName.toLowerCase() as PlanetType;
-  
+
   const planetImages: Record<PlanetType, string[]> = {
     sun: [
       '/images/planets/sun/sun-1.jpg',
@@ -103,7 +103,7 @@ export const getPlanetImagePaths = (planetName: string): string[] => {
     ],
     moon: [
       '/images/planets/moon/moon-1.jpg',
-      '/images/planets/sun/sun-5.jpg', // Fallback
+      '/images/planets/moon/moon-2.jpg',
     ],
     mercury: [
       '/images/planets/mercury/mercury-1.jpg',
@@ -141,14 +141,14 @@ export const getPlanetImagePaths = (planetName: string): string[] => {
       '/images/planets/mercury/mercury-2.jpg',
     ],
   };
-  
+
   return planetImages[planet] || planetImages.sun;
 };
 
 // Get fallback color for planets
 export const getPlanetFallbackColor = (planetName: string): string => {
   const planet = planetName.toLowerCase();
-  
+
   switch (planet) {
     case 'sun': return '#ff9900';
     case 'moon': return '#e0e0e0';
@@ -167,7 +167,7 @@ export const getPlanetFallbackColor = (planetName: string): string => {
 // Get glow color for planets
 export const getPlanetGlowColor = (planetName: string): string => {
   const planet = planetName.toLowerCase();
-  
+
   switch (planet) {
     case 'sun': return 'rgba(255, 160, 60, 0.8)';
     case 'moon': return 'rgba(220, 220, 240, 0.5)';
@@ -188,6 +188,6 @@ export const getAllPlanetImagePaths = (): string[] => {
   const planets: PlanetType[] = [
     'sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn'
   ];
-  
+
   return planets.map(planet => getPlanetImagePath(planet));
-}; 
+};

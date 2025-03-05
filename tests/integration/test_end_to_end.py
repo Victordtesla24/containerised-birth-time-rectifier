@@ -6,10 +6,8 @@ Validates the complete flow from frontend to backend.
 import os
 import sys
 import pytest
-import json
 import logging
 from fastapi.testclient import TestClient
-from datetime import datetime
 
 # Add the root directory to the path so we can import from the ai_service module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))

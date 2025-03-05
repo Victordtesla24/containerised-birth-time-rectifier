@@ -17,7 +17,7 @@ This implementation plan details the integration of UI/UX with backend services 
 
 ### 2.1 System Integration Overview
 
-```mermaid  
+```mermaid
 graph TD
     A[Landing Page] --> B[Birth Details Form]
     B --> C{Valid Details?}
@@ -37,15 +37,28 @@ graph TD
 
 ### 2.2 Integration Points
 
-| Frontend Component | API Endpoint | Backend Service |
-|--------------------|--------------|-----------------|
-| Birth Details Form | `/api/validate` | Validation Service |
-| Birth Details Form | `/api/geocode` | Geocoding Service |
-| Initial Chart Gen | `/api/chart/generate` | Chart Calculation Service |
-| Chart Visualization | `/api/chart/{id}` | Chart Retrieval Service |
-| Questionnaire | `/api/questionnaire` | Dynamic Questionnaire Service |
-| Results | `/api/rectify` | Birth Time Rectification Service |
-| Export/Share | `/api/export` | Export Service |
+| Frontend Component | Primary API Endpoint | Alternative Endpoint | Backend Service |
+|--------------------|---------------------|----------------------|-----------------|
+| Birth Details Form | `/api/chart/validate` | `/chart/validate` | Validation Service |
+| Birth Details Form | `/api/geocode` | `/geocode` | Geocoding Service |
+| Initial Chart Gen | `/api/chart/generate` | `/chart/generate` | Chart Calculation Service |
+| Chart Visualization | `/api/chart/{id}` | `/chart/{id}` | Chart Retrieval Service |
+| Questionnaire | `/api/questionnaire` | `/questionnaire` | Dynamic Questionnaire Service |
+| Results | `/api/chart/rectify` | `/chart/rectify` | Birth Time Rectification Service |
+| Export/Share | `/api/chart/export` | `/chart/export` | Export Service |
+| Health Check | `/api/health` | `/health` | Health Monitoring |
+
+**Note:** The application implements a dual-registration pattern where both endpoint versions are supported:
+1. **Primary Endpoints** - Using `/api/` prefix:
+   - Chart-related endpoints follow nested routing: `/api/chart/[endpoint]`
+   - Other service endpoints follow flat routing: `/api/[endpoint]`
+2. **Alternative Endpoints** - Without `/api/` prefix:
+   - Chart-related endpoints: `/chart/[endpoint]`
+   - Other service endpoints: `/[endpoint]`
+3. Both endpoint patterns are fully functional and maintained for backward compatibility
+4. Primary endpoints with `/api/` prefix are recommended for new development
+
+This dual-registration pattern is implemented in `ai_service/main.py` and provides both consistency and backward compatibility. For more details on the API architecture, see `api_architecture_docs.md`.
 
 ## 3. UI/UX Components Integration
 
@@ -73,7 +86,7 @@ graph TD
 - Implement animated transitions to next page
 
 **Backend Integration:**
-- Connect to `/api/validate` for server-side validation
+- Connect to `/api/chart/validate` for server-side validation
 - Integrate with `/api/geocode` for location data
 - Store form data in session state
 
@@ -378,9 +391,56 @@ def calculate_ascendant(jd, latitude, longitude, hsys=PLACIDUS):
 
 ## 6. API Endpoints Implementation
 
-### 6.1 Chart Generation API
+### 6.1 Standardized API Architecture
 
-**Endpoint:** `POST /api/chart/generate`
+All API endpoints follow a standardized architecture with dual-registration pattern:
+
+1. **Endpoint Registration Pattern**:
+   - Primary endpoints use `/api/` prefix (recommended for new development)
+   - Alternative endpoints registered at root level (for backward compatibility)
+   - Consistent application across all services
+
+2. **Router Organization**:
+   - Chart-related endpoints grouped under `/api/chart/` and `/chart/`
+   - Standalone services registered directly under `/api/` and root
+   - Modular router files by functionality (chart.py, validate.py, geocode.py, etc.)
+
+3. **Implementation in main.py**:
+```python
+# Register with /api prefix (primary endpoints)
+app.include_router(health_router, prefix=API_PREFIX)
+app.include_router(validate_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(geocode_router, prefix=API_PREFIX)
+app.include_router(chart_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(questionnaire_router, prefix=f"{API_PREFIX}/questionnaire")
+app.include_router(rectify_router, prefix=f"{API_PREFIX}/chart")
+app.include_router(export_router, prefix=f"{API_PREFIX}/chart")
+
+# Register at root level (alternative endpoints)
+app.include_router(health_router)
+app.include_router(validate_router, prefix="/chart")
+app.include_router(geocode_router)
+app.include_router(chart_router, prefix="/chart")
+app.include_router(questionnaire_router, prefix="/questionnaire")
+app.include_router(rectify_router, prefix="/chart")
+app.include_router(export_router, prefix="/chart")
+```
+
+4. **Standardized Response Structure**:
+   - Consistent JSON format
+   - Appropriate HTTP status codes
+   - Detailed error messages and codes
+   - Proper validation errors
+
+5. **Documentation**:
+   - Comprehensive API docs in `api_architecture_docs.md`
+   - Consistent examples for each endpoint
+   - Testing guidance for both endpoint patterns
+
+### 6.2 Chart Generation API
+
+**Endpoint:** `POST /api/chart/generate` (Primary)
+**Alternative:** `POST /chart/generate`
 
 **Request:**
 ```json
@@ -491,9 +551,10 @@ def generate_chart():
         return jsonify({'error': str(e)}), 500
 ```
 
-### 6.2 Chart Retrieval API
+### 6.3 Chart Retrieval API
 
-**Endpoint:** `GET /api/chart/{id}`
+**Endpoint:** `GET /api/chart/{id}` (Primary)
+**Alternative:** `GET /chart/{id}`
 
 **Response:**
 ```json
@@ -1095,7 +1156,16 @@ By following this plan, we will deliver a seamless, accurate, and user-friendly 
   - Updated endpoint structure with proper error handling
   - Fixed routing issues with `/api` prefixed endpoints by implementing root-level endpoints
   - Added health checks and monitoring endpoints
-  - Included root-level endpoints for backward compatibility and as a workaround for API router issues
+  - Implemented dual-registration pattern for all API endpoints:
+    - Primary endpoints with `/api` prefix: `/api/chart/validate`, `/api/geocode`, etc.
+    - Alternative endpoints at root level: `/chart/validate`, `/geocode`, etc.
+  - Ensured consistent endpoint organization:
+    - Chart-related endpoints under `/api/chart/` and `/chart/`
+    - Other services as direct routes under `/api/` and root
+  - Added comprehensive API documentation in `api_architecture_docs.md`
+  - Centralized API endpoint definitions in `tests/e2e/constants.js`
+  - Provided standardized error responses across all endpoints
+  - Improved request validation using Pydantic models
 
 ### 1.2 Astrological Calculation Engine
 
@@ -1139,6 +1209,44 @@ By following this plan, we will deliver a seamless, accurate, and user-friendly 
   - Implemented Redis for session management and data caching
   - Created in-memory chart storage for efficient retrieval
   - Added unique ID generation for storing and retrieving generated charts
+
+### 1.8 Caching and Performance Optimization
+
+- **Status**: ✅ Completed
+- **Details**:
+  - Implemented Redis-based caching for chart calculations
+  - Added caching for frequently accessed data
+  - Optimized database queries with proper indexing
+  - Implemented lazy loading for components
+  - Added client-side caching with appropriate headers
+  - Utilized service workers for offline capabilities
+
+### 1.9 API Endpoint Architecture
+
+- **Status**: ✅ Completed with Dual-Registration Pattern
+- **Details**:
+  - Implemented consistent API architecture across the application
+  - Adopted dual-registration pattern for backward compatibility:
+    - **Primary Endpoints**: With `/api/` prefix (e.g., `/api/chart/validate`)
+    - **Alternative Endpoints**: Without prefix (e.g., `/chart/validate`)
+  - Organized endpoints by domain area:
+    - Chart-related endpoints grouped under `/api/chart/` and `/chart/`
+    - Standalone services (health, geocode) at `/api/` and root
+  - Standardized response formats across all endpoints
+  - Added comprehensive error handling with appropriate status codes
+  - Implemented detailed logging for API requests and responses
+  - Created centralized API endpoint documentation
+  - Maintained backward compatibility while encouraging use of primary endpoints
+  - Added API endpoint validation in test suite
+  - Testing framework validates both endpoint patterns
+  - Ensured consistent API structure across frontend and backend
+
+The dual-registration pattern offers several advantages:
+1. Backward compatibility for existing clients
+2. Modern API structure with consistent prefixing
+3. Simpler testing with multiple access points
+4. Gradual migration path for clients
+5. Flexibility in endpoint organization
 
 ## 2. Frontend Components
 

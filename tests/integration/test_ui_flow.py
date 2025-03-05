@@ -1,6 +1,5 @@
 import pytest
 import requests
-import json
 import time
 import os
 from selenium import webdriver

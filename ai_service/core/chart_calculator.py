@@ -6,7 +6,6 @@ It includes specialized calculations for Ketu and Ascendant positions.
 """
 
 import swisseph as swe
-import math
 from datetime import datetime
 import pytz
 try:

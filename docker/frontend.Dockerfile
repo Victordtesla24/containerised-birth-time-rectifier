@@ -1,66 +1,73 @@
-# Base stage for both development and production
+# Base stage
 FROM node:20-slim as base
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
+# Set working directory
 WORKDIR /app
-ENV NODE_ENV=production
 
-# Development stage
-FROM base as development
-ENV NODE_ENV=development \
-    NEXT_TELEMETRY_DISABLED=1
+# Set environment variables
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build stage
+FROM base as builder
+
+# Set environment variables for build
+ENV NODE_ENV=development
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with cache optimization
-RUN mkdir -p /app/node_modules && chown -R node:node /app/
-USER node
-RUN npm ci
+# Install dependencies
+RUN npm ci --ignore-scripts --legacy-peer-deps
 
-# Copy source code with correct permissions
-COPY --chown=node:node . .
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Development stage (for development with hot reloading)
+FROM base as development
+
+# Set environment variables for development
+ENV NODE_ENV=development
+ENV PORT=3000
+
+# Copy package files
+COPY package*.json ./
+
+# Install development dependencies
+RUN npm ci --legacy-peer-deps
+
+# Expose port
+EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000 || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || curl -f http://localhost:3000/health || exit 1
 
 # Start development server
 CMD ["npm", "run", "dev"]
 
-# Build stage
-FROM base as builder
-COPY package*.json ./
-RUN mkdir -p /app/node_modules && chown -R node:node /app/
-USER node
-RUN npm ci
-COPY --chown=node:node . .
-RUN npm run build
-
 # Production stage
 FROM base as production
-RUN mkdir -p /app/node_modules && chown -R node:node /app/
-USER node
-COPY --chown=node:node --from=builder /app/package*.json ./
-RUN npm ci --only=production
-COPY --chown=node:node --from=builder /app/.next ./.next
-COPY --chown=node:node --from=builder /app/public ./public
-COPY --chown=node:node --from=builder /app/next.config.js ./
 
-# Set environment variables
-ENV PORT=3000 \
-    NEXT_TELEMETRY_DISABLED=1
+# Set environment variables for production
+ENV NODE_ENV=production
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000 || exit 1
+# Copy package files, built app, and public directory from build stage
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
 
-# Expose the port
+# Install production dependencies only
+RUN npm ci --omit=dev --legacy-peer-deps
+
+# Expose port
 EXPOSE 3000
 
-# Start the application
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health || curl -f http://localhost:3000/health || exit 1
+
+# Start production server
 CMD ["npm", "start"]

@@ -1,0 +1,77 @@
+# Test-specific overrides for docker-compose.yml
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.test.yml up
+
+services:
+  frontend:
+    container_name: birth-rectifier-frontend-test
+    environment:
+      - NODE_ENV=test
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  ai_service:
+    container_name: birth-rectifier-ai-test
+    environment:
+      - ENVIRONMENT=test
+    command: /app/.venv/bin/python -m uvicorn ai_service.api.main:app --host 0.0.0.0 --port 8000
+
+  redis:
+    container_name: birth-rectifier-redis-test
+    command: redis-server
+
+  # Add a test runner service
+  test-runner:
+    image: mcr.microsoft.com/playwright:v1.40.0-jammy
+    container_name: birth-rectifier-test-runner
+    profiles:
+      - test
+    volumes:
+      - .:/app
+      - ./.tmp/playwright-cache:/ms-playwright
+      - /tmp:/tmp
+    working_dir: /app
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://frontend:3000
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - DEBUG=pw:browser*,pw:install,pw:api,pw:protocol
+      - TEST_URL=http://frontend:3000
+      - DOCKER_ENV=true
+      # Set shared memory size to prevent browser crashes in Docker
+      - SHM_SIZE=4g
+    shm_size: 4g
+    networks:
+      - default
+    restart: "no"
+    depends_on:
+      ai_service:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      set -e
+      echo 'Setting up Playwright environment...'
+
+      # Install dependencies
+      npm ci
+
+      # Install Playwright browsers with debugging (ensure with-deps flag is used)
+      npx playwright install --with-deps chromium
+
+      # Check browser installation
+      echo 'Checking browser installations:'
+      find /ms-playwright -type f -name 'chrome*' -o -name 'headless*'
+
+      # Run the specific test with verbose debugging
+      echo 'Running application flow test...'
+      DEBUG=pw:browser*,pw:api,pw:protocol npx playwright test --verbose -g 'complete astrological chart application flow'
+    mem_limit: 4g
+
+volumes:
+  playwright-browsers:
+    driver: local

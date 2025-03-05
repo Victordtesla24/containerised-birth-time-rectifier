@@ -7,8 +7,6 @@ import os
 import sys
 import pytest
 import torch
-import numpy as np
-from datetime import datetime, timedelta
 import logging
 
 # Add the root directory to the path so we can import from the ai_service module

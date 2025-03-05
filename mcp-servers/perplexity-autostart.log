@@ -7,3 +7,15 @@
 [2025-02-25T02:54:30.781Z] === Perplexity Autostart ===
 [2025-02-25T02:54:30.798Z] Service already running with PID 16860
 [2025-02-25T02:54:30.798Z] Autostart check completed
+[2025-03-04T12:26:08.771Z] === Perplexity Autostart ===
+[2025-03-04T12:26:08.805Z] PID 16860 not found, removing stale PID file
+[2025-03-04T12:26:08.806Z] Starting Perplexity API bridge...
+[2025-03-04T12:26:08.809Z] Error starting service: The argument 'stdio' is invalid. Received WriteStream {
+  fd: null,
+  path: '/app/mcp-servers/perplexity-bridge.log',
+  flags: 'a',
+  mode: 438,
+  start: undefined,
+  pos...
+[2025-03-04T12:26:08.810Z] Failed to start Perplexity service
+[2025-03-04T12:26:08.810Z] Autostart check completed

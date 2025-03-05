@@ -1,6 +1,5 @@
 import unittest
 from datetime import datetime
-import math
 from ai_service.utils.astro_calculator import AstroCalculator, WHOLE_SIGN, PLACIDUS
 
 # Test data with known accurate results

@@ -7,7 +7,6 @@ flatlib, avoiding the dependency on the older pyswisseph version.
 
 import logging
 from datetime import datetime
-from . import swisseph as swe
 from .astro_calculator import AstroCalculator, SIGNS
 
 logger = logging.getLogger(__name__)

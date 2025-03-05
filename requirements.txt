@@ -4,6 +4,7 @@ uvicorn==0.23.2
 pydantic==2.3.0
 pytest==7.4.3
 pytest-asyncio>=0.21.1
+PyJWT==2.8.0  # Added for JWT token handling
 
 # Swiss Ephemeris library
 pyswisseph==2.10.3.2
@@ -22,6 +23,7 @@ pytz==2024.1
 numpy==1.26.4
 pandas==2.2.1
 requests==2.31.0
+urllib3<2.0.0  # Downgraded to be compatible with LibreSSL 2.8.3
 aiohttp==3.9.3
 
 # Frontend connection
@@ -37,6 +39,8 @@ scikit-learn==1.4.1.post1
 tensorflow==2.15.0  # Using base package for container compatibility
 torch==2.2.1
 transformers==4.38.2  # Added for unified rectification model
+openai==1.10.0     # Required for OpenAI API integration
+tenacity==8.2.3    # Required for retry logic with OpenAI API
 
 # Testing and development
 pytest-cov>=4.1.0

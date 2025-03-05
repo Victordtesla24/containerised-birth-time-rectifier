@@ -5,11 +5,10 @@ Handles user registration, login, and profile management.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Security
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
-from typing import Dict, List, Optional, Any
+from typing import Dict, List
 from datetime import datetime, timedelta
 
-from ai_service.models.user import UserCreate, UserOut, UserLogin, UserUpdate, Token
+from ai_service.models.user import UserCreate, UserOut, UserUpdate, Token
 from ai_service.services.auth import (
     create_user, authenticate_user, create_access_token, verify_token,
     get_user_by_id, convert_to_user_out, update_user_preferences,
@@ -17,7 +16,7 @@ from ai_service.services.auth import (
 )
 
 # Create router
-auth_router = APIRouter(tags=["auth"])
+router = APIRouter(tags=["auth"])
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -37,7 +36,7 @@ async def get_current_user(token: str = Security(oauth2_scheme)) -> str:
 
 
 # Auth endpoints
-@auth_router.post("/register", response_model=UserOut)
+@router.post("/auth/register", response_model=UserOut)
 async def register_user(user_create: UserCreate):
     """Register a new user."""
     try:
@@ -50,7 +49,7 @@ async def register_user(user_create: UserCreate):
         )
 
 
-@auth_router.post("/login", response_model=Token)
+@router.post("/auth/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Login a user with username/email and password."""
     # Form data uses username field, but we support login with email
@@ -77,7 +76,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     )
 
 
-@auth_router.get("/me", response_model=UserOut)
+@router.get("/auth/me", response_model=UserOut)
 async def get_current_user_profile(user_id: str = Depends(get_current_user)):
     """Get the current user's profile."""
     user = get_user_by_id(user_id)
@@ -90,7 +89,7 @@ async def get_current_user_profile(user_id: str = Depends(get_current_user)):
     return convert_to_user_out(user)
 
 
-@auth_router.put("/me", response_model=UserOut)
+@router.put("/auth/me", response_model=UserOut)
 async def update_current_user(
     user_update: UserUpdate,
     user_id: str = Depends(get_current_user)
@@ -116,13 +115,13 @@ async def update_current_user(
 
 
 # Saved charts management endpoints
-@auth_router.get("/me/charts", response_model=List[str])
+@router.get("/auth/me/charts", response_model=List[str])
 async def get_user_saved_charts(user_id: str = Depends(get_current_user)):
     """Get all charts saved by the current user."""
     return get_user_charts(user_id)
 
 
-@auth_router.post("/me/charts/{chart_id}", response_model=Dict[str, bool])
+@router.post("/auth/me/charts/{chart_id}", response_model=Dict[str, bool])
 async def save_chart(
     chart_id: str,
     user_id: str = Depends(get_current_user)
@@ -138,7 +137,7 @@ async def save_chart(
     return {"success": True}
 
 
-@auth_router.delete("/me/charts/{chart_id}", response_model=Dict[str, bool])
+@router.delete("/auth/me/charts/{chart_id}", response_model=Dict[str, bool])
 async def remove_saved_chart(
     chart_id: str,
     user_id: str = Depends(get_current_user)

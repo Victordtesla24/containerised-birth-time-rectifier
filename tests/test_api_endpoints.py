@@ -1,15 +1,13 @@
-import pytest
-from fastapi.testclient import TestClient
-import json
 import os
 import sys
-from typing import Dict, Any
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Import the FastAPI app
-from ai_service.api.main import app
+# These imports rely on the modified path
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from ai_service.main import app  # noqa: E402
 
 # Create test client
 client = TestClient(app)
@@ -44,11 +42,11 @@ def test_chart_generation():
     }
 
     # Test the endpoint
-    response = client.post("/charts", json=request_data)
+    response = client.post("/chart/generate", json=request_data)
 
     # If this fails, try the alternative endpoint
     if response.status_code == 404:
-        response = client.post("/api/charts", json=request_data)
+        response = client.post("/api/chart/generate", json=request_data)
 
     assert response.status_code == 200
     data = response.json()

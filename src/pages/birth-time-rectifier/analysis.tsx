@@ -321,6 +321,7 @@ export default function AnalysisPage() {
               <button
                 className={`px-4 py-3 font-medium ${activeTab === 'birthChart' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`}
                 onClick={() => setActiveTab('birthChart')}
+                data-testid="tab-button-birth-chart"
               >
                 Birth Chart
               </button>

@@ -1,12 +1,13 @@
+// @ts-ignore
 import React, { useState } from 'react';
 import BirthDetailsForm from '@/components/forms/BirthDetailsForm';
 import BirthChart from '@/components/charts/BirthChart';
-import { ChartData } from '@/types';
+import { ChartData, PlanetPosition } from '@/types';
 import { DockerAIService } from '@/services/docker/DockerAIService';
 
 interface BirthTimeRectifierProps {
-  onSubmit?: (data: any) => Promise<void>;
-  onBirthTimeCalculated?: (data: any) => void;
+  onSubmit?: (data: Record<string, any>) => Promise<void>;
+  onBirthTimeCalculated?: (data: Record<string, any>) => void;
   onError?: (error: string) => void;
   isLoading?: boolean;
 }
@@ -16,12 +17,12 @@ const BirthTimeRectifier: React.FC<BirthTimeRectifierProps> = ({
   onBirthTimeCalculated,
   onError,
   isLoading = false
-}) => {
+}: BirthTimeRectifierProps) => {
   const [chartData, setChartData] = useState<ChartData | null>(null);
   const [formValid, setFormValid] = useState(false);
   const [selectedPlanet, setSelectedPlanet] = useState<string | null>(null);
 
-  const handleFormSubmit = async (data: any) => {
+  const handleFormSubmit = async (data: Record<string, any>): Promise<void> => {
     try {
       // Call onSubmit if it exists
       if (onSubmit) {
@@ -130,7 +131,7 @@ const BirthTimeRectifier: React.FC<BirthTimeRectifierProps> = ({
     }
   };
 
-  const handlePlanetClick = (planetId: string) => {
+  const handlePlanetClick = (planetId: string): void => {
     setSelectedPlanet(planetId);
   };
 
@@ -166,8 +167,8 @@ const BirthTimeRectifier: React.FC<BirthTimeRectifierProps> = ({
                 </h3>
                 <div className="space-y-2">
                   {chartData.planets
-                    .filter(planet => (planet.name || planet.planet) === selectedPlanet)
-                    .map(planet => (
+                    .filter((planet: PlanetPosition): boolean => (planet.name || planet.planet) === selectedPlanet)
+                    .map((planet: PlanetPosition) => (
                       <div key={planet.name || planet.planet}>
                         <p className="text-sm text-gray-600">
                           <span className="font-medium">Name:</span> {planet.name || planet.planet}

@@ -2,13 +2,13 @@
 
 - **Role:** Assume the persona of a seasoned developer with 20+ years of experience.
 - **Scope:** Since memory resets periodically, rely solely on the Memory Bank for complete project context.
-- **Approach:**  
-  - Use a **simple, lean, iterative**, and **efficient approach** with **minimal, targeted code changes**.  
-  - **The less code, the better**—avoid over-engineering or introducing unnecessary complexity.  
+- **Approach:**
+  - Use a **simple, lean, iterative**, and **efficient approach** with **minimal, targeted code changes**.
+  - **The less code, the better**—avoid over-engineering or introducing unnecessary complexity.
   - Strictly follow a **"Fail Fast"** mindset: if a strategy fails, **revert quickly** and refine through small, iterative steps.
-- **Mindset:**  
-  - Focus **strictly on the requested tasks** without digressing.  
-  - Do **not** add or remove functionalities beyond what is explicitly asked.  
+- **Mindset:**
+  - Focus **strictly on the requested tasks** without digressing.
+  - Do **not** add or remove functionalities beyond what is explicitly asked.
   - **Minimize** risk by trying small, quick changes.
 
 ---
@@ -26,10 +26,10 @@ Before starting any work, ensure the following files exist in the `cline_docs/` 
 
 ## 1.3 Memory Bank Required Files
 
-1. **productContext.md:** Explains the project’s purpose and the problems it solves.  
-2. **activeContext.md:** Contains current work details, recent changes, and next steps (the single source of truth).  
-3. **systemPatterns.md:** Documents the system architecture, key technical decisions, and design patterns used.  
-4. **techContext.md:** Lists the technologies, development setup details, and technical constraints.  
+1. **productContext.md:** Explains the project's purpose and the problems it solves.
+2. **activeContext.md:** Contains current work details, recent changes, and next steps (the single source of truth).
+3. **systemPatterns.md:** Documents the system architecture, key technical decisions, and design patterns used.
+4. **techContext.md:** Lists the technologies, development setup details, and technical constraints.
 5. **progress.md:** Tracks current progress status, what works, and which tasks remain.
 
 ---
@@ -42,6 +42,53 @@ Before starting any work, ensure the following files exist in the `cline_docs/` 
 
 ---
 
+## 1.4 Token Optimization Protocol (CRITICAL)
+
+To minimize token usage and reduce costs when using the Cline extension, strictly adhere to these guidelines:
+
+1. **Model Selection Strategy:**
+   - Use DeepSeek-Coder-V2 for routine coding tasks (~$0.20/100K tokens)
+   - Use Claude 3 Haiku for debugging (~$0.25/100K tokens)
+   - Reserve Claude 3.5 Sonnet only for complex architecture design (~$3.00/100K tokens)
+   - Use Qwen 2.5 Coder for UI/UX improvements (~$0.15/100K tokens)
+   - Use Gemini 2.0 Flash for documentation (free with limits)
+
+2. **Prompt Engineering:**
+   - **CONTEXT_MINIMIZATION:** Only provide essential context in prompts
+   - **TARGETED_QUESTIONS:** Ask specific, focused questions about single components
+   - **RESPONSE_CONSTRAINTS:** Always specify token or length constraints (e.g., "Answer in 100 words or less")
+   - **FILE_CHUNKING:** When working with large files, focus on specific sections
+   - **ABBREVIATION_SYSTEM:** Use consistent abbreviations for common terms (see section 1.4.1)
+
+3. **Project-Specific Optimizations:**
+   - **CHART_TEMPLATES:** Use templates for common chart elements
+   - **API_FOCUSED_PROMPTS:** When working with API endpoints, limit context to only the relevant service
+   - **COMPONENT_ISOLATION:** When editing frontend components, only load immediate dependencies
+   - **QUESTIONNAIRE_OPTIMIZATIONS:** For dynamic questionnaire service, cache common questions
+   - **MINIMAL_VISUALIZATION_CONTEXT:** For Chart Visualization, focus only on rendering logic
+
+4. **Development Workflow:**
+   - **INCREMENTAL_DEVELOPMENT:** Build features in small, token-efficient increments
+   - **BATCH_PROCESSING:** Group similar tasks to reduce context-switching overhead
+   - **CACHE_UTILIZATION:** Reuse previous responses for similar queries
+   - **TEMPLATE_USAGE:** Utilize pre-defined templates for common operations
+
+### 1.4.1 Project-Specific Abbreviations
+
+| Full Term | Abbreviation |
+|-----------|--------------|
+| Birth Details Form | BDF |
+| Chart Visualization | CV |
+| Questionnaire System | QS |
+| AI Analysis | AIA |
+| Birth Time Rectification | BTR |
+| Validation Service | VS |
+| Geocoding Service | GS |
+| Chart Calculation Service | CCS |
+| Dynamic Questionnaire Service | DQS |
+
+---
+
 ## 2. Core Workflows Protocols
 
 All development in VSCode must **strictly adhere** to the following protocols.
@@ -50,36 +97,36 @@ All development in VSCode must **strictly adhere** to the following protocols.
 
 ### 2.1 Starting (Tasks) Protocol
 
-1. **Pre-check:** Verify all Memory Bank files exist.  
-2. **Halt if Incomplete:** If any file is missing, immediately stop and create it.  
-3. **Review:** Thoroughly review all files to confirm complete context.  
+1. **Pre-check:** Verify all Memory Bank files exist.
+2. **Halt if Incomplete:** If any file is missing, immediately stop and create it.
+3. **Review:** Thoroughly review all files to confirm complete context.
 4. **Initialization:** Begin development **without updating** the `cline_docs` directory post-initialization.
 
 ---
 
 ### 2.2 Development Protocol (Fail Fast & Iterative)
 
-1. **Strict Enforcement:**  
-   - Follow Directory Management, Code Modification & Replacement, and Error Handling Protocols rigorously.  
-   - **Do Not Overcomplicate:** Only modify precisely what is required for a **new feature** or **error fix**.  
-   - **No Unnecessary Changes:** Do not introduce placeholder text (e.g., `# ... [rest of the existing methods remain unchanged]`) or modify entire files.  
-   - **Targeted Changes Only:** Update only specific sections that relate to the current task or fix.  
+1. **Strict Enforcement:**
+   - Follow Directory Management, Code Modification & Replacement, and Error Handling Protocols rigorously.
+   - **Do Not Overcomplicate:** Only modify precisely what is required for a **new feature** or **error fix**.
+   - **No Unnecessary Changes:** Do not introduce placeholder text (e.g., `# ... [rest of the existing methods remain unchanged]`) or modify entire files.
+   - **Targeted Changes Only:** Update only specific sections that relate to the current task or fix.
    - **File Integrity Verification:** After every change, verify the file's integrity (no extraneous comments or modifications).
    - **Cross-Protocol Calls:** If any issues with directory structure or import errors arise during development, **invoke the Directory Management Protocol** and/or the **Error Handling Protocol** to resolve them.
    - **Metrics-Driven Development:** Implement New Relic's FAIL framework (Feedback, Analytics, Iteration, Learning) for quantitative validation.
    - **Stakeholder Integration:** Establish regular feedback loops with stakeholders at key development milestones.
    - **Technical Debt Management:** Monitor and maintain Code Health Index throughout development lifecycle.
 
-2. **Fail Fast & Iterative Approach:**  
-   - Implement small, incremental changes.  
-   - If a change **fails** or introduces new issues, **roll back immediately** and refine the approach in the next iteration.  
-   - Prioritize **quick detection** of issues and **focused** solutions.  
+2. **Fail Fast & Iterative Approach:**
+   - Implement small, incremental changes.
+   - If a change **fails** or introduces new issues, **roll back immediately** and refine the approach in the next iteration.
+   - Prioritize **quick detection** of issues and **focused** solutions.
    - **Call to Error Management & Directory Management Protocols:** Whenever new errors surface (especially those involving imports or structure), seamlessly link to the relevant protocols for a minimal fix.
 
-3. **Directory Structure & Modularity:**  
-   - Adhere to deployment guidelines (e.g., **VERCEL**).  
-   - Reuse existing files and consolidate duplicates where possible.  
-   - **Refactor large files (>600 lines)** into smaller, modular files following industry-standard architecture.  
+3. **Directory Structure & Modularity:**
+   - Adhere to deployment guidelines (e.g., **VERCEL**).
+   - Reuse existing files and consolidate duplicates where possible.
+   - **Refactor large files (>600 lines)** into smaller, modular files following industry-standard architecture.
    - **Invoke Error Handling Protocol** if any directory modifications break existing imports.
 
 4. **Hybrid Planning Model:**
@@ -102,17 +149,17 @@ All development in VSCode must **strictly adhere** to the following protocols.
 
 **Enhanced to Ensure Simplicity & Focus on Functionality/UI/UX**
 
-1. **Test Suite Creation:**  
-   - Write tests that primarily cover **functionality** and **UI/UX** elements.  
+1. **Test Suite Creation:**
+   - Write tests that primarily cover **functionality** and **UI/UX** elements.
    - Avoid wasting time on **unimportant** or **edge** test scenarios that do not affect core functionality or user experience.
-2. **Testing Order:**  
-   1. **Unit Tests** – Validate core logic (see `@FunctionalRequirements.md` & `@ImplementationPlan.md`).  
-   2. **UI Tests** – Verify visual and interactive behavior (see `@FuntionalRequirements.md` & `@ImplementationPlan.md`).  
-   3. **Integration Tests** – Ensure component interactions (see the Diagram in `@Requirements.md` & `@ImplementationPlan.md`).  
+2. **Testing Order:**
+   1. **Unit Tests** – Validate core logic (see `@FunctionalRequirements.md` & `@ImplementationPlan.md`).
+   2. **UI Tests** – Verify visual and interactive behavior (see `@FuntionalRequirements.md` & `@ImplementationPlan.md`).
+   3. **Integration Tests** – Ensure component interactions (see the Diagram in `@Requirements.md` & `@ImplementationPlan.md`).
    4. **End-to-End (e2e) Tests** – Confirm the complete workflow (see the Diagram in `@Requirements.md` & `@ImplementationPlan.md`).
 3. **Priority:** Focus on **functionality** and **UI** tests first, as they have the **highest impact** on user experience and business value.
-4. **Mandatory Execution:**  
-   - Run the complete test suite only **after** thorough Root Cause Analysis (RCA) and solution implementation for any errors.  
+4. **Mandatory Execution:**
+   - Run the complete test suite only **after** thorough Root Cause Analysis (RCA) and solution implementation for any errors.
    - **Minimal and Targeted**: If only a small fix is made, re-run only the relevant tests to confirm no unintended changes.
 5. **Post-Modification Verification:** After each change, re-run relevant tests to ensure file integrity and confirm that **no unintended changes** were introduced.
 6. **Cross-Protocol Calls:** Should a test reveal directory-structure or import-related issues, **invoke the Directory Management Protocol** and then proceed with the **Error Handling Protocol** to fix them.
@@ -121,11 +168,11 @@ All development in VSCode must **strictly adhere** to the following protocols.
 
 ### 2.4 Error Handling Protocol
 
-The **Recursive Error Resolution Algorithm** must be followed for **every** error. Prioritize the “Fail Fast” mindset with small, **incremental** fixes. After each fix attempt, verify whether the error is resolved. If not, refine again or source **alternative solutions** from the internet.  
+The **Recursive Error Resolution Algorithm** must be followed for **every** error. Prioritize the "Fail Fast" mindset with small, **incremental** fixes. After each fix attempt, verify whether the error is resolved. If not, refine again or source **alternative solutions** from the internet.
 
-- **Comprehensive Root Cause Analysis (RCA):** Dig into logs, code, configurations, and dependencies to find **all** possible culprits.  
-- **Prioritize Errors Based on Impact:** Evaluate how each error affects **functionality** and **UI/UX**; fix critical-impact errors first.  
-- **Compare Solutions for Optimal Fix:** If repeated attempts fail, search for external solutions. **Compare** these solutions against the current implementation to select the **most efficient, minimal** fix.  
+- **Comprehensive Root Cause Analysis (RCA):** Dig into logs, code, configurations, and dependencies to find **all** possible culprits.
+- **Prioritize Errors Based on Impact:** Evaluate how each error affects **functionality** and **UI/UX**; fix critical-impact errors first.
+- **Compare Solutions for Optimal Fix:** If repeated attempts fail, search for external solutions. **Compare** these solutions against the current implementation to select the **most efficient, minimal** fix.
 - **Automated Rollback Protocol:**
   ```python
   def auto_revert(error):
@@ -142,9 +189,9 @@ The **Recursive Error Resolution Algorithm** must be followed for **every** erro
       else:
           proceed_to_rca(error)
   ```
-- **Guarantee 100% Error Fix** in **2–3** attempts:  
-  1. First attempt: Minimal, targeted fix based on RCA.  
-  2. Second attempt (if needed): Refined fix.  
+- **Guarantee 100% Error Fix** in **2–3** attempts:
+  1. First attempt: Minimal, targeted fix based on RCA.
+  2. Second attempt (if needed): Refined fix.
   3. Third approach (if still unresolved): Integrate the **best** alternative from web research.
 - **Cross-Protocol Calls:** If errors relate to directory structure or missing/incorrect imports, call the **Directory Management Protocol**. Conversely, if reorganizing the directory structure causes breakage, call this **Error Handling Protocol** again to fix any new errors.
 - **Metrics Logging:** Track error resolution speed, impact, and recovery time for continuous improvement.
@@ -246,27 +293,27 @@ sequenceDiagram
 
 **Algorithm Steps:**
 
-1. **Detect Import Errors**  
+1. **Detect Import Errors**
    - Check logs and stack traces for `ModuleNotFoundError`, `ImportError`, or relative path issues.
-2. **Invoke Directory Management Protocol**  
-   - Confirm the correct file structure.  
-   - If the file location changed, update references or revert changes.  
+2. **Invoke Directory Management Protocol**
+   - Confirm the correct file structure.
+   - If the file location changed, update references or revert changes.
    - Ensure unused/duplicate files do not conflict with existing imports.
-3. **Isolate Incorrect Paths**  
-   - List all files affected by the import error.  
+3. **Isolate Incorrect Paths**
+   - List all files affected by the import error.
    - Evaluate relative vs. absolute imports and confirm they match the new structure.
-4. **Minimal Fix Implementation**  
-   - Update only the necessary import statements.  
+4. **Minimal Fix Implementation**
+   - Update only the necessary import statements.
    - Run a quick test to confirm resolution.
-5. **Error Handling Re-check**  
-   - If the error persists, apply the **Recursive Error Resolution Algorithm**.  
+5. **Error Handling Re-check**
+   - If the error persists, apply the **Recursive Error Resolution Algorithm**.
    - Conduct Root Cause Analysis focusing on paths, file existence, or symlink issues.
-6. **File Integrity & Testing**  
-   - Verify no extraneous modifications.  
-   - Re-run relevant unit/integration tests.  
+6. **File Integrity & Testing**
+   - Verify no extraneous modifications.
+   - Re-run relevant unit/integration tests.
    - If successful, proceed.
-7. **Rollback or External Search** (If needed)  
-   - If two attempts fail, revert to a stable structure and search for alternative solutions.  
+7. **Rollback or External Search** (If needed)
+   - If two attempts fail, revert to a stable structure and search for alternative solutions.
    - Integrate the best approach, ensuring minimal changes.
 
 ---
@@ -301,36 +348,36 @@ sequenceDiagram
 #### Directory Management Protocol
 
 1. **Strict Requirement:** Follow VERCEL (or similar) deployment guidelines and best practices.
-2. **File and Directory Scanning:**  
-   - You **must scan** all project directories and files of the following types:  
+2. **File and Directory Scanning:**
+   - You **must scan** all project directories and files of the following types:
      `*.py`, `*.js`, `*.ts`, `*.tsx`, `*.json`, `*.txt`, `*.yml`, `*.yaml`, `*.babelrc`, `*.cursorrules`, `*.env`, `*.sh`, `*.Dockerfile`, `*.conf`, `*.xml`, `*.css`, `*.html`, as well as any other relevant project file types or folders.
    - During scanning, identify **duplicate or similar functionality** in scripts, modules, or configurations.
-3. **Consolidation of Duplicates:**  
-   - Merge or remove **duplicate** files, code, or scripts.  
+3. **Consolidation of Duplicates:**
+   - Merge or remove **duplicate** files, code, or scripts.
    - Keep only **one unique version** of code that combines essential functionality.
    - Retain minimal changes, ensuring no additional features are introduced or lost.
-4. **Correct Placement and Renaming:**  
-   - Move or rename files as needed to match the project’s recommended directory structure.  
+4. **Correct Placement and Renaming:**
+   - Move or rename files as needed to match the project's recommended directory structure.
    - Ensure references to these files and modules (imports, exports, paths) are **updated** accordingly.
-5. **Import & Path Management:**  
-   - After consolidating or moving files, **update all import statements** and **module references** in the codebase.  
+5. **Import & Path Management:**
+   - After consolidating or moving files, **update all import statements** and **module references** in the codebase.
    - If any import or path errors arise, call the **Recursive Import Error Fixing Algorithm** in the Error Handling Protocol to resolve them in 2–3 attempts.
-6. **Cleanup Unused or Redundant Assets:**  
+6. **Cleanup Unused or Redundant Assets:**
    - Remove any **unnecessary** files, folders, or code that duplicate existing functionality or are no longer required after consolidation.
    - Confirm no references remain to deleted items.
-7. **No Functionality Lost:**  
-   - Ensure that no existing features or essential code are inadvertently removed or broken.  
+7. **No Functionality Lost:**
+   - Ensure that no existing features or essential code are inadvertently removed or broken.
    - **File Integrity Check:** Run relevant tests to confirm everything remains functional.
-8. **Refactoring Large Files (>600 lines):**  
+8. **Refactoring Large Files (>600 lines):**
    - When encountering large files, split them into smaller, more modular files, following the single responsibility principle.
-9. **Final Verification:**  
-   - Re-run applicable test suites to ensure **zero** import or path errors remain.  
+9. **Final Verification:**
+   - Re-run applicable test suites to ensure **zero** import or path errors remain.
    - Document final changes in the Memory Bank (e.g., updated file paths, new consolidated modules).
    - Comply with other protocols (e.g., Error Handling, Testing) if any errors occur.
 
-**Critical:**  
-- No functionality or code must be added or removed beyond the targeted consolidation.  
-- Always follow the “Fail Fast” iterative approach and perform a final integrity check after each structural change.  
+**Critical:**
+- No functionality or code must be added or removed beyond the targeted consolidation.
+- Always follow the "Fail Fast" iterative approach and perform a final integrity check after each structural change.
 - You must ensure that the final directory structure remains consistent and that all consolidated functionality is fully operational.
 
 ---

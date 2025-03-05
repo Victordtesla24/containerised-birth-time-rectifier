@@ -37,13 +37,13 @@ const mockQuestions = [
 describe('LifeEventsQuestionnaire Component', () => {
   beforeEach(() => {
     jest.resetAllMocks();
-    
+
     // Mock initial chart fetch
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ chartData: { /* mock chart data */ } }),
     });
-    
+
     // Mock question fetch
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
@@ -58,22 +58,22 @@ describe('LifeEventsQuestionnaire Component', () => {
 
   it('renders loading state initially', async () => {
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={jest.fn()} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={jest.fn()}
+        isLoading={false}
       />
     );
 
-    expect(screen.getByText(/preparing your personalized questionnaire/i)).toBeInTheDocument();
+    expect(screen.getByText(/loading questionnaire/i)).toBeInTheDocument();
   });
 
   it('shows the first question when loaded', async () => {
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={jest.fn()} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={jest.fn()}
+        isLoading={false}
       />
     );
 
@@ -97,10 +97,10 @@ describe('LifeEventsQuestionnaire Component', () => {
     });
 
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={jest.fn()} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={jest.fn()}
+        isLoading={false}
       />
     );
 
@@ -138,10 +138,10 @@ describe('LifeEventsQuestionnaire Component', () => {
     });
 
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={jest.fn()} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={jest.fn()}
+        isLoading={false}
       />
     );
 
@@ -205,10 +205,10 @@ describe('LifeEventsQuestionnaire Component', () => {
       });
 
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={jest.fn()} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={jest.fn()}
+        isLoading={false}
       />
     );
 
@@ -266,10 +266,10 @@ describe('LifeEventsQuestionnaire Component', () => {
       });
 
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={mockOnSubmit} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={mockOnSubmit}
+        isLoading={false}
       />
     );
 
@@ -285,7 +285,7 @@ describe('LifeEventsQuestionnaire Component', () => {
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalled();
     });
-    
+
     // Check the argument contains the right confidence score
     expect(mockOnSubmit.mock.calls[0][0].confidenceScore).toBeGreaterThanOrEqual(CONFIDENCE_THRESHOLD);
   });
@@ -297,10 +297,10 @@ describe('LifeEventsQuestionnaire Component', () => {
       .mockRejectedValueOnce(new Error('Failed to fetch questions'));
 
     render(
-      <LifeEventsQuestionnaire 
-        birthDetails={mockBirthDetails} 
-        onSubmit={jest.fn()} 
-        isLoading={false} 
+      <LifeEventsQuestionnaire
+        birthDetails={mockBirthDetails}
+        onSubmit={jest.fn()}
+        isLoading={false}
       />
     );
 
@@ -312,4 +312,4 @@ describe('LifeEventsQuestionnaire Component', () => {
     // Check for retry button
     expect(screen.getByText('Try Again')).toBeInTheDocument();
   });
-}); 
+});
