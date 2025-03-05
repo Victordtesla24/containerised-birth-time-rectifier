@@ -302,7 +302,16 @@ export default function ResultsPage() {
               <h2 className="text-2xl font-semibold text-blue-200 mb-6">Birth Chart</h2>
               <div className="aspect-square max-w-lg mx-auto">
                 <CelestialChart
-                  planetPositions={result.planetaryPositions}
+                  planetPositions={result.planetaryPositions.map(p => ({
+                    planet: p.planet || p.name || 'Unknown',
+                    sign: p.sign || 'Unknown',
+                    degree: p.degree || '0',
+                    house: p.house,
+                    id: p.id,
+                    name: p.name,
+                    longitude: p.longitude,
+                    latitude: p.latitude
+                  }))}
                   birthTime={result.suggestedTime}
                   birthDate={result.birthDetails.birthDate}
                 />
@@ -377,7 +386,16 @@ export default function ResultsPage() {
 
               <div className="mt-6">
                 <h3 className="text-lg font-medium text-blue-200 mb-4">Planetary Positions</h3>
-                <PlanetaryPositionsTable positions={result.planetaryPositions} />
+                <PlanetaryPositionsTable positions={result.planetaryPositions.map(p => ({
+                  planet: p.planet || p.name || 'Unknown',
+                  sign: p.sign || 'Unknown',
+                  degree: p.degree || '0',
+                  house: p.house,
+                  id: p.id,
+                  name: p.name,
+                  longitude: p.longitude,
+                  latitude: p.latitude
+                }))} />
               </div>
             </motion.div>
           </div>

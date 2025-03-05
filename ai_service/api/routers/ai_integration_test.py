@@ -4,7 +4,8 @@ Provides endpoints for testing OpenAI service and model routing.
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field
 import logging
 import asyncio
 
@@ -37,6 +38,25 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize rectification model in test router: {e}")
 
+# Define request models
+class ModelRoutingRequest(BaseModel):
+    task_type: str = Field("explanation", description="Type of task (rectification, explanation, auxiliary)")
+    prompt: str = Field("This is a test prompt.", description="Test prompt to send to the model")
+    temperature: float = Field(0.7, description="Model temperature setting")
+    max_tokens: int = Field(100, description="Maximum tokens to generate")
+
+class ExplanationRequest(BaseModel):
+    adjustment_minutes: int = Field(15, description="Birth time adjustment in minutes")
+    reliability: str = Field("medium", description="Reliability rating (low, medium, high)")
+    questionnaire_data: Dict[str, Any] = Field(default_factory=lambda: {"responses": []},
+                                            description="Optional questionnaire data")
+
+class RectificationRequest(BaseModel):
+    birth_details: Dict[str, Any] = Field(..., description="Birth details")
+    questionnaire_data: Dict[str, Any] = Field(default_factory=lambda: {"responses": []},
+                                            description="Questionnaire responses")
+    chart_data: Optional[Dict[str, Any]] = Field(None, description="Optional chart data")
+
 @router.post("/test_model_routing", response_model=Dict[str, Any])
 async def test_model_routing(data: Dict[str, Any]):
     """
@@ -58,6 +78,7 @@ async def test_model_routing(data: Dict[str, Any]):
             detail="OpenAI service not available"
         )
 
+    # Get parameters with defaults
     task_type = data.get("task_type", "explanation")
     prompt = data.get("prompt", "This is a test prompt.")
     temperature = data.get("temperature", 0.7)

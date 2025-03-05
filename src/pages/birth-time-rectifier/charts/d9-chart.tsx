@@ -54,6 +54,16 @@ type FlexibleRectificationResult = RectificationResult & {
   }
 };
 
+// Add this interface to match ChartVisualization requirements
+interface PlanetWithId {
+  id: string;
+  name: string;
+  sign: string;
+  degree: number;
+  house: number;
+  longitude: number;
+}
+
 export default function D9ChartPage() {
   const router = useRouter();
   const [chartData, setChartData] = useState<MockChartData | null>(null);
@@ -322,7 +332,16 @@ export default function D9ChartPage() {
             <div className="flex-grow flex items-center justify-center">
               {formattedChartData ? (
                 <ChartVisualization
-                  chartData={formattedChartData}
+                  chartData={{
+                    planets: formattedChartData.planets.map(planet => ({
+                      id: planet.name || `planet-${planet.house}`,
+                      name: planet.name || `Planet in House ${planet.house}`,
+                      sign: planet.sign || 'Unknown',
+                      degree: typeof planet.degree === 'number' ? planet.degree : parseFloat(String(planet.degree || '0')),
+                      house: planet.house,
+                      longitude: planet.longitude || 0
+                    }))
+                  }}
                   width={500}
                   height={500}
                   onPlanetClick={handlePlanetClick}

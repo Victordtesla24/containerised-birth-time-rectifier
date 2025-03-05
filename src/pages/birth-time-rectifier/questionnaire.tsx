@@ -9,6 +9,7 @@ import { preloadImages } from '@/utils/imageLoader';
 import { getAllPlanetImagePaths } from '@/utils/planetImages';
 import { BirthDetails, QuestionnaireResponse } from '@/types';
 import { getBirthDetails, saveQuestionnaireData } from '@/utils/sessionStorage';
+import { QuestionnaireSubmitData, QuestionnaireProgressData } from '@/components/forms/LifeEventsQuestionnaire/types';
 
 // Confidence threshold for birth time rectification
 const CONFIDENCE_THRESHOLD = 80;
@@ -46,29 +47,39 @@ export default function QuestionnairePage() {
     setIsLoading(false);
   }, [router]);
 
-  // Handle questionnaire submission
-  const handleSubmit = async (questionnaireData: QuestionnaireResponse) => {
-    // Show loading state
-    setIsLoading(true);
-    setError(null);
-
+  // Function to handle questionnaire submission
+  const handleSubmit = async (data: QuestionnaireSubmitData) => {
     try {
+      setIsLoading(true);
+      setError(null);
+
       if (!birthDetails) {
         throw new Error('Birth details not found');
       }
 
+      // Convert QuestionnaireSubmitData to QuestionnaireResponse structure
+      const questionnaireResponse: QuestionnaireResponse = {
+        birthDetails: birthDetails,
+        answers: Object.entries(data.answers).map(([questionId, answer]) => ({
+          questionId,
+          question: questionId, // We don't have the actual question text here
+          answer: String(answer)
+        })),
+        confidenceScore: data.confidence,
+      };
+
       // Check if confidence threshold is met
-      if (!questionnaireData.confidenceScore || questionnaireData.confidenceScore < CONFIDENCE_THRESHOLD) {
-        setError(`Confidence score (${questionnaireData.confidenceScore}%) is below the required threshold (${CONFIDENCE_THRESHOLD}%). Please continue answering questions.`);
+      if (!questionnaireResponse.confidenceScore || questionnaireResponse.confidenceScore < CONFIDENCE_THRESHOLD) {
+        setError(`Confidence score (${questionnaireResponse.confidenceScore}%) is below the required threshold (${CONFIDENCE_THRESHOLD}%). Please continue answering questions.`);
         setIsLoading(false);
         return;
       }
 
-      console.log('Questionnaire data:', questionnaireData);
+      console.log('Questionnaire data:', questionnaireResponse);
       console.log('Birth details:', birthDetails);
 
       // Store the questionnaire data in session storage using the utility
-      saveQuestionnaireData(questionnaireData);
+      saveQuestionnaireData(questionnaireResponse);
 
       // In a real application, we might make an immediate API call here
       // or let the results page handle the API interaction
@@ -77,16 +88,26 @@ export default function QuestionnairePage() {
       setTimeout(() => {
         router.push('/results');
       }, 1500);
-    } catch (err) {
-      console.error('Error submitting questionnaire:', err);
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+    } catch (error) {
+      console.error('Error submitting questionnaire:', error);
+      setError(error instanceof Error ? error.message : 'An unknown error occurred');
+    } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle progress updates from questionnaire
-  const handleProgress = (progressValue: number) => {
-    setProgress(progressValue);
+  // Function to handle progress updates
+  const handleProgress = (data: QuestionnaireProgressData) => {
+    setProgress(data.confidence);
+  };
+
+  // Default birth details to prevent null issues
+  const defaultBirthDetails: BirthDetails = {
+    name: '',
+    gender: '',
+    birthDate: '',
+    approximateTime: '',
+    birthLocation: '',
   };
 
   if (isLoading) {
@@ -164,7 +185,7 @@ export default function QuestionnairePage() {
 
             {/* Questionnaire Component */}
             <LifeEventsQuestionnaire
-              birthDetails={birthDetails}
+              birthDetails={birthDetails || defaultBirthDetails}
               onSubmit={handleSubmit}
               onProgress={handleProgress}
             />

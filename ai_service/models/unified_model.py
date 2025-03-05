@@ -7,6 +7,7 @@ import logging
 import random
 import time
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union, Tuple
 
@@ -255,7 +256,6 @@ class UnifiedRectificationModel:
             result = {}
 
             # Look for adjustment minutes
-            import re
             adjustment_match = re.search(r'adjustment[_\s]?minutes["\s:]+([+-]?\d+)', response_content)
             if adjustment_match:
                 result["adjustment_minutes"] = int(adjustment_match.group(1))
@@ -414,8 +414,13 @@ class UnifiedRectificationModel:
         # In a real implementation, this would use a sophisticated algorithm
 
         # For mock implementation, base confidence on number of questions
-        base_confidence = 70
-        adjustment = min(len(questionnaire_data) * 2, 25)
+        base_confidence = 70.0
+        num_questions = 0
+
+        if "responses" in questionnaire_data:
+            num_questions = len(questionnaire_data["responses"])
+
+        adjustment = min(num_questions * 2, 25)
 
         # Add random variation
         variation = random.uniform(-5, 5)
@@ -423,7 +428,7 @@ class UnifiedRectificationModel:
         confidence = base_confidence + adjustment + variation
 
         # Ensure within bounds
-        confidence = max(50, min(95, confidence))
+        confidence = max(50.0, min(95.0, confidence))
 
         return confidence
 
@@ -502,14 +507,13 @@ class UnifiedRectificationModel:
 
             # Limit to a reasonable number
             return events[:5]
-
         except Exception as e:
             logger.error(f"Error identifying significant events with AI: {e}")
             return self._identify_significant_events_fallback(questionnaire_data)
 
     def _identify_significant_events_fallback(self, questionnaire_data: Dict[str, Any]) -> List[str]:
         """
-        Fallback method to identify significant life events (same as original implementation).
+        Fallback method to identify significant life events without AI.
 
         Args:
             questionnaire_data: Dictionary of question responses
@@ -520,7 +524,7 @@ class UnifiedRectificationModel:
         # Mock implementation with common astrological event descriptions
         possible_events = [
             "Career change during Saturn transit to 10th house",
-            "Relationship milestone aligned with Venus-Jupiter aspect",
+            "Relationship milestone during Venus-Jupiter aspect",
             "Relocation during Moon-Uranus transit",
             "Health improvement during Jupiter transit to 6th house",
             "Personal transformation during Pluto transit to Ascendant",
@@ -632,7 +636,7 @@ class UnifiedRectificationModel:
         if reliability in ["high", "very high"]:
             explanations.append("Your answers showed strong correlation with specific planetary positions.")
 
-        if len(questionnaire_data) >= 5:
+        if "responses" in questionnaire_data and len(questionnaire_data["responses"]) >= 5:
             explanations.append("The comprehensive information you provided allowed for a detailed rectification analysis.")
 
         # Join explanations into a single paragraph

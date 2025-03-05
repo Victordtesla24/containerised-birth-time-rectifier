@@ -46,7 +46,7 @@ export default function BirthTimeRectifierPage() {
         };
 
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/api/charts`, {
+        const response = await fetch(`${apiUrl}/api/chart/generate`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

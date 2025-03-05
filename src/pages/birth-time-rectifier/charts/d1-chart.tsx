@@ -28,6 +28,7 @@ interface Aspect {
 }
 
 interface PlanetData {
+  id: string;
   name: string;
   sign: string;
   degree: number;
@@ -125,15 +126,15 @@ const D1ChartPage: React.FC = () => {
   const generateMockChartData = (): ChartData => {
     // Define planets with exact angles for testing
     const planetsArray: PlanetData[] = [
-      { name: 'Sun', sign: 'Sagittarius', degree: 16.5, house: 5, longitude: 256.5 },
-      { name: 'Moon', sign: 'Libra', degree: 23.8, house: 3, longitude: 203.8 },
-      { name: 'Mercury', sign: 'Sagittarius', degree: 28.4, house: 5, longitude: 268.4 },
-      { name: 'Venus', sign: 'Aquarius', degree: 3.1, house: 7, longitude: 303.1 },
-      { name: 'Mars', sign: 'Capricorn', degree: 8.2, house: 6, longitude: 278.2 },
-      { name: 'Jupiter', sign: 'Cancer', degree: 12.7, house: 12, longitude: 102.7 },
-      { name: 'Saturn', sign: 'Capricorn', degree: 19.5, house: 6, longitude: 289.5 },
-      { name: 'Rahu', sign: 'Pisces', degree: 25.3, house: 8, longitude: 355.3 },
-      { name: 'Ketu', sign: 'Virgo', degree: 25.3, house: 2, longitude: 175.3 }
+      { id: 'Sun', name: 'Sun', sign: 'Sagittarius', degree: 16.5, house: 5, longitude: 256.5 },
+      { id: 'Moon', name: 'Moon', sign: 'Libra', degree: 23.8, house: 3, longitude: 203.8 },
+      { id: 'Mercury', name: 'Mercury', sign: 'Sagittarius', degree: 28.4, house: 5, longitude: 268.4 },
+      { id: 'Venus', name: 'Venus', sign: 'Aquarius', degree: 3.1, house: 7, longitude: 303.1 },
+      { id: 'Mars', name: 'Mars', sign: 'Capricorn', degree: 8.2, house: 6, longitude: 278.2 },
+      { id: 'Jupiter', name: 'Jupiter', sign: 'Cancer', degree: 12.7, house: 12, longitude: 102.7 },
+      { id: 'Saturn', name: 'Saturn', sign: 'Capricorn', degree: 19.5, house: 6, longitude: 289.5 },
+      { id: 'Rahu', name: 'Rahu', sign: 'Pisces', degree: 25.3, house: 8, longitude: 355.3 },
+      { id: 'Ketu', name: 'Ketu', sign: 'Virgo', degree: 25.3, house: 2, longitude: 175.3 }
     ];
 
     // Calculate aspects with exact angles
@@ -220,8 +221,11 @@ const D1ChartPage: React.FC = () => {
     generateChart();
   }, []);
 
-  const handlePlanetClick = (planet: PlanetData) => {
-    setSelectedPlanet(planet);
+  const handlePlanetClick = (planetId: string) => {
+    const planet = formattedChartData?.planets.find(p => p.id === planetId);
+    if (planet) {
+      setSelectedPlanet(planet);
+    }
   };
 
   if (isLoading) {

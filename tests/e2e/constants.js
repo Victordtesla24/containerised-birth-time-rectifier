@@ -71,7 +71,7 @@ export const TEST_DATA = {
     // Test case for validation errors
     INVALID: {
         birthDate: '',  // Empty date
-        birthTime: 'invalid',  // Invalid time
+        birthTime: '99:99',  // Invalid time in valid format for HTML5 time inputs
         birthPlace: '',  // Empty place
         // No coordinates as geocoding will fail
     },

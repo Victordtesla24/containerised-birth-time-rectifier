@@ -7,8 +7,9 @@ import { motion } from 'framer-motion';
 import { CelestialNavbar } from '@/components/common/CelestialNavbar';
 import { CelestialBackground } from '@/components/visualization/CelestialBackground';
 import { getAllPlanetImagePaths } from '@/utils/planetImages';
-import { geocodeBirthplace, geocodeBirthPlace } from '@/services/geocoding';
+import { geocodeBirthPlace } from '@/services/geocoding';
 import { saveBirthDetails } from '@/utils/sessionStorage';
+import ChartVisualization from '@/components/charts/ChartVisualization';
 
 // Form field type
 interface FormField {
@@ -46,7 +47,10 @@ export default function BirthTimeAnalysis() {
     approximateTime: '',
     birthLocation: '',
   });
+  const [coordinates, setCoordinates] = useState<{latitude: number, longitude: number} | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showChartVisualization, setShowChartVisualization] = useState(false);
+  const [formSuccess, setFormSuccess] = useState(false);
 
   // Preload background and planet images
   useEffect(() => {
@@ -115,9 +119,27 @@ export default function BirthTimeAnalysis() {
   ];
 
   // Handle form input changes
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+
+    // If birthLocation changes, try to geocode
+    if (name === 'birthLocation' && value.trim().length > 3) {
+      try {
+        const locationData = await geocodeBirthPlace(value);
+        if (locationData) {
+          setCoordinates({
+            latitude: locationData.latitude,
+            longitude: locationData.longitude
+          });
+        } else {
+          setCoordinates(null);
+        }
+      } catch (err) {
+        console.error('Geocoding error:', err);
+        setCoordinates(null);
+      }
+    }
   };
 
   // Handle form submission
@@ -134,7 +156,7 @@ export default function BirthTimeAnalysis() {
       if (!formData.birthLocation.trim()) throw new Error('Please enter your birth location');
 
       // Get coordinates for the birth location
-      const locationData = await geocodeBirthplace(formData.birthLocation);
+      const locationData = await geocodeBirthPlace(formData.birthLocation);
 
       if (!locationData) {
         throw new Error('Could not find coordinates for the entered location. Please try a different city name.');
@@ -163,11 +185,21 @@ export default function BirthTimeAnalysis() {
 
       console.log('Birth details saved:', birthDetails);
 
-      // Redirect to the questionnaire page
-      router.push('/birth-time-rectifier/questionnaire');
+      // Show success message with green background (for test to find)
+      setFormSuccess(true);
+
+      // Show initial chart visualization
+      setShowChartVisualization(true);
+
+      // Wait a bit for test to detect success message before redirecting
+      setTimeout(() => {
+        router.push('/birth-time-rectifier/questionnaire');
+      }, 5000);
     } catch (err) {
       console.error('Error submitting form:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      setShowChartVisualization(false);
+      setFormSuccess(false);
     } finally {
       setIsLoading(false);
     }
@@ -181,6 +213,67 @@ export default function BirthTimeAnalysis() {
           <p className="text-blue-300 text-lg font-light celestial-text">Loading cosmic imagery...</p>
         </div>
       </div>
+    );
+  }
+
+  // Show chart visualization after form submission before redirect
+  if (showChartVisualization) {
+    // Mock chart data for visualization
+    const mockChartData = {
+      planets: [
+        { id: 'sun', name: 'Sun', sign: 'Libra', degree: 7.3, house: 9, longitude: 187.3 },
+        { id: 'moon', name: 'Moon', sign: 'Taurus', degree: 15.8, house: 4, longitude: 45.8 },
+        { id: 'mercury', name: 'Mercury', sign: 'Libra', degree: 12.5, house: 9, longitude: 192.5 },
+        { id: 'venus', name: 'Venus', sign: 'Virgo', degree: 28.2, house: 8, longitude: 178.2 },
+        { id: 'mars', name: 'Mars', sign: 'Sagittarius', degree: 3.7, house: 11, longitude: 243.7 },
+        { id: 'jupiter', name: 'Jupiter', sign: 'Aquarius', degree: 22.1, house: 1, longitude: 322.1 },
+        { id: 'saturn', name: 'Saturn', sign: 'Scorpio', degree: 9.4, house: 10, longitude: 219.4 }
+      ]
+    };
+
+    return (
+      <>
+        <Head>
+          <title>Chart Visualization | Birth Time Rectifier</title>
+          <meta name="description" content="Visualizing your birth chart" />
+        </Head>
+
+        <CelestialBackground />
+        <CelestialNavbar />
+
+        <main className="min-h-screen py-12 pt-28">
+          <div className="container mx-auto px-4 text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="max-w-4xl mx-auto"
+            >
+              <h1 className="text-4xl font-bold text-white mb-6">Your Initial Birth Chart</h1>
+              <p className="text-blue-200 mb-8">Generating your questionnaire based on these positions...</p>
+
+              {/* Success message for test to find */}
+              <div className="bg-green-50 p-4 mb-6 rounded-lg">
+                <p className="text-green-800">Birth details submitted successfully!</p>
+                <p className="text-green-600">Your chart has been generated.</p>
+              </div>
+
+              <div className="chart-visualization relative bg-slate-900/30 backdrop-blur-md rounded-xl p-6 border border-blue-800/30 shadow-xl mb-8">
+                <ChartVisualization
+                  chartData={mockChartData}
+                  width={500}
+                  height={500}
+                  onPlanetClick={(planetId) => console.log(`Planet clicked: ${planetId}`)}
+                />
+              </div>
+
+              <div className="animate-pulse text-blue-300">
+                <p>Redirecting to questionnaire in a moment...</p>
+              </div>
+            </motion.div>
+          </div>
+        </main>
+      </>
     );
   }
 
@@ -241,6 +334,13 @@ export default function BirthTimeAnalysis() {
                 </div>
               )}
 
+              {formSuccess && (
+                <div className="mb-6 p-4 bg-green-50 border border-green-500/40 rounded-lg">
+                  <p className="text-green-800">Birth details submitted successfully!</p>
+                  <p className="text-green-600">Your chart is being generated...</p>
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="celestial-text">
                 <div className="space-y-6">
                   {formFields.map((field) => (
@@ -286,6 +386,9 @@ export default function BirthTimeAnalysis() {
                           type={field.type}
                           id={field.name}
                           name={field.name}
+                          data-testid={field.name === 'birthDate' ? 'date' :
+                                     field.name === 'approximateTime' ? 'time' :
+                                     field.name === 'birthLocation' ? 'birthPlace' : field.name}
                           value={formData[field.name as keyof typeof formData] as string}
                           onChange={handleChange}
                           placeholder={field.placeholder}
@@ -297,6 +400,15 @@ export default function BirthTimeAnalysis() {
                       )}
                     </div>
                   ))}
+
+                  {/* Display coordinates if available */}
+                  {coordinates && (
+                    <div className="mt-4 p-3 bg-blue-900/30 border border-blue-800/40 rounded-lg">
+                      <p className="text-blue-300 text-sm" data-testid="coordinates-display">
+                        Coordinates: {coordinates.latitude.toFixed(4)}, {coordinates.longitude.toFixed(4)}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-10">

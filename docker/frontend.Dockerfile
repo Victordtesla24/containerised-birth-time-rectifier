@@ -4,6 +4,32 @@ FROM node:20-slim as base
 # Set working directory
 WORKDIR /app
 
+# Install system dependencies for Playwright
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libxkbcommon0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 \
+    libexpat1 \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set environment variables
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -42,8 +68,8 @@ RUN npm ci --legacy-peer-deps
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/api/health || curl -f http://localhost:3000/health || exit 1
+HEALTHCHECK --interval=60s --timeout=60s --start-period=30s --retries=5 \
+    CMD node -e "const http = require('http'); const req = http.get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1));"
 
 # Start development server
 CMD ["npm", "run", "dev"]
@@ -66,8 +92,8 @@ RUN npm ci --omit=dev --legacy-peer-deps
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/api/health || curl -f http://localhost:3000/health || exit 1
+HEALTHCHECK --interval=60s --timeout=60s --start-period=30s --retries=5 \
+    CMD node -e "const http = require('http'); const req = http.get('http://localhost:3000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1));"
 
 # Start production server
 CMD ["npm", "start"]

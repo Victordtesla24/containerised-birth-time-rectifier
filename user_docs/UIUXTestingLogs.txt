@@ -1,0 +1,812 @@
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier % docker restart birth-rectifier-frontend && npx playwright test tests/e2e/api.spec.js
+birth-rectifier-frontend
+Using default browser executable path
+Using default browser executable path
+[WebServer]
+[WebServer] > birth-time-rectifier@1.0.0 dev
+[WebServer] > next dev
+[WebServer]
+[WebServer]  ⚠ Port 3000 is in use, trying 3001 instead.
+[WebServer]    ▲ Next.js 15.1.7
+[WebServer]    - Local:        http://localhost:3001
+[WebServer]    - Network:      http://192.168.4.54:3001
+[WebServer]    - Environments: .env
+[WebServer]
+[WebServer]  ✓ Starting...
+[WebServer] Attention: Next.js now collects completely anonymous telemetry regarding usage.
+[WebServer] This information is used to shape Next.js' roadmap and prioritize features.
+[WebServer] You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+[WebServer] https://nextjs.org/telemetry
+[WebServer]
+[WebServer]    Downloading swc package @next/swc-darwin-arm64... to /Users/vicd/Library/Caches/next-swc
+[WebServer]  ✓ Ready in 11.7s
+
+Running 4 tests using 1 worker
+
+Using default browser executable path
+Using default browser executable path
+  ✓  1 [chromium] › tests/e2e/api.spec.js:11:7 › API Endpoint Tests › health endpoint (1.5s)
+  ✓  2 [chromium] › tests/e2e/api.spec.js:20:7 › API Endpoint Tests › check backend connection (969ms)
+AI service check response: { aiServiceConnected: true }
+  ✘  3 [chromium] › tests/e2e/api.spec.js:28:7 › API Endpoint Tests › rectify endpoint with correct format (898ms)
+Response status (/api/chart/rectify): 200
+Rectify endpoint response (/api/chart/rectify): {
+  originalTime: '14:30',
+  suggestedTime: '14:32',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+Using default browser executable path
+Using default browser executable path
+  ✘  4 [chromium] › tests/e2e/api.spec.js:28:7 › API Endpoint Tests › rectify endpoint with correct format (retry #1) (285ms)
+Response status (/api/chart/rectify): 200
+Rectify endpoint response (/api/chart/rectify): {
+  originalTime: '14:30',
+  suggestedTime: '14:31',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+Using default browser executable path
+Using default browser executable path
+  ✓  5 [chromium] › tests/e2e/api.spec.js:109:7 › API Endpoint Tests › rectify endpoint with simple format (978ms)
+Simple format response status: 200
+Simple format response: {
+  originalTime: '14:30',
+  suggestedTime: '14:32',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+
+
+  1) [chromium] › tests/e2e/api.spec.js:28:7 › API Endpoint Tests › rectify endpoint with correct format
+
+    Error: expect(received).toBeDefined()
+
+    Received: undefined
+
+      101 |     } else {
+      102 |       expect(responseData.originalTime || responseData.original_time).toBeDefined();
+    > 103 |       expect(responseData.rectifiedTime || responseData.rectified_time).toBeDefined();
+          |                                                                         ^
+      104 |       expect(responseData.confidence || responseData.confidence_score).toBeDefined();
+      105 |     }
+      106 |   });
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/api.spec.js:103:73
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/api-API-Endpoint-Tests-rectify-endpoint-with-correct-format-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/api-API-Endpoint-Tests-rectify-endpoint-with-correct-format-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBeDefined()
+
+    Received: undefined
+
+      101 |     } else {
+      102 |       expect(responseData.originalTime || responseData.original_time).toBeDefined();
+    > 103 |       expect(responseData.rectifiedTime || responseData.rectified_time).toBeDefined();
+          |                                                                         ^
+      104 |       expect(responseData.confidence || responseData.confidence_score).toBeDefined();
+      105 |     }
+      106 |   });
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/api.spec.js:103:73
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/api-API-Endpoint-Tests-rectify-endpoint-with-correct-format-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/api-API-Endpoint-Tests-rectify-endpoint-with-correct-format-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › tests/e2e/api.spec.js:28:7 › API Endpoint Tests › rectify endpoint with correct format
+  3 passed (22.8s)
+
+  Serving HTML report at http://localhost:52908. Press Ctrl+C to quit.
+^C
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier % cat tests/e2e/api.spec.js | grep -A15 "expect(responseData.rectifiedTime"
+      expect(responseData.rectifiedTime || responseData.rectified_time).toBeDefined();
+      expect(responseData.confidence || responseData.confidence_score).toBeDefined();
+    }
+  });
+
+  // Test the alternative format (still supported for backward compatibility)
+  test('rectify endpoint with simple format', async ({ request }) => {
+    // Use the simple format
+    const simplePayload = {
+      date: TEST_DATA.STANDARD.birthDate,
+      time: TEST_DATA.STANDARD.birthTime,
+      latitude: TEST_DATA.STANDARD.latitude,
+      longitude: TEST_DATA.STANDARD.longitude,
+      timezone: TEST_DATA.STANDARD.timezone
+    };
+
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier % cat tests/e2e/api.spec.js | grep -n "expect("
+13:    expect(response.ok()).toBeTruthy();
+16:    expect(data.status).toBe('ok');
+17:    expect(data.service).toBe('frontend');
+22:    expect(response.ok()).toBeTruthy();
+100:      expect(responseData.error).toBeDefined();
+102:      expect(responseData.originalTime || responseData.original_time).toBeDefined();
+103:      expect(responseData.rectifiedTime || responseData.rectified_time).toBeDefined();
+104:      expect(responseData.confidence || responseData.confidence_score).toBeDefined();
+133:      expect(responseData.originalTime).toBeDefined();
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier % cat tests/e2e/api.spec.js
+/**
+ * API Endpoint Tests
+ *
+ * This script tests the API endpoints directly without requiring UI interaction.
+ */
+
+import { test, expect } from '@playwright/test';
+import { API_ENDPOINTS, TEST_DATA } from './constants';
+
+test.describe('API Endpoint Tests', () => {
+  test('health endpoint', async ({ request }) => {
+    const response = await request.get('/api/health');
+    expect(response.ok()).toBeTruthy();
+
+    const data = await response.json();
+    expect(data.status).toBe('ok');
+    expect(data.service).toBe('frontend');
+  });
+
+  test('check backend connection', async ({ request }) => {
+    const response = await request.get('/api/check-ai-service');
+    expect(response.ok()).toBeTruthy();
+
+    const data = await response.json();
+    console.log('AI service check response:', data);
+  });
+
+  test('rectify endpoint with correct format', async ({ request }) => {
+    // Testing both endpoint patterns (with and without /api/ prefix)
+    let response;
+    let endpointUsed;
+
+    // First try the primary endpoint with /api/ prefix
+    const payload = {
+      birthDetails: {
+        birthDate: TEST_DATA.STANDARD.birthDate,
+        birthTime: TEST_DATA.STANDARD.birthTime,
+        latitude: TEST_DATA.STANDARD.latitude,
+        longitude: TEST_DATA.STANDARD.longitude,
+        timezone: TEST_DATA.STANDARD.timezone,
+        chartType: "tropical" // Adding chart type as it might be required
+      },
+      questionnaire: {
+        answers: [
+          { question: "q1", answer: "yes" },
+          { question: "q2", answer: "no" }
+        ]
+      }
+    };
+
+    // Try with both formats - complex object and simple format
+    try {
+      response = await request.post('/api/chart/rectify', {
+        data: payload
+      });
+      endpointUsed = '/api/chart/rectify';
+    } catch (e) {
+      try {
+        response = await request.post('/api/rectify', {
+          data: payload
+        });
+        endpointUsed = '/api/rectify';
+      } catch (e2) {
+        try {
+          response = await request.post('/chart/rectify', {
+            data: payload
+          });
+          endpointUsed = '/chart/rectify';
+        } catch (e3) {
+          try {
+            // Last attempt - try with simple format
+            response = await request.post('/api/rectify', {
+              data: {
+                date: TEST_DATA.STANDARD.birthDate,
+                time: TEST_DATA.STANDARD.birthTime,
+                latitude: TEST_DATA.STANDARD.latitude,
+                longitude: TEST_DATA.STANDARD.longitude,
+                timezone: TEST_DATA.STANDARD.timezone
+              }
+            });
+            endpointUsed = '/api/rectify (simple format)';
+          } catch (e4) {
+            console.log('All rectify endpoint attempts failed');
+            throw e4;
+          }
+        }
+      }
+    }
+
+    console.log(`Response status (${endpointUsed}):`, response.status());
+
+    // Get the response data
+    const responseData = await response.json();
+    console.log(`Rectify endpoint response (${endpointUsed}):`, responseData);
+
+    // Basic validation - the response should contain expected fields
+    if (responseData.error) {
+      console.log('Error response:', responseData.error);
+      // Allow test to continue even with error for diagnostic purposes
+      expect(responseData.error).toBeDefined();
+    } else {
+      expect(responseData.originalTime || responseData.original_time).toBeDefined();
+      expect(responseData.rectifiedTime || responseData.rectified_time).toBeDefined();
+      expect(responseData.confidence || responseData.confidence_score).toBeDefined();
+    }
+  });
+
+  // Test the alternative format (still supported for backward compatibility)
+  test('rectify endpoint with simple format', async ({ request }) => {
+    // Use the simple format
+    const simplePayload = {
+      date: TEST_DATA.STANDARD.birthDate,
+      time: TEST_DATA.STANDARD.birthTime,
+      latitude: TEST_DATA.STANDARD.latitude,
+      longitude: TEST_DATA.STANDARD.longitude,
+      timezone: TEST_DATA.STANDARD.timezone
+    };
+
+    const response = await request.post('/api/rectify', {
+      data: simplePayload
+    });
+
+    console.log('Simple format response status:', response.status());
+
+    // Get the response data
+    const responseData = await response.json();
+    console.log('Simple format response:', responseData);
+
+    // This may return an error if the simple format is no longer supported
+    if (responseData.error) {
+      console.log('Simple format error:', responseData.error);
+    } else {
+      expect(responseData.originalTime).toBeDefined();
+    }
+  });
+});
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier % npx playwright test tests/e2e/api.spec.js
+Using default browser executable path
+Using default browser executable path
+
+Running 4 tests using 1 worker
+
+Using default browser executable path
+Using default browser executable path
+  ✓  1 [chromium] › tests/e2e/api.spec.js:11:7 › API Endpoint Tests › health endpoint (265ms)
+  ✓  2 [chromium] › tests/e2e/api.spec.js:20:7 › API Endpoint Tests › check backend connection (139ms)
+AI service check response: { aiServiceConnected: true }
+  ✓  3 [chromium] › tests/e2e/api.spec.js:28:7 › API Endpoint Tests › rectify endpoint with correct format (76ms)
+Response status (/api/chart/rectify): 200
+Rectify endpoint response (/api/chart/rectify): {
+  originalTime: '14:30',
+  suggestedTime: '14:33',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+  ✓  4 [chromium] › tests/e2e/api.spec.js:110:7 › API Endpoint Tests › rectify endpoint with simple format (765ms)
+Simple format response status: 200
+Simple format response: {
+  originalTime: '14:30',
+  suggestedTime: '14:33',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+
+  4 passed (3.3s)
+
+To open last HTML report run:
+
+  npx playwright show-report
+
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier % npm run test:e2e
+
+> birth-time-rectifier@1.0.0 test:e2e
+> playwright test
+
+Using default browser executable path
+Using default browser executable path
+
+Running 23 tests using 1 worker
+
+Using default browser executable path
+Using default browser executable path
+  ✘  1 [chromium] › tests/e2e/ai-integration.spec.js:56:7 › AI Model Integration › AI-assisted chart generation and visualization (11.5s)
+Navigated to birth time rectifier page
+Filling birth details form with test data
+No geocoding API detected, using direct coordinates if available
+Submitted birth details form
+Waiting for chart generation with AI assistance
+Chart visualization rendered
+Found 0 planetary elements in the chart
+Using default browser executable path
+Using default browser executable path
+  ✘  2 [chromium] › tests/e2e/ai-integration.spec.js:56:7 › AI Model Integration › AI-assisted chart generation and visualization (retry #1) (8.2s)
+Navigated to birth time rectifier page
+Filling birth details form with test data
+No geocoding API detected, using direct coordinates if available
+Submitted birth details form
+Waiting for chart generation with AI assistance
+Chart visualization rendered
+Found 0 planetary elements in the chart
+Using default browser executable path
+Using default browser executable path
+  ✘  3 [chromium] › tests/e2e/ai-integration.spec.js:103:7 › AI Model Integration › AI-driven questionnaire for birth time rectification (39.8s)
+Navigated to birth time rectifier page
+Filling birth details form with test data
+No geocoding API detected, using direct coordinates if available
+Submitted birth details form
+Chart visualization rendered
+Proceeding to AI questionnaire
+Clicked button to proceed to questionnaire
+Using default browser executable path
+Using default browser executable path
+  ✘  4 [chromium] › tests/e2e/ai-integration.spec.js:103:7 › AI Model Integration › AI-driven questionnaire for birth time rectification (retry #1) (40.1s)
+Navigated to birth time rectifier page
+Filling birth details form with test data
+No geocoding API detected, using direct coordinates if available
+Submitted birth details form
+Chart visualization rendered
+Proceeding to AI questionnaire
+Clicked button to proceed to questionnaire
+Using default browser executable path
+Using default browser executable path
+  ✓  5 [chromium] › tests/e2e/ai-integration.spec.js:266:7 › AI Model Integration › AI model integration with visual elements (9.6s)
+Navigated to birth time rectifier page
+3D-depth effect or parallax backgrounds detected: true
+Filling birth details form with test data
+No geocoding API detected, using direct coordinates if available
+Submitted birth details form
+Chart visualization rendered
+Chart has interactive elements: true
+Dynamic visual elements detected: false
+AI integration with visual elements test completed
+  ✓  6 [chromium] › tests/e2e/api.spec.js:11:7 › API Endpoint Tests › health endpoint (156ms)
+  ✓  7 [chromium] › tests/e2e/api.spec.js:20:7 › API Endpoint Tests › check backend connection (3.3s)
+AI service check response: { aiServiceConnected: true }
+  ✓  8 [chromium] › tests/e2e/api.spec.js:28:7 › API Endpoint Tests › rectify endpoint with correct format (824ms)
+Response status (/api/chart/rectify): 200
+Rectify endpoint response (/api/chart/rectify): {
+  originalTime: '14:30',
+  suggestedTime: '14:33',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+  ✓  9 [chromium] › tests/e2e/api.spec.js:110:7 › API Endpoint Tests › rectify endpoint with simple format (896ms)
+Simple format response status: 200
+Simple format response: {
+  originalTime: '14:30',
+  suggestedTime: '14:33',
+  confidence: 85,
+  reliability: 'high',
+  explanation: 'Test rectification based on provided data'
+}
+  ✓  10 [chromium] › tests/e2e/basic-chart-test.spec.js:12:7 › Basic Chart API Integration › Chart rendering and structure test (6.4s)
+Navigated to birth time rectifier page
+Initial page screenshot saved
+Filled birth date: 1985-10-24
+Filled birth time: 14:30
+Filled birth location: Pune, India
+Form filled screenshot saved
+Clicked submit button
+After submission screenshot saved
+Chart structure analysis:
+Chart container found!
+svg
+  SVG contains: 0 circles, 1 paths, 0 text elements
+  path
+
+Found 2 SVG elements on page
+Found 1 Canvas elements on page
+Found 0 circular elements (potential planets)
+Found 0 text/label elements
+Found 0 elements with astrological text content
+Test completed - screenshots saved for analysis
+  ✓  11 [chromium] › tests/e2e/basic-chart-test.spec.js:231:7 › Basic Chart API Integration › Direct API testing for chart generation (3.3s)
+Testing direct API integration
+Testing Chart Generate (Primary): /api/chart/generate
+Response status: 404
+Chart Generate (Primary) failed with standard payload, trying alternative format
+Alternative format response status: 404
+Testing Chart Generate (Alt): /chart/generate
+Response status: 404
+Chart Generate (Alt) failed with standard payload, trying alternative format
+Alternative format response status: 404
+
+Testing chart questionnaire API
+Questionnaire API failed with status: 405
+Alternative questionnaire API failed with status: 404
+
+Testing chart rectification API
+Rectification API succeeded
+Rectification data summary:
+- Original time: 14:30
+- Rectified time: undefined
+- Confidence: 85
+Direct API testing completed
+  ✓  12 [chromium] › tests/e2e/chart-visualization.spec.js:13:7 › Chart Generation and Visualization › should generate and display birth chart correctly (2.5s)
+Navigated directly to birth-time-rectifier page
+Page URL: http://localhost:3000/birth-time-rectifier
+Page title: Birth Time Rectifier - Enter Details
+Looking for birth details input fields directly
+Filled birth date with 1985-10-24 using selector: input[type="date"]
+Filled birth time with 14:30 using selector: input[type="time"]
+Attempting to submit form
+Submit button 0 text: "Next"
+Clicked submit button with selector: button[type="submit"]
+Current URL after form submission: http://localhost:3000/birth-time-rectifier
+Checking for chart visualization
+Took screenshot: after-submission.png
+Chart found using selector: svg (1 elements)
+Chart visualization test passed
+  ✘  13 [chromium] › tests/e2e/chart.spec.js:69:9 › Birth Time Rectifier Application Flow Tests › complete astrological chart application flow (1.1m)
+Test environment initialized
+Navigated to application landing page
+Starting complete application flow test...
+Step 1: Landing Form
+Filling birth details form...
+Using manual coordinate entry...
+Using default browser executable path
+Using default browser executable path
+  ✘  14 [chromium] › tests/e2e/chart.spec.js:69:9 › Birth Time Rectifier Application Flow Tests › complete astrological chart application flow (retry #1) (1.1m)
+Test environment initialized
+Navigated to application landing page
+Starting complete application flow test...
+Step 1: Landing Form
+Filling birth details form...
+Using manual coordinate entry...
+Using default browser executable path
+Using default browser executable path
+  ✘  15 [chromium] › tests/e2e/chart.spec.js:161:9 › Birth Time Rectifier Application Flow Tests › validation failure path (2.0s)
+Test environment initialized
+Navigated to application landing page
+Starting validation failure path test...
+Filling birth details form...
+Using default browser executable path
+Using default browser executable path
+  ✘  16 [chromium] › tests/e2e/chart.spec.js:161:9 › Birth Time Rectifier Application Flow Tests › validation failure path (retry #1) (1.7s)
+Test environment initialized
+Navigated to application landing page
+Starting validation failure path test...
+Filling birth details form...
+Using default browser executable path
+Using default browser executable path
+  ✘  17 [chromium] › tests/e2e/chart.spec.js:201:9 › Birth Time Rectifier Application Flow Tests › low confidence path (16.0s)
+Test environment initialized
+Navigated to application landing page
+Starting low confidence path test...
+Filling birth details form...
+Using manual coordinate entry...
+^C
+
+  1) [chromium] › tests/e2e/ai-integration.spec.js:56:7 › AI Model Integration › AI-assisted chart generation and visualization
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   0
+
+      81 |     const planetaryElements = await page.locator('circle, [class*="planet"], [data-testid*="planet"]').count();
+      82 |     console.log(`Found ${planetaryElements} planetary elements in the chart`);
+    > 83 |     expect(planetaryElements).toBeGreaterThan(0);
+         |                               ^
+      84 |
+      85 |     // Check specifically for Ketu which was mentioned in the requirements
+      86 |     const hasKetu = await page.locator('text:has-text("Ketu"), [data-testid="planet-Ketu"]').isVisible()
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/ai-integration.spec.js:83:31
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   0
+
+      81 |     const planetaryElements = await page.locator('circle, [class*="planet"], [data-testid*="planet"]').count();
+      82 |     console.log(`Found ${planetaryElements} planetary elements in the chart`);
+    > 83 |     expect(planetaryElements).toBeGreaterThan(0);
+         |                               ^
+      84 |
+      85 |     // Check specifically for Ketu which was mentioned in the requirements
+      86 |     const hasKetu = await page.locator('text:has-text("Ketu"), [data-testid="planet-Ketu"]').isVisible()
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/ai-integration.spec.js:83:31
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/ai-integration-AI-Model-In-48210-eneration-and-visualization-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [chromium] › tests/e2e/ai-integration.spec.js:103:7 › AI Model Integration › AI-driven questionnaire for birth time rectification
+
+    TimeoutError: page.waitForSelector: Timeout 30000ms exceeded.
+    Call log:
+      - waiting for locator('.questionnaire, .question, [data-testid*="question"]') to be visible
+
+
+      134 |
+      135 |     // Wait for questionnaire to be displayed
+    > 136 |     await page.waitForSelector('.questionnaire, .question, [data-testid*="question"]', { timeout: 30000 });
+          |                ^
+      137 |     console.log('Questionnaire displayed');
+      138 |
+      139 |     // Take screenshot of questionnaire
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/ai-integration.spec.js:136:16
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    TimeoutError: page.waitForSelector: Timeout 30000ms exceeded.
+    Call log:
+      - waiting for locator('.questionnaire, .question, [data-testid*="question"]') to be visible
+
+
+      134 |
+      135 |     // Wait for questionnaire to be displayed
+    > 136 |     await page.waitForSelector('.questionnaire, .question, [data-testid*="question"]', { timeout: 30000 });
+          |                ^
+      137 |     console.log('Questionnaire displayed');
+      138 |
+      139 |     // Take screenshot of questionnaire
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/ai-integration.spec.js:136:16
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/ai-integration-AI-Model-In-c5b01-or-birth-time-rectification-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [chromium] › tests/e2e/chart.spec.js:69:9 › Birth Time Rectifier Application Flow Tests › complete astrological chart application flow
+
+    TimeoutError: page.click: Timeout 60000ms exceeded.
+    Call log:
+      - waiting for locator('[data-testid="manual-coordinates"]')
+
+
+      650 |     if (!locationDetails && data.latitude && data.longitude) {
+      651 |         console.log('Using manual coordinate entry...');
+    > 652 |         await page.click('[data-testid="manual-coordinates"]');
+          |                    ^
+      653 |         await page.fill('input[name="latitude"]', String(data.latitude));
+      654 |         await page.fill('input[name="longitude"]', String(data.longitude));
+      655 |
+        at fillBirthDetailsForm (/Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:652:20)
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:77:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    TimeoutError: page.click: Timeout 60000ms exceeded.
+    Call log:
+      - waiting for locator('[data-testid="manual-coordinates"]')
+
+
+      650 |     if (!locationDetails && data.latitude && data.longitude) {
+      651 |         console.log('Using manual coordinate entry...');
+    > 652 |         await page.click('[data-testid="manual-coordinates"]');
+          |                    ^
+      653 |         await page.fill('input[name="latitude"]', String(data.latitude));
+      654 |         await page.fill('input[name="longitude"]', String(data.longitude));
+      655 |
+        at fillBirthDetailsForm (/Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:652:20)
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:77:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/chart-Birth-Time-Rectifier-6343e-ical-chart-application-flow-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [chromium] › tests/e2e/chart.spec.js:161:9 › Birth Time Rectifier Application Flow Tests › validation failure path
+
+    Error: page.fill: Error: Malformed value
+    Call log:
+      - waiting for locator('input[type="time"]')
+        - locator resolved to <input value="" id="time" type="time" required="" class="mt-1 block w-full rounded-md shadow-sm border-gray-300"/>
+        - fill("invalid")
+      - attempting fill action
+        - waiting for element to be visible, enabled and editable
+
+
+      640 |     // Fill the form fields
+      641 |     await page.fill('input[type="date"]', data.birthDate);
+    > 642 |     await page.fill('input[type="time"]', data.birthTime);
+          |                ^
+      643 |     await page.fill('input#birthPlace', data.birthPlace);
+      644 |
+      645 |     // Wait for geocoding to complete or timeout
+        at fillBirthDetailsForm (/Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:642:16)
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:168:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: page.fill: Error: Malformed value
+    Call log:
+      - waiting for locator('input[type="time"]')
+        - locator resolved to <input value="" id="time" type="time" required="" class="mt-1 block w-full rounded-md shadow-sm border-gray-300"/>
+        - fill("invalid")
+      - attempting fill action
+        - waiting for element to be visible, enabled and editable
+
+
+      640 |     // Fill the form fields
+      641 |     await page.fill('input[type="date"]', data.birthDate);
+    > 642 |     await page.fill('input[type="time"]', data.birthTime);
+          |                ^
+      643 |     await page.fill('input#birthPlace', data.birthPlace);
+      644 |
+      645 |     // Wait for geocoding to complete or timeout
+        at fillBirthDetailsForm (/Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:642:16)
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:168:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/chart-Birth-Time-Rectifier-276ed-sts-validation-failure-path-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [chromium] › tests/e2e/chart.spec.js:201:9 › Birth Time Rectifier Application Flow Tests › low confidence path
+
+    Test was interrupted.
+
+    Error: page.click: Test ended.
+    Call log:
+      - waiting for locator('[data-testid="manual-coordinates"]')
+
+
+      650 |     if (!locationDetails && data.latitude && data.longitude) {
+      651 |         console.log('Using manual coordinate entry...');
+    > 652 |         await page.click('[data-testid="manual-coordinates"]');
+          |                    ^
+      653 |         await page.fill('input[name="latitude"]', String(data.latitude));
+      654 |         await page.fill('input[name="longitude"]', String(data.longitude));
+      655 |
+        at fillBirthDetailsForm (/Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:652:20)
+        at /Users/Shared/cursor/containerised-birth-time-rectifier/tests/e2e/chart.spec.js:205:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-c3800-w-Tests-low-confidence-path-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-c3800-w-Tests-low-confidence-path-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/chart-Birth-Time-Rectifier-c3800-w-Tests-low-confidence-path-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/chart-Birth-Time-Rectifier-c3800-w-Tests-low-confidence-path-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    [chromium] › tests/e2e/ai-integration.spec.js:56:7 › AI Model Integration › AI-assisted chart generation and visualization
+    [chromium] › tests/e2e/ai-integration.spec.js:103:7 › AI Model Integration › AI-driven questionnaire for birth time rectification
+    [chromium] › tests/e2e/chart.spec.js:69:9 › Birth Time Rectifier Application Flow Tests › complete astrological chart application flow
+    [chromium] › tests/e2e/chart.spec.js:161:9 › Birth Time Rectifier Application Flow Tests › validation failure path
+  1 interrupted
+    [chromium] › tests/e2e/chart.spec.js:201:9 › Birth Time Rectifier Application Flow Tests › low confidence path
+  10 did not run
+  8 passed (4.8m)
+
+  Serving HTML report at http://localhost:9323. Press Ctrl+C to quit.
+^C
+(.venv) vicd@Vics-MacBook-Air containerised-birth-time-rectifier %

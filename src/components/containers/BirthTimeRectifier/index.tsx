@@ -120,7 +120,7 @@ const BirthTimeRectifier: React.FC<BirthTimeRectifierProps> = ({
 
       // Automatically select the first planet
       if (mockChartData.planets.length > 0) {
-        setSelectedPlanet(mockChartData.planets[0].name || mockChartData.planets[0].planet);
+        setSelectedPlanet(mockChartData.planets[0].name || mockChartData.planets[0].planet || `Planet-${mockChartData.planets[0].house}`);
       }
     } catch (error) {
       console.error('Error submitting form:', error);

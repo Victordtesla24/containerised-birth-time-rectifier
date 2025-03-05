@@ -1,0 +1,170 @@
+.chart-visualization {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: 'Arial', sans-serif;
+}
+
+.view-toggle {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.view-toggle button {
+  padding: 8px 16px;
+  margin: 0 8px;
+  background-color: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.view-toggle button.active {
+  background-color: #007bff;
+  color: white;
+  border-color: #0056b3;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.chart-container {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chart-container svg {
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.entity-details {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 15px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  max-width: 200px;
+  z-index: 10;
+}
+
+.entity-details h3 {
+  margin-top: 0;
+  font-size: 16px;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 5px;
+}
+
+.entity-details p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+.table-container {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.ascendant-info {
+  background-color: #f8f8ff;
+  border: 1px solid #e0e0f0;
+  border-radius: 4px;
+  padding: 10px 15px;
+  margin-bottom: 20px;
+}
+
+.ascendant-info h3 {
+  margin-top: 0;
+  font-size: 16px;
+  color: #f00;
+}
+
+.planets-table, .houses-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.planets-table th, .houses-table th,
+.planets-table td, .houses-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.planets-table th, .houses-table th {
+  background-color: #f5f5f5;
+  font-weight: bold;
+  color: #555;
+}
+
+.planets-table tr:nth-child(even),
+.houses-table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.planets-table tr:hover,
+.houses-table tr:hover {
+  background-color: #f0f0f8;
+}
+
+/* Interactive elements */
+.interactive {
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.interactive:hover {
+  opacity: 0.8;
+}
+
+/* Special highlighting for Ketu & Ascendant */
+[data-testid="planet-Ketu"] {
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+
+[data-testid="ascendant"] {
+  stroke-dasharray: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .entity-details {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-top: 15px;
+    max-width: 100%;
+  }
+
+  .view-toggle button {
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+
+  .chart-container svg {
+    width: 100%;
+  }
+
+  .planets-table, .houses-table {
+    font-size: 14px;
+  }
+
+  .planets-table th, .houses-table th,
+  .planets-table td, .houses-table td {
+    padding: 6px 8px;
+  }
+}

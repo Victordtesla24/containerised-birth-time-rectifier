@@ -40,7 +40,7 @@ export default function TestChartPage() {
 
         console.log("Fetching chart data with test data:", testData);
 
-        const response = await fetch('http://localhost:8000/api/charts', {
+        const response = await fetch('http://localhost:8000/api/chart/generate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -134,7 +134,8 @@ export default function TestChartPage() {
             planets: baseChart.planets.map(planet => ({
               ...planet,
               // Shift degree based on divisional number to create variety and convert to string
-              degree: (((planet.degree ? parseFloat(planet.degree) : 0) + 30 * divisionalNumber) % 360).toString(),
+              degree: (((typeof planet.degree === 'number' ? planet.degree :
+                        typeof planet.degree === 'string' ? parseFloat(planet.degree) : 0) + 30 * divisionalNumber) % 360).toString(),
               // Vary the house placement
               house: ((planet.house || 1) + divisionalNumber - 1) % 12 + 1
             })),

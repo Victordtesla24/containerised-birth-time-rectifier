@@ -1,3 +1,3 @@
 """
-API Routers package
+Routers package for API endpoints.
 """

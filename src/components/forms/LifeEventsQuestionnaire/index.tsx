@@ -86,7 +86,7 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
         chartType: 'all'
       };
 
-      const response = await fetch(`${apiUrl}/api/charts`, {
+      const response = await fetch(`${apiUrl}/api/chart/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -144,16 +144,16 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
         ...birthDetails,
         // Ensure approximateTime is present and in the correct format (HH:MM:SS)
         approximateTime: birthDetails.approximateTime ||
-                        (birthDetails.birthTime ? birthDetails.birthTime + (birthDetails.birthTime.length === 5 ? ':00' : '') : '00:00:00'),
+                        (birthDetails.hasOwnProperty('birthTime') ? (birthDetails as any).birthTime + ((birthDetails as any).birthTime.length === 5 ? ':00' : '') : '00:00:00'),
         // Ensure gender is present and has a valid value
         gender: birthDetails.gender || 'unknown',
         // Ensure birthLocation is present with a fallback value that's descriptive
-        birthLocation: birthDetails.birthLocation || birthDetails.location || 'Unknown Location',
+        birthLocation: birthDetails.birthLocation || (birthDetails as any).location || 'Unknown Location',
         // Additional field mapping for API compatibility
         name: birthDetails.name || 'Anonymous User',
         // Ensure coordinates are properly formatted with fallbacks
-        latitude: parseFloat(String(birthDetails?.coordinates?.latitude || birthDetails?.latitude || '0')),
-        longitude: parseFloat(String(birthDetails?.coordinates?.longitude || birthDetails?.longitude || '0')),
+        latitude: parseFloat(String(birthDetails?.coordinates?.latitude || (birthDetails as any)?.latitude || '0')),
+        longitude: parseFloat(String(birthDetails?.coordinates?.longitude || (birthDetails as any)?.longitude || '0')),
         // Ensure timezone is present
         timezone: birthDetails.timezone || 'UTC',
         // Add birthDate in consistent format
@@ -311,7 +311,11 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     setProgress(progressValue);
 
     if (onProgress) {
-      onProgress(progressValue);
+      onProgress({
+        answeredQuestions: Object.keys(answers).length,
+        totalQuestions: questions.length,
+        confidence: progressValue
+      });
     }
   }, [onProgress]);
 
@@ -447,19 +451,24 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     if (isLoading) return;
 
     try {
-      // Prepare the questionnaire response
-      const questionnaireResponse: QuestionnaireResponse = {
-        birthDetails,
-        answers: Object.values(answers),
-        confidenceScore,
-        sessionId: sessionId || undefined
+      setIsSubmitting(true);
+
+      // Construct the response object
+      const questionnaireResponse: QuestionnaireSubmitData = {
+        answers: Object.values(answers).reduce((acc: Record<string, string>, curr) => {
+          acc[curr.questionId] = curr.answer;
+          return acc;
+        }, {}),
+        confidence: Math.min(95, Math.max(0, Object.keys(answers).length * 0.05)),
+        questionIds: Object.values(answers).map(a => a.questionId)
       };
 
-      // Submit the questionnaire data
-      await onSubmit(questionnaireResponse);
+      await onSubmit?.(questionnaireResponse);
     } catch (error) {
       console.error('Error submitting questionnaire:', error);
       setError(`Failed to submit questionnaire: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -470,8 +479,8 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
 
       // If we have initial data, use it
       if (initialData) {
-        if (initialData.questions) {
-          setQuestions(initialData.questions);
+        if (initialData.hasOwnProperty('questions')) {
+          setQuestions((initialData as any).questions);
         }
         if (initialData.confidenceScore) {
           setConfidenceScore(initialData.confidenceScore);
@@ -514,7 +523,11 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   useEffect(() => {
     if (onProgress && questions.length > 0) {
       const progress = (Object.keys(answers).length / questions.length) * 100;
-      onProgress(progress);
+      onProgress({
+        answeredQuestions: Object.keys(answers).length,
+        totalQuestions: questions.length,
+        confidence: progress
+      });
     }
   }, [answers, questions, onProgress]);
 
@@ -539,17 +552,16 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     setError(null);
 
     try {
-      // Convert answers object to array
-      const answersArray = Object.values(answers);
-
-      const response: QuestionnaireResponse = {
-        birthDetails,
-        answers: answersArray,
-        confidenceScore,
-        sessionId: sessionId || undefined
+      const response: QuestionnaireSubmitData = {
+        answers: Object.values(answers).reduce((acc: Record<string, string>, curr) => {
+          acc[curr.questionId] = curr.answer;
+          return acc;
+        }, {}),
+        confidence: Math.min(95, Math.max(0, Object.keys(answers).length * 0.05)),
+        questionIds: Object.values(answers).map(a => a.questionId)
       };
 
-      await onSubmit(response);
+      await onSubmit?.(response);
     } catch (err) {
       console.error("Error submitting questionnaire:", err);
       setError(err instanceof Error ? err.message : "An unknown error occurred");

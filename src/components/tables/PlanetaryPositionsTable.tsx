@@ -4,8 +4,12 @@ import { motion } from 'framer-motion';
 interface PlanetPosition {
   planet: string;
   sign: string;
-  degree: string;
+  degree: string | number;
   house: number;
+  id?: string;
+  name?: string;
+  longitude?: number;
+  latitude?: number;
 }
 
 interface PlanetaryPositionsTableProps {
@@ -16,26 +20,26 @@ const PlanetaryPositionsTable: React.FC<PlanetaryPositionsTableProps> = ({ posit
   // Sort planets in a traditional astrological order
   const sortedPositions = [...positions].sort((a, b) => {
     const planetOrder = [
-      'Sun', 'Moon', 'Mercury', 'Venus', 'Mars', 
+      'Sun', 'Moon', 'Mercury', 'Venus', 'Mars',
       'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Pluto'
     ];
-    
+
     const indexA = planetOrder.indexOf(a.planet);
     const indexB = planetOrder.indexOf(b.planet);
-    
+
     // If both planets are in the order list, sort by that order
     if (indexA !== -1 && indexB !== -1) {
       return indexA - indexB;
     }
-    
+
     // If only one planet is in the order list, prioritize it
     if (indexA !== -1) return -1;
     if (indexB !== -1) return 1;
-    
+
     // Otherwise sort alphabetically
     return a.planet.localeCompare(b.planet);
   });
-  
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full table-auto">
@@ -89,8 +93,8 @@ const getZodiacSymbol = (sign: string): string => {
     'Aquarius': '♒',
     'Pisces': '♓'
   };
-  
+
   return symbols[sign] || '';
 };
 
-export default PlanetaryPositionsTable; 
+export default PlanetaryPositionsTable;

@@ -30,23 +30,21 @@ def test_api_health_endpoint():
 
 def test_chart_generation():
     """Test the chart generation endpoint."""
-    # Sample birth data
-    request_data = {
+    # Sample birth data - camelCase format for the alt endpoint
+    request_data_alt = {
         "birthDate": "1990-05-15",
         "birthTime": "10:30:00",
         "latitude": 18.5204,
         "longitude": 73.8567,
-        "timezone": "Asia/Kolkata",
-        "chartType": "d1",
-        "options": {"house_system": "P"}
+        "timezone": "Asia/Kolkata"
     }
 
-    # Test the endpoint
-    response = client.post("/chart/generate", json=request_data)
+    # Test the alt endpoint first
+    response = client.post("/chart/generate/alt", json=request_data_alt)
 
     # If this fails, try the alternative endpoint
-    if response.status_code == 404:
-        response = client.post("/api/chart/generate", json=request_data)
+    if response.status_code != 200:
+        response = client.post("/api/chart/generate/alt", json=request_data_alt)
 
     assert response.status_code == 200
     data = response.json()

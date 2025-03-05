@@ -487,7 +487,16 @@ export default function CustomChartsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <ChartVisualization
-                    chartData={formattedChartData}
+                    chartData={{
+                      planets: formattedChartData.planets.map(planet => ({
+                        id: planet.name || `planet-${planet.house}`,
+                        name: planet.name || `Planet in House ${planet.house}`,
+                        sign: planet.sign || 'Unknown',
+                        degree: typeof planet.degree === 'number' ? planet.degree : parseFloat(String(planet.degree || '0')),
+                        house: planet.house,
+                        longitude: planet.longitude || 0
+                      }))
+                    }}
                     width={400}
                     height={400}
                   />

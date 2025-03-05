@@ -12,7 +12,7 @@ export const CelestialNavbar: React.FC = () => {
   const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
+
   // Navigation items
   const navItems: NavItem[] = [
     { name: 'home', href: '/', label: 'Home' },
@@ -20,7 +20,7 @@ export const CelestialNavbar: React.FC = () => {
     { name: 'about', href: '/about', label: 'About' },
     { name: 'faq', href: '/faq', label: 'FAQ' },
   ];
-  
+
   // Handle scroll effect
   useEffect(() => {
     const handleScroll = () => {
@@ -30,11 +30,11 @@ export const CelestialNavbar: React.FC = () => {
         setIsScrolled(false);
       }
     };
-    
+
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-  
+
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 ${isScrolled ? 'py-2' : 'py-4'} transition-all duration-300 ${isScrolled ? 'bg-slate-900/90' : 'bg-transparent'}`}
       style={{
@@ -60,11 +60,11 @@ export const CelestialNavbar: React.FC = () => {
             <span className="text-xl font-bold text-white"
               style={{ textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
             >
-              Birth Time Rectifier
+              Birth Time Rectification
             </span>
           </div>
         </Link>
-        
+
         {/* Desktop Navigation */}
         <div className="hidden md:flex items-center gap-8">
           {navItems.map((item) => (
@@ -90,7 +90,7 @@ export const CelestialNavbar: React.FC = () => {
               </div>
             </Link>
           ))}
-          
+
           <button
             className="transition-all duration-200 hover:translate-y-[-2px]"
             style={{
@@ -109,7 +109,7 @@ export const CelestialNavbar: React.FC = () => {
             Sign In
           </button>
         </div>
-        
+
         {/* Mobile menu button */}
         <div className="flex md:hidden">
           <button
@@ -136,7 +136,7 @@ export const CelestialNavbar: React.FC = () => {
           </button>
         </div>
       </div>
-      
+
       {/* Mobile menu */}
       <div
         className={`md:hidden transition-all duration-300 bg-slate-900/95 ${isMobileMenuOpen ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}
@@ -179,4 +179,4 @@ export const CelestialNavbar: React.FC = () => {
       </div>
     </nav>
   );
-}; 
+};

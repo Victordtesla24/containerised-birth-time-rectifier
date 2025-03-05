@@ -1,9 +1,10 @@
 // export type { BirthDetails, RectificationResult };
 
 export interface PlanetPosition {
-  planet: string;
-  sign: string;
-  degree: string;
+  id?: string;
+  planet?: string;
+  sign?: string;
+  degree?: string | number;
   house: number;
   name?: string;
   longitude?: number;
@@ -89,8 +90,11 @@ export interface BirthDetails {
   name: string;
   gender: string;
   birthDate: string;
+  date?: string; // Alias for birthDate in tests
   approximateTime: string;
+  time?: string; // Alias for approximateTime in tests
   birthLocation: string;
+  place?: string; // Alias for birthLocation in tests
   coordinates?: {
     latitude: number;
     longitude: number;

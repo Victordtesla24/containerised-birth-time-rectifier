@@ -1,13 +1,14 @@
 """
 Tests for the AI birth time rectification model.
-Validates the full functionality of the unified model.
+Validates the functionality of the unified model.
 """
 
 import os
 import sys
 import pytest
-import torch
 import logging
+import asyncio
+from unittest.mock import patch, AsyncMock
 
 # Add the root directory to the path so we can import from the ai_service module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -18,180 +19,208 @@ from ai_service.models.unified_model import UnifiedRectificationModel
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Skip if torch is not available
-pytorch_available = True
-try:
-    import torch
-except ImportError:
-    pytorch_available = False
-
-@pytest.mark.skipif(not pytorch_available, reason="PyTorch not available")
 class TestAIRectificationModel:
     """Test suite for the AI rectification model."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def model(self):
         """Create a test instance of the unified model."""
-        return UnifiedRectificationModel(
-            model_name="bert-base-uncased",
-            device="cpu",
-            num_hours=24
-        )
+        return UnifiedRectificationModel()
+
+    @pytest.fixture
+    def sample_birth_details(self):
+        """Sample birth details for testing."""
+        return {
+            "birthDate": "1990-01-01",
+            "birthTime": "12:00",
+            "latitude": 40.7128,
+            "longitude": -74.0060,
+            "timezone": "America/New_York"
+        }
+
+    @pytest.fixture
+    def sample_questionnaire_data(self):
+        """Sample questionnaire data for testing."""
+        return {
+            "responses": [
+                {
+                    "question": "What time were you born?",
+                    "answer": "Around noon, but I'm not sure of the exact time."
+                },
+                {
+                    "question": "Have you experienced any major life events?",
+                    "answer": "I got married in 2015 and changed careers in 2018."
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def sample_chart_data(self):
+        """Sample chart data for testing."""
+        return {
+            "ascendant": {"sign": "Taurus", "degree": 15.5},
+            "planets": [
+                {
+                    "name": "Sun",
+                    "sign": "Capricorn",
+                    "longitude": 10.5,
+                    "house": 9
+                },
+                {
+                    "name": "Moon",
+                    "sign": "Virgo",
+                    "longitude": 155.3,
+                    "house": 5
+                }
+            ]
+        }
 
     def test_model_initialization(self, model):
         """Test that the model initializes correctly."""
         assert model is not None
         assert isinstance(model, UnifiedRectificationModel)
-        assert model.device == "cpu"
-        assert model.num_hours == 24
+        assert model.is_initialized
+        assert model.model_version == "1.0.0"
+        assert hasattr(model, 'technique_weights')
 
-    def test_model_forward_pass(self, model):
-        """Test the model's forward pass."""
-        # Create dummy input data
-        input_ids = torch.randint(0, 1000, (1, 10))
-        attention_mask = torch.ones(1, 10)
-        birth_data = {
-            "latitude": torch.tensor([40.7128]),
-            "longitude": torch.tensor([-74.0060]),
-            "hour": torch.tensor([12]),
-            "minute": torch.tensor([0]),
-            "day": torch.tensor([1]),
-            "month": torch.tensor([1]),
-            "asc_degree": torch.tensor([15.5]),
-            "moon_degree": torch.tensor([25.3])
+    @pytest.mark.asyncio
+    async def test_rectify_birth_time_with_simulation(self, model, sample_birth_details, sample_questionnaire_data):
+        """Test birth time rectification using the simulation method."""
+
+        # Mock the AI service to be None so it uses simulation
+        with patch.object(model, 'openai_service', None):
+            # Call rectify_birth_time
+            result = await model.rectify_birth_time(
+                birth_details=sample_birth_details,
+                questionnaire_data=sample_questionnaire_data
+            )
+
+            # Check the result structure
+            assert "suggested_time" in result
+            assert "confidence" in result
+            assert "reliability" in result
+            assert "task_predictions" in result
+            assert "explanation" in result
+            assert "significant_events" in result
+            assert "ai_used" in result
+            assert not result["ai_used"]  # AI should not be used in simulation
+
+            # Check specific fields
+            assert "time_accuracy" in result["task_predictions"]
+            assert "ascendant_accuracy" in result["task_predictions"]
+            assert "houses_accuracy" in result["task_predictions"]
+            assert result["reliability"] in ["low", "moderate", "high", "very high"]
+
+    @pytest.mark.asyncio
+    async def test_perform_ai_rectification(self, model, sample_birth_details, sample_chart_data, sample_questionnaire_data):
+        """Test AI-based rectification."""
+
+        # Create a mock response
+        mock_response = {
+            "content": '{"adjustment_minutes": 15, "confidence": 80, "reasoning": "test"}'
         }
 
-        # Run forward pass
-        weighted_output, task_outputs = model(input_ids, attention_mask, birth_data)
+        # Mock the OpenAI service
+        mock_openai = AsyncMock()
+        mock_openai.generate_completion.return_value = mock_response
 
-        # Check outputs
-        assert weighted_output is not None
-        assert isinstance(weighted_output, torch.Tensor)
-        assert weighted_output.shape == (1, 24)  # Batch size 1, 24 hours
+        with patch.object(model, 'openai_service', mock_openai):
+            # Call _perform_ai_rectification
+            adjustment_minutes, confidence = await model._perform_ai_rectification(
+                birth_details=sample_birth_details,
+                chart_data=sample_chart_data,
+                questionnaire_data=sample_questionnaire_data
+            )
 
-        # Check task outputs
-        assert "tattva" in task_outputs
-        assert "nadi" in task_outputs
-        assert "kp" in task_outputs
+            # Check the result
+            assert adjustment_minutes == 15
+            assert confidence == 80
 
-    def test_process_birth_data(self, model):
-        """Test processing of birth data."""
-        birth_data = {
-            "latitude": torch.tensor([40.7128]),
-            "longitude": torch.tensor([-74.0060]),
-            "hour": torch.tensor([12]),
-            "minute": torch.tensor([0]),
-            "day": torch.tensor([1]),
-            "month": torch.tensor([1])
+            # Verify the mock was called with the right parameters
+            mock_openai.generate_completion.assert_called_once()
+            args, kwargs = mock_openai.generate_completion.call_args
+            assert kwargs["task_type"] == "rectification"
+
+    def test_calculate_confidence(self, model, sample_questionnaire_data):
+        """Test confidence calculation based on questionnaire responses."""
+        confidence = model._calculate_confidence(sample_questionnaire_data)
+
+        # Check the result
+        assert isinstance(confidence, float)
+        assert 50 <= confidence <= 95
+
+    def test_determine_reliability(self, model, sample_questionnaire_data):
+        """Test reliability level determination."""
+        reliability = model._determine_reliability(75, sample_questionnaire_data)
+
+        # Check the result
+        assert reliability in ["low", "moderate", "high", "very high"]
+
+    @pytest.mark.asyncio
+    async def test_generate_explanation(self, model, sample_questionnaire_data):
+        """Test explanation generation."""
+
+        # Mock the OpenAI service
+        mock_openai = AsyncMock()
+        mock_openai.generate_completion.return_value = {
+            "content": "This is a test explanation for birth time rectification.",
+            "tokens": {"total": 12},
         }
 
-        # Process birth data
-        features = model._process_birth_data(birth_data)
+        with patch.object(model, 'openai_service', mock_openai):
+            # Generate explanation
+            explanation = await model._generate_explanation(
+                adjustment_minutes=15,
+                reliability="high",
+                questionnaire_data=sample_questionnaire_data
+            )
 
-        # Check output
-        assert features is not None
-        assert isinstance(features, torch.Tensor)
-        assert features.shape[0] == 1  # Batch size 1
+            # Check the result
+            assert isinstance(explanation, str)
+            assert explanation == "This is a test explanation for birth time rectification."
 
-    def test_prediction_with_text(self, model):
-        """Test prediction with text input."""
-        # Sample text
-        text = "I was born in New York City. My birth time is around noon."
+            # Verify the mock was called with the right parameters
+            mock_openai.generate_completion.assert_called_once()
+            args, kwargs = mock_openai.generate_completion.call_args
+            assert kwargs["task_type"] == "explanation"
 
-        # Sample birth data
-        birth_data = {
-            "latitude": 40.7128,
-            "longitude": -74.0060,
-            "birth_date": "1990-01-01",
-            "birth_time": "12:00"
+    @pytest.mark.asyncio
+    async def test_identify_significant_events_ai(self, model, sample_questionnaire_data):
+        """Test identifying significant events with AI."""
+
+        # Mock the OpenAI service
+        mock_openai = AsyncMock()
+        mock_openai.generate_completion.return_value = {
+            "content": "Event 1 - Astrological explanation\nEvent 2 - Another explanation"
         }
 
-        # Make prediction
-        result = model.predict(text, birth_data, return_details=True)
+        with patch.object(model, 'openai_service', mock_openai):
+            # Identify significant events
+            events = await model._identify_significant_events_ai(
+                questionnaire_data=sample_questionnaire_data,
+                adjustment_minutes=15
+            )
 
-        # Check result
-        assert result is not None
-        assert "predicted_hour" in result
-        assert 0 <= result["predicted_hour"] < 24
-        assert "confidence" in result
-        assert 0 <= result["confidence"] <= 100
-        assert "reliability_level" in result
+            # Check the result
+            assert isinstance(events, list)
+            assert len(events) == 2
+            assert events[0] == "Event 1 - Astrological explanation"
+            assert events[1] == "Event 2 - Another explanation"
 
-    def test_confidence_calculation(self, model):
-        """Test confidence calculation."""
-        # Create dummy probability distribution
-        probs = torch.softmax(torch.randn(24), dim=0)
+            # Verify the mock was called with the right parameters
+            mock_openai.generate_completion.assert_called_once()
+            args, kwargs = mock_openai.generate_completion.call_args
+            assert kwargs["task_type"] == "auxiliary"
 
-        # Dummy task outputs
-        task_outputs = {
-            "tattva": torch.randn(1, 24),
-            "nadi": torch.randn(1, 24),
-            "kp": torch.randn(1, 24)
-        }
+    def test_identify_significant_events_fallback(self, model, sample_questionnaire_data):
+        """Test identifying significant events with fallback method."""
+        events = model._identify_significant_events_fallback(sample_questionnaire_data)
 
-        # Sample text
-        text = "I was born in New York City. My birth time is around noon."
+        # Check the result
+        assert isinstance(events, list)
+        assert 2 <= len(events) <= 4
 
-        # Sample birth data
-        birth_data = {
-            "latitude": 40.7128,
-            "longitude": -74.0060,
-            "birth_date": "1990-01-01",
-            "birth_time": "12:00"
-        }
-
-        # Get predicted hour
-        predicted_hour = torch.argmax(probs).item()
-
-        # Calculate confidence
-        confidence, agreement_scores, task_agreement, has_pattern = model._calculate_confidence(
-            probs, task_outputs, predicted_hour, text, birth_data
-        )
-
-        # Check result
-        assert 0 <= confidence <= 100
-        assert "exact_match" in agreement_scores
-        assert "hour_window" in agreement_scores
-        assert "pattern" in agreement_scores
-        assert 0 <= task_agreement <= 1
-        assert isinstance(has_pattern, bool)
-
-    def test_save_and_load(self, model, tmpdir):
-        """Test saving and loading the model."""
-        # Save model
-        save_path = os.path.join(tmpdir, "test_model.pt")
-        model.save(save_path)
-
-        # Check that file exists
-        assert os.path.exists(save_path)
-
-        # Load model
-        loaded_model = UnifiedRectificationModel.load(save_path, device="cpu")
-
-        # Check loaded model
-        assert loaded_model is not None
-        assert isinstance(loaded_model, UnifiedRectificationModel)
-        assert loaded_model.device == "cpu"
-        assert loaded_model.num_hours == 24
-
-    def test_hour_ranges_calculation(self, model):
-        """Test calculation of hour ranges."""
-        # Create dummy probability distribution with peaks
-        probs = torch.zeros(24)
-        probs[10] = 0.3  # Peak at 10
-        probs[11] = 0.2  # Adjacent to peak
-        probs[12] = 0.1  # Adjacent to peak
-        probs[18] = 0.2  # Another peak
-        probs[4] = 0.1   # Another smaller peak
-        probs = torch.softmax(probs, dim=0)
-
-        # Calculate hour ranges
-        ranges = model._calculate_hour_ranges(probs)
-
-        # Check result
-        assert ranges is not None
-        assert len(ranges) > 0
-        assert "start" in ranges[0]
-        assert "end" in ranges[0]
-        assert "probability" in ranges[0]
-        assert ranges[0]["probability"] > 0.0
+        # Verify the format of the events
+        for event in events:
+            assert isinstance(event, str)
+            assert " during " in event  # Events should mention astrological conditions

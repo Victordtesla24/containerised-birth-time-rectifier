@@ -267,6 +267,7 @@ const ChartVisualization: React.FC<ChartVisualizationProps> = ({
     <div
       ref={containerRef}
       className={`chart-visualization ${isZoomed ? 'zoomed' : ''}`}
+      data-testid="chart-visualization"
       style={{
         width: `${width * scale}px`,
         height: `${height * scale}px`,
@@ -282,6 +283,10 @@ const ChartVisualization: React.FC<ChartVisualizationProps> = ({
           transition: 'transform 0.3s ease-in-out',
           transform: `scale(${isZoomed ? 1.5 : 1})`
         }}
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        data-testid="chart-svg"
       />
       {activeEntity && (
         <div
@@ -299,6 +304,7 @@ const ChartVisualization: React.FC<ChartVisualizationProps> = ({
             zIndex: 1000,
             pointerEvents: 'none'
           }}
+          data-testid="planet-info"
         >
           <div className="font-medium">{activeEntity.data.name}</div>
           <div>{activeEntity.data.sign} {activeEntity.data.degree}°</div>

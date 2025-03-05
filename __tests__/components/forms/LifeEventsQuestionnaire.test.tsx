@@ -10,9 +10,13 @@ global.fetch = jest.fn();
 // Sample birth details for testing
 const mockBirthDetails: BirthDetails = {
   name: 'Test User',
+  gender: 'Male',
   date: '1990-01-01',
+  birthDate: '1990-01-01',
   time: '12:00',
+  approximateTime: '12:00',
   place: 'New York',
+  birthLocation: 'New York',
   coordinates: { latitude: 40.7128, longitude: -74.006 },
   timezone: 'America/New_York'
 };

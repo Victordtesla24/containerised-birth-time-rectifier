@@ -34,6 +34,7 @@ TIMEZONE_API_URL = "http://api.timezonedb.com/v2.1/get-time-zone"
 TIMEZONE_API_KEY = os.getenv("TIMEZONE_API_KEY", "")
 
 @router.get("/geocode", response_model=GeocodeResponse)
+@router.get("/geocoding/geocode", response_model=GeocodeResponse)  # Additional path for test compatibility
 async def geocode(query: str = Query("New York", description="Location to geocode")):
     """
     Geocode a location string to coordinates and timezone.
