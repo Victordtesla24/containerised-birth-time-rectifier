@@ -1,0 +1,42 @@
+---
+description: Detailed directory management protocols for deployment, proiect development & maintainence purposes
+globs:
+alwaysApply: true
+---
+#### Directory Management Protocol
+**Pre and Post requisite**: This protocol has strict & mandatory pre and post requisites protocol adherance with & including every single other protocols [my-code-optimisation-protocols.mdc](mdc:.cursor/rules/my-code-optimisation-protocols.mdc), [my-development-protocols.mdc](mdc:.cursor/rules/my-development-protocols.mdc), [my-error-fixing-protocols.mdc](mdc:.cursor/rules/my-error-fixing-protocols.mdc), & [my-memory-manager.mdc](mdc:.cursor/rules/my-memory-manager.mdc) with utmost attention & precision.
+
+1. **Strict Requirement:** Follow VERCEL (or similar) deployment guidelines and best practices.
+2. **File and Directory Scanning:**
+   - You **must scan** all project directories and files of the following types:
+     `*.py`, `*.js`, `*.ts`, `*.tsx`, `*.json`, `*.txt`, `*.yml`, `*.yaml`, `*.babelrc`, `*.cursorrules`, `*.env`, `*.sh`, `*.Dockerfile`, `*.conf`, `*.xml`, `*.css`, `*.html`, as well as any other relevant project file types or folders.
+   - During scanning, identify **duplicate or similar functionality** in scripts, modules, or configurations.
+3. **Consolidation of Duplicates:**
+   - Merge or remove **duplicate** files, code, or scripts.
+   - Keep only **one unique version** of code that combines essential functionality.
+   - Retain minimal changes, ensuring no additional features are introduced or lost.
+4. **Correct Placement and Renaming:**
+   - Move or rename files as needed to match the project’s recommended directory structure.
+   - Ensure references to these files and modules (imports, exports, paths) are **updated** accordingly.
+5. **Import & Path Management:**
+   - After consolidating or moving files, **update all import statements** and **module references** in the codebase.
+   - If any import or path errors arise, call the **Recursive Import Error Fixing Algorithm** in the Error Handling Protocol of [.cursorrules](mdc:.cursorrules) to resolve them in 2–3 attempts.
+6. **Cleanup Unused or Redundant Assets:**
+   - Remove any **unnecessary** files, folders, or code that duplicate existing functionality or are no longer required after consolidation.
+   - Confirm no references remain to deleted items.
+7. **No Functionality Lost:**
+   - Ensure that no existing features or essential code are inadvertently removed or broken.
+   - **File Integrity Check:** Run relevant tests to confirm everything remains functional.
+8. **Refactoring Large Files (>600 lines):**
+   - When encountering large files, use best practices and  split them into smaller, more modular files, following the single responsibility principle.
+9. **Final Verification:**
+   - Re-run applicable test suites to ensure **zero** import or path errors remain.
+   - Document final changes in the Memory Bank (e.g., updated file paths, new consolidated modules).
+   - Comply with other protocols (e.g., Error Handling, Testing) if any errors occur.
+
+**Critical:**
+- No functionality or code must be added or removed beyond the targeted consolidation.
+- Always follow the “Fail Fast” iterative approach and perform a final integrity check after each structural change.
+- You must ensure that the final directory structure remains consistent and that all consolidated functionality is fully operational.
+
+---

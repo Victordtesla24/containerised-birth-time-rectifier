@@ -4,8 +4,18 @@ FROM node:20-slim as base
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright and build tools
 RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    build-essential \
+    pkg-config \
+    libpixman-1-dev \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -29,6 +39,9 @@ RUN apt-get update && apt-get install -y \
     libexpat1 \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+# Set Python path for node-gyp
+ENV PYTHON=/usr/bin/python3
 
 # Set environment variables
 ENV NEXT_TELEMETRY_DISABLED=1

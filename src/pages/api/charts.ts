@@ -1,3 +1,15 @@
+/**
+ * NOTE FOR CONSOLIDATION: APIs should be consolidated under the /api/v1/ namespace.
+ * This file can be merged with /api/v1/chart endpoints for better organization.
+ *
+ * API endpoints organization plan:
+ * 1. Move all endpoints to /api/v1/* for proper versioning
+ * 2. Eliminate duplicates between /api/* and /api/v1/* paths
+ * 3. Consolidate chart-related endpoints under /api/v1/chart/
+ *
+ * @deprecated Use /api/v1/chart endpoints instead.
+ */
+
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { BirthDetails, ChartData } from '@/types';
 

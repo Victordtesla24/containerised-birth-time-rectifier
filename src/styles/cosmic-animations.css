@@ -1,0 +1,361 @@
+/* Enhanced Cosmic Animations CSS */
+
+/* Base cosmic classes with 3D depth effects */
+.cosmic-element {
+  position: relative;
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+              box-shadow 0.4s ease,
+              opacity 0.4s ease;
+  transform-style: preserve-3d;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+/* 3D hover transformation effect */
+.cosmic-element:hover {
+  transform: translateY(-5px) translateZ(20px) rotateX(2deg);
+}
+
+/* Animated shimmer effect for text and UI elements */
+.cosmic-shimmer {
+  position: relative;
+  overflow: hidden;
+  will-change: box-shadow, transform;
+}
+
+.cosmic-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  transform: skewX(-25deg);
+  animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* Parallax effect classes for multi-layered depth */
+.parallax-container {
+  position: relative;
+  perspective: 1000px;
+  transform-style: preserve-3d;
+  overflow: hidden;
+}
+
+.parallax-layer {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.parallax-layer-0 { z-index: 1; transform: translateZ(0px); }
+.parallax-layer-1 { z-index: 2; transform: translateZ(20px); }
+.parallax-layer-2 { z-index: 3; transform: translateZ(40px); }
+.parallax-layer-3 { z-index: 4; transform: translateZ(60px); }
+.parallax-layer-4 { z-index: 5; transform: translateZ(80px); }
+.parallax-layer-5 { z-index: 6; transform: translateZ(100px); }
+
+/* Twinkling star animation */
+.twinkle-star {
+  position: absolute;
+  background-color: white;
+  border-radius: 50%;
+  opacity: 0;
+  animation: twinkle var(--duration, 4s) infinite var(--delay, 0s);
+  will-change: opacity, transform;
+  box-shadow: 0 0 4px 2px rgba(255, 255, 255, 0.3);
+}
+
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.1;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Shooting star animation */
+.shooting-star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.9), transparent);
+  border-radius: 50%;
+  opacity: 0;
+  filter: blur(1px);
+  box-shadow: 0 0 10px 5px rgba(255, 255, 255, 0.5);
+  animation: shoot 3s ease-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes shoot {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.5) rotate(45deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(300px, 300px) scale(0.1) rotate(45deg);
+  }
+}
+
+/* Nebula and cosmic cloud effect */
+.cosmic-nebula {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 100, 255, 0.2),
+    rgba(100, 100, 255, 0.1),
+    transparent
+  );
+  opacity: 0.4;
+  animation: pulse 20s infinite alternate;
+  will-change: opacity, transform;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.6;
+  }
+}
+
+/* Floating animation for UI elements */
+.floating {
+  animation: float 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+.floating-subtle {
+  animation: float-subtle 10s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes float-subtle {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+  }
+  25% {
+    transform: translateY(-5px) translateX(3px);
+  }
+  50% {
+    transform: translateY(-10px) translateX(-3px);
+  }
+  75% {
+    transform: translateY(-5px) translateX(2px);
+  }
+}
+
+/* Cosmic glowing element with layered box-shadows for depth */
+.cosmic-glow {
+  position: relative;
+  transition: all 0.3s ease;
+  will-change: box-shadow, transform;
+}
+
+.cosmic-glow-blue {
+  box-shadow:
+    0 0 10px 5px rgba(65, 120, 255, 0.2),
+    0 0 20px 10px rgba(65, 120, 255, 0.1),
+    0 0 30px 15px rgba(65, 120, 255, 0.05);
+}
+
+.cosmic-glow-purple {
+  box-shadow:
+    0 0 10px 5px rgba(138, 43, 226, 0.2),
+    0 0 20px 10px rgba(138, 43, 226, 0.1),
+    0 0 30px 15px rgba(138, 43, 226, 0.05);
+}
+
+.cosmic-glow-gold {
+  box-shadow:
+    0 0 10px 5px rgba(255, 215, 0, 0.2),
+    0 0 20px 10px rgba(255, 215, 0, 0.1),
+    0 0 30px 15px rgba(255, 215, 0, 0.05);
+}
+
+.cosmic-glow:hover {
+  box-shadow:
+    0 0 15px 7px rgba(65, 120, 255, 0.3),
+    0 0 30px 15px rgba(65, 120, 255, 0.15),
+    0 0 50px 25px rgba(65, 120, 255, 0.1);
+  transform: translateY(-3px) scale(1.02);
+}
+
+/* Cosmic text with animated gradient */
+.cosmic-text {
+  background: linear-gradient(
+    90deg,
+    #4169E1, #8A2BE2, #FF1493, #4169E1
+  );
+  background-size: 300% 100%;
+  animation: cosmic-text-flow 8s ease infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+  will-change: background-position;
+}
+
+@keyframes cosmic-text-flow {
+  0%, 100% { background-position: 0 0; }
+  50% { background-position: 100% 0; }
+}
+
+/* Enhanced cosmic button with 3D depth */
+.cosmic-button-3d {
+  position: relative;
+  padding: 12px 24px;
+  background: linear-gradient(45deg, #3b82f6, #8b5cf6);
+  color: white;
+  border: none;
+  border-radius: 30px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  transform-style: preserve-3d;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  box-shadow:
+    0 6px 0 -3px rgba(0, 0, 0, 0.2),
+    0 8px 12px rgba(0, 0, 0, 0.2);
+  will-change: transform, box-shadow;
+}
+
+.cosmic-button-3d:hover {
+  transform: translateY(-2px) rotateX(10deg);
+  box-shadow:
+    0 8px 0 -3px rgba(0, 0, 0, 0.2),
+    0 12px 16px rgba(0, 0, 0, 0.3);
+}
+
+.cosmic-button-3d:active {
+  transform: translateY(2px) rotateX(-5deg);
+  box-shadow:
+    0 2px 0 -3px rgba(0, 0, 0, 0.2),
+    0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Cosmic scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(transparent, #60a5fa, transparent);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(transparent, #818cf8, transparent);
+}
+
+/* Mouse-reactive parallax effect */
+.mouse-parallax {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+/* Performance optimization classes */
+.hardware-accelerated {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Smooth transition classes */
+.transition-smooth {
+  transition: all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.transition-bounce {
+  transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+}
+
+/* Responsive optimizations */
+@media (max-width: 768px) {
+  .parallax-layer-1 { transform: translateZ(10px); }
+  .parallax-layer-2 { transform: translateZ(20px); }
+  .parallax-layer-3 { transform: translateZ(30px); }
+  .parallax-layer-4 { transform: translateZ(40px); }
+  .parallax-layer-5 { transform: translateZ(50px); }
+
+  .cosmic-glow {
+    box-shadow: 0 0 10px 3px rgba(65, 120, 255, 0.2);
+  }
+}
+
+/* Progressive loading animations */
+.fade-in {
+  animation: fadeIn 1s ease forwards;
+  opacity: 0;
+}
+
+@keyframes fadeIn {
+  to { opacity: 1; }
+}
+
+/* Staggered loading for multiple elements */
+.stagger-fade-in > * {
+  opacity: 0;
+  animation: fadeIn 0.5s ease forwards;
+}
+
+.stagger-fade-in > *:nth-child(1) { animation-delay: 0.1s; }
+.stagger-fade-in > *:nth-child(2) { animation-delay: 0.2s; }
+.stagger-fade-in > *:nth-child(3) { animation-delay: 0.3s; }
+.stagger-fade-in > *:nth-child(4) { animation-delay: 0.4s; }
+.stagger-fade-in > *:nth-child(5) { animation-delay: 0.5s; }
+.stagger-fade-in > *:nth-child(6) { animation-delay: 0.6s; }
+
+/* 3D Rotation effect for cards */
+.rotate-3d {
+  transition: transform 0.5s ease;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.rotate-3d:hover {
+  transform: rotateY(10deg) rotateX(5deg);
+}

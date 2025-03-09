@@ -1188,3 +1188,711 @@
 1:M 05 Mar 2025 19:57:10.744 * Done loading RDB, keys loaded: 0, keys expired: 0.
 1:M 05 Mar 2025 19:57:10.745 * DB loaded from disk: 0.002 seconds
 1:M 05 Mar 2025 19:57:10.745 * Ready to accept connections tcp
+1:signal-handler (1741248784) Received SIGTERM scheduling shutdown...
+1:M 06 Mar 2025 08:13:04.733 * User requested shutdown...
+1:M 06 Mar 2025 08:13:04.735 * Saving the final RDB snapshot before exiting.
+1:M 06 Mar 2025 08:13:04.754 * DB saved on disk
+1:M 06 Mar 2025 08:13:04.755 * Removing the pid file.
+1:M 06 Mar 2025 08:13:04.756 # Redis is now ready to exit, bye bye...
+1:C 06 Mar 2025 11:59:18.083 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 06 Mar 2025 11:59:18.083 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 06 Mar 2025 11:59:18.084 * Configuration loaded
+1:M 06 Mar 2025 11:59:18.084 * monotonic clock: POSIX clock_gettime
+1:M 06 Mar 2025 11:59:18.085 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 06 Mar 2025 11:59:18.086 * Server initialized
+1:M 06 Mar 2025 11:59:18.087 * Loading RDB produced by version 7.2.7
+1:M 06 Mar 2025 11:59:18.087 * RDB age 13574 seconds
+1:M 06 Mar 2025 11:59:18.087 * RDB memory usage when created 0.88 Mb
+1:M 06 Mar 2025 11:59:18.087 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 06 Mar 2025 11:59:18.087 * DB loaded from disk: 0.001 seconds
+1:M 06 Mar 2025 11:59:18.087 * Ready to accept connections tcp
+1:signal-handler (1741262859) Received SIGTERM scheduling shutdown...
+1:M 06 Mar 2025 12:07:39.103 * User requested shutdown...
+1:M 06 Mar 2025 12:07:39.103 * Saving the final RDB snapshot before exiting.
+1:M 06 Mar 2025 12:07:39.109 * DB saved on disk
+1:M 06 Mar 2025 12:07:39.109 * Removing the pid file.
+1:M 06 Mar 2025 12:07:39.110 # Redis is now ready to exit, bye bye...
+1:C 06 Mar 2025 12:21:28.850 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 06 Mar 2025 12:21:28.850 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 06 Mar 2025 12:21:28.850 * Configuration loaded
+1:M 06 Mar 2025 12:21:28.851 * monotonic clock: POSIX clock_gettime
+1:M 06 Mar 2025 12:21:28.851 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 06 Mar 2025 12:21:28.852 * Server initialized
+1:M 06 Mar 2025 12:21:28.853 * Ready to accept connections tcp
+1:signal-handler (1741263710) Received SIGTERM scheduling shutdown...
+1:M 06 Mar 2025 12:21:50.601 * User requested shutdown...
+1:M 06 Mar 2025 12:21:50.601 * Saving the final RDB snapshot before exiting.
+1:M 06 Mar 2025 12:21:50.604 * DB saved on disk
+1:M 06 Mar 2025 12:21:50.604 * Removing the pid file.
+1:M 06 Mar 2025 12:21:50.604 # Redis is now ready to exit, bye bye...
+1:C 06 Mar 2025 12:30:13.156 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 06 Mar 2025 12:30:13.157 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 06 Mar 2025 12:30:13.157 * Configuration loaded
+1:M 06 Mar 2025 12:30:13.159 * monotonic clock: POSIX clock_gettime
+1:M 06 Mar 2025 12:30:13.172 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 06 Mar 2025 12:30:13.181 * Server initialized
+1:M 06 Mar 2025 12:30:13.182 * Ready to accept connections tcp
+1:signal-handler (1741264250) Received SIGTERM scheduling shutdown...
+1:M 06 Mar 2025 12:30:50.888 * User requested shutdown...
+1:M 06 Mar 2025 12:30:50.889 * Saving the final RDB snapshot before exiting.
+1:M 06 Mar 2025 12:30:50.890 * DB saved on disk
+1:M 06 Mar 2025 12:30:50.891 * Removing the pid file.
+1:M 06 Mar 2025 12:30:50.891 # Redis is now ready to exit, bye bye...
+1:C 06 Mar 2025 12:46:21.972 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 06 Mar 2025 12:46:21.973 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 06 Mar 2025 12:46:21.973 * Configuration loaded
+1:M 06 Mar 2025 12:46:21.974 * monotonic clock: POSIX clock_gettime
+1:M 06 Mar 2025 12:46:21.976 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 06 Mar 2025 12:46:21.978 * Server initialized
+1:M 06 Mar 2025 12:46:21.980 * Loading RDB produced by version 7.2.7
+1:M 06 Mar 2025 12:46:21.980 * RDB age 931 seconds
+1:M 06 Mar 2025 12:46:21.980 * RDB memory usage when created 0.88 Mb
+1:M 06 Mar 2025 12:46:21.981 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 06 Mar 2025 12:46:21.981 * DB loaded from disk: 0.003 seconds
+1:M 06 Mar 2025 12:46:21.981 * Ready to accept connections tcp
+1:signal-handler (1741286231) Received SIGTERM scheduling shutdown...
+1:M 06 Mar 2025 18:37:11.338 * User requested shutdown...
+1:M 06 Mar 2025 18:37:11.339 * Saving the final RDB snapshot before exiting.
+1:M 06 Mar 2025 18:37:11.344 * DB saved on disk
+1:M 06 Mar 2025 18:37:11.344 * Removing the pid file.
+1:M 06 Mar 2025 18:37:11.345 # Redis is now ready to exit, bye bye...
+1:C 06 Mar 2025 23:29:12.192 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 06 Mar 2025 23:29:12.192 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 06 Mar 2025 23:29:12.192 * Configuration loaded
+1:M 06 Mar 2025 23:29:12.193 * monotonic clock: POSIX clock_gettime
+1:M 06 Mar 2025 23:29:12.193 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 06 Mar 2025 23:29:12.194 * Server initialized
+1:M 06 Mar 2025 23:29:12.195 * Loading RDB produced by version 7.2.7
+1:M 06 Mar 2025 23:29:12.195 * RDB age 17521 seconds
+1:M 06 Mar 2025 23:29:12.195 * RDB memory usage when created 0.88 Mb
+1:M 06 Mar 2025 23:29:12.195 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 06 Mar 2025 23:29:12.196 * DB loaded from disk: 0.001 seconds
+1:M 06 Mar 2025 23:29:12.196 * Ready to accept connections tcp
+1:signal-handler (1741303787) Received SIGTERM scheduling shutdown...
+1:M 06 Mar 2025 23:29:47.642 * User requested shutdown...
+1:M 06 Mar 2025 23:29:47.642 * Saving the final RDB snapshot before exiting.
+1:M 06 Mar 2025 23:29:47.646 * DB saved on disk
+1:M 06 Mar 2025 23:29:47.646 * Removing the pid file.
+1:M 06 Mar 2025 23:29:47.647 # Redis is now ready to exit, bye bye...
+1:C 06 Mar 2025 23:29:50.076 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 06 Mar 2025 23:29:50.076 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 06 Mar 2025 23:29:50.077 * Configuration loaded
+1:M 06 Mar 2025 23:29:50.077 * monotonic clock: POSIX clock_gettime
+1:M 06 Mar 2025 23:29:50.078 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 06 Mar 2025 23:29:50.078 * Server initialized
+1:M 06 Mar 2025 23:29:50.079 * Loading RDB produced by version 7.2.7
+1:M 06 Mar 2025 23:29:50.079 * RDB age 3 seconds
+1:M 06 Mar 2025 23:29:50.079 * RDB memory usage when created 0.88 Mb
+1:M 06 Mar 2025 23:29:50.079 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 06 Mar 2025 23:29:50.079 * DB loaded from disk: 0.001 seconds
+1:M 06 Mar 2025 23:29:50.080 * Ready to accept connections tcp
+1:C 07 Mar 2025 00:59:30.709 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 00:59:30.709 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 00:59:30.709 * Configuration loaded
+1:M 07 Mar 2025 00:59:30.710 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 00:59:30.710 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 00:59:30.711 * Server initialized
+1:M 07 Mar 2025 00:59:30.712 * Loading RDB produced by version 7.2.7
+1:M 07 Mar 2025 00:59:30.712 * RDB age 5383 seconds
+1:M 07 Mar 2025 00:59:30.712 * RDB memory usage when created 0.88 Mb
+1:M 07 Mar 2025 00:59:30.712 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 07 Mar 2025 00:59:30.712 * DB loaded from disk: 0.001 seconds
+1:M 07 Mar 2025 00:59:30.713 * Ready to accept connections tcp
+1:C 07 Mar 2025 02:55:35.358 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 02:55:35.359 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 02:55:35.359 * Configuration loaded
+1:M 07 Mar 2025 02:55:35.360 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 02:55:35.361 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 02:55:35.363 * Server initialized
+1:M 07 Mar 2025 02:55:35.363 * Ready to accept connections tcp
+1:signal-handler (1741335938) Received SIGTERM scheduling shutdown...
+1:M 07 Mar 2025 08:25:38.221 * User requested shutdown...
+1:M 07 Mar 2025 08:25:38.223 * Saving the final RDB snapshot before exiting.
+1:M 07 Mar 2025 08:25:38.295 * DB saved on disk
+1:M 07 Mar 2025 08:25:38.297 * Removing the pid file.
+1:M 07 Mar 2025 08:25:38.301 # Redis is now ready to exit, bye bye...
+1:C 07 Mar 2025 23:00:51.844 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 23:00:51.847 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 23:00:51.850 * Configuration loaded
+1:M 07 Mar 2025 23:00:51.852 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 23:00:51.854 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 23:00:51.856 * Server initialized
+1:M 07 Mar 2025 23:00:51.858 * Loading RDB produced by version 7.2.7
+1:M 07 Mar 2025 23:00:51.859 * RDB age 52513 seconds
+1:M 07 Mar 2025 23:00:51.859 * RDB memory usage when created 0.88 Mb
+1:M 07 Mar 2025 23:00:51.860 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 07 Mar 2025 23:00:51.860 * DB loaded from disk: 0.004 seconds
+1:M 07 Mar 2025 23:00:51.861 * Ready to accept connections tcp
+1:signal-handler (1741388544) Received SIGTERM scheduling shutdown...
+1:M 07 Mar 2025 23:02:24.173 * User requested shutdown...
+1:M 07 Mar 2025 23:02:24.175 * Saving the final RDB snapshot before exiting.
+1:M 07 Mar 2025 23:02:24.179 * DB saved on disk
+1:M 07 Mar 2025 23:02:24.180 * Removing the pid file.
+1:M 07 Mar 2025 23:02:24.181 # Redis is now ready to exit, bye bye...
+1:C 07 Mar 2025 23:02:44.892 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 23:02:44.893 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 23:02:44.893 * Configuration loaded
+1:M 07 Mar 2025 23:02:44.895 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 23:02:44.897 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 23:02:44.898 * Server initialized
+1:M 07 Mar 2025 23:02:44.900 * Loading RDB produced by version 7.2.7
+1:M 07 Mar 2025 23:02:44.901 * RDB age 20 seconds
+1:M 07 Mar 2025 23:02:44.903 * RDB memory usage when created 0.88 Mb
+1:M 07 Mar 2025 23:02:44.904 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 07 Mar 2025 23:02:44.905 * DB loaded from disk: 0.006 seconds
+1:M 07 Mar 2025 23:02:44.907 * Ready to accept connections tcp
+1:signal-handler (1741388661) Received SIGTERM scheduling shutdown...
+1:M 07 Mar 2025 23:04:21.810 * User requested shutdown...
+1:M 07 Mar 2025 23:04:21.812 * Saving the final RDB snapshot before exiting.
+1:M 07 Mar 2025 23:04:21.822 * DB saved on disk
+1:M 07 Mar 2025 23:04:21.825 * Removing the pid file.
+1:M 07 Mar 2025 23:04:21.830 # Redis is now ready to exit, bye bye...
+1:C 07 Mar 2025 23:04:41.358 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 23:04:41.359 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 23:04:41.359 * Configuration loaded
+1:M 07 Mar 2025 23:04:41.365 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 23:04:41.370 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 23:04:41.382 * Server initialized
+1:M 07 Mar 2025 23:04:41.422 * Loading RDB produced by version 7.2.7
+1:M 07 Mar 2025 23:04:41.423 * RDB age 20 seconds
+1:M 07 Mar 2025 23:04:41.423 * RDB memory usage when created 0.88 Mb
+1:M 07 Mar 2025 23:04:41.424 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 07 Mar 2025 23:04:41.424 * DB loaded from disk: 0.040 seconds
+1:M 07 Mar 2025 23:04:41.424 * Ready to accept connections tcp
+1:signal-handler (1741388778) Received SIGTERM scheduling shutdown...
+1:M 07 Mar 2025 23:06:18.733 * User requested shutdown...
+1:M 07 Mar 2025 23:06:18.763 * Saving the final RDB snapshot before exiting.
+1:M 07 Mar 2025 23:06:18.786 * DB saved on disk
+1:M 07 Mar 2025 23:06:18.789 * Removing the pid file.
+1:M 07 Mar 2025 23:06:18.797 # Redis is now ready to exit, bye bye...
+1:C 07 Mar 2025 23:06:47.406 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 23:06:47.407 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 23:06:47.407 * Configuration loaded
+1:M 07 Mar 2025 23:06:47.408 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 23:06:47.417 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 23:06:47.446 * Server initialized
+1:M 07 Mar 2025 23:06:47.514 * Loading RDB produced by version 7.2.7
+1:M 07 Mar 2025 23:06:47.516 * RDB age 29 seconds
+1:M 07 Mar 2025 23:06:47.519 * RDB memory usage when created 0.88 Mb
+1:M 07 Mar 2025 23:06:47.523 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 07 Mar 2025 23:06:47.526 * DB loaded from disk: 0.051 seconds
+1:M 07 Mar 2025 23:06:47.530 * Ready to accept connections tcp
+1:signal-handler (1741388926) Received SIGTERM scheduling shutdown...
+1:M 07 Mar 2025 23:08:46.422 * User requested shutdown...
+1:M 07 Mar 2025 23:08:46.424 * Saving the final RDB snapshot before exiting.
+1:M 07 Mar 2025 23:08:46.431 * DB saved on disk
+1:M 07 Mar 2025 23:08:46.432 * Removing the pid file.
+1:M 07 Mar 2025 23:08:46.437 # Redis is now ready to exit, bye bye...
+1:C 07 Mar 2025 23:09:27.698 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 07 Mar 2025 23:09:27.699 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 07 Mar 2025 23:09:27.699 * Configuration loaded
+1:M 07 Mar 2025 23:09:27.703 * monotonic clock: POSIX clock_gettime
+1:M 07 Mar 2025 23:09:27.706 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 07 Mar 2025 23:09:27.721 * Server initialized
+1:M 07 Mar 2025 23:09:27.732 * Loading RDB produced by version 7.2.7
+1:M 07 Mar 2025 23:09:27.734 * RDB age 41 seconds
+1:M 07 Mar 2025 23:09:27.735 * RDB memory usage when created 0.88 Mb
+1:M 07 Mar 2025 23:09:27.736 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 07 Mar 2025 23:09:27.737 * DB loaded from disk: 0.014 seconds
+1:M 07 Mar 2025 23:09:27.740 * Ready to accept connections tcp
+1:signal-handler (1741401702) Received SIGTERM scheduling shutdown...
+1:M 08 Mar 2025 02:41:42.372 * User requested shutdown...
+1:M 08 Mar 2025 02:41:42.373 * Saving the final RDB snapshot before exiting.
+1:M 08 Mar 2025 02:41:42.381 * DB saved on disk
+1:M 08 Mar 2025 02:41:42.381 * Removing the pid file.
+1:M 08 Mar 2025 02:41:42.383 # Redis is now ready to exit, bye bye...
+1:C 08 Mar 2025 02:48:46.420 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 08 Mar 2025 02:48:46.424 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 08 Mar 2025 02:48:46.424 * Configuration loaded
+1:M 08 Mar 2025 02:48:46.425 * monotonic clock: POSIX clock_gettime
+1:M 08 Mar 2025 02:48:46.426 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 08 Mar 2025 02:48:46.427 * Server initialized
+1:M 08 Mar 2025 02:48:46.428 * Loading RDB produced by version 7.2.7
+1:M 08 Mar 2025 02:48:46.428 * RDB age 424 seconds
+1:M 08 Mar 2025 02:48:46.428 * RDB memory usage when created 0.88 Mb
+1:M 08 Mar 2025 02:48:46.432 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 08 Mar 2025 02:48:46.433 * DB loaded from disk: 0.006 seconds
+1:M 08 Mar 2025 02:48:46.435 * Ready to accept connections tcp
+1:signal-handler (1741430847) Received SIGTERM scheduling shutdown...
+1:M 08 Mar 2025 10:47:27.234 * User requested shutdown...
+1:M 08 Mar 2025 10:47:27.238 * Saving the final RDB snapshot before exiting.
+1:M 08 Mar 2025 10:47:27.274 * DB saved on disk
+1:M 08 Mar 2025 10:47:27.275 * Removing the pid file.
+1:M 08 Mar 2025 10:47:27.276 # Redis is now ready to exit, bye bye...
+1:C 08 Mar 2025 11:02:23.643 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 08 Mar 2025 11:02:23.644 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 08 Mar 2025 11:02:23.644 * Configuration loaded
+1:M 08 Mar 2025 11:02:23.645 * monotonic clock: POSIX clock_gettime
+1:M 08 Mar 2025 11:02:23.647 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 08 Mar 2025 11:02:23.648 * Server initialized
+1:M 08 Mar 2025 11:02:23.650 * Creating AOF base file appendonly.aof.1.base.rdb on server start
+1:M 08 Mar 2025 11:02:23.651 * Creating AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 08 Mar 2025 11:02:23.651 * Ready to accept connections tcp
+1:signal-handler (1741432013) Received SIGTERM scheduling shutdown...
+1:M 08 Mar 2025 11:06:53.886 * User requested shutdown...
+1:M 08 Mar 2025 11:06:53.887 * Calling fsync() on the AOF file.
+1:M 08 Mar 2025 11:06:53.887 * Saving the final RDB snapshot before exiting.
+1:M 08 Mar 2025 11:06:53.889 * DB saved on disk
+1:M 08 Mar 2025 11:06:53.889 * Removing the pid file.
+1:M 08 Mar 2025 11:06:53.889 # Redis is now ready to exit, bye bye...
+1:C 08 Mar 2025 11:07:13.842 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 08 Mar 2025 11:07:13.843 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 08 Mar 2025 11:07:13.843 * Configuration loaded
+1:M 08 Mar 2025 11:07:13.844 * monotonic clock: POSIX clock_gettime
+1:M 08 Mar 2025 11:07:13.845 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 08 Mar 2025 11:07:13.847 * Server initialized
+1:M 08 Mar 2025 11:07:13.848 * Reading RDB base file on AOF loading...
+1:M 08 Mar 2025 11:07:13.848 * Loading RDB produced by version 7.2.7
+1:M 08 Mar 2025 11:07:13.848 * RDB age 290 seconds
+1:M 08 Mar 2025 11:07:13.849 * RDB memory usage when created 0.86 Mb
+1:M 08 Mar 2025 11:07:13.849 * RDB is base AOF
+1:M 08 Mar 2025 11:07:13.849 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 08 Mar 2025 11:07:13.849 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 08 Mar 2025 11:07:13.849 * DB loaded from append only file: 0.001 seconds
+1:M 08 Mar 2025 11:07:13.850 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 08 Mar 2025 11:07:13.850 * Ready to accept connections tcp
+1:C 08 Mar 2025 20:12:38.012 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 08 Mar 2025 20:12:38.012 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 08 Mar 2025 20:12:38.012 * Configuration loaded
+1:M 08 Mar 2025 20:12:38.012 * monotonic clock: POSIX clock_gettime
+1:M 08 Mar 2025 20:12:38.013 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 08 Mar 2025 20:12:38.014 * Server initialized
+1:M 08 Mar 2025 20:12:38.014 * Reading RDB base file on AOF loading...
+1:M 08 Mar 2025 20:12:38.015 * Loading RDB produced by version 7.2.7
+1:M 08 Mar 2025 20:12:38.015 * RDB age 33015 seconds
+1:M 08 Mar 2025 20:12:38.015 * RDB memory usage when created 0.86 Mb
+1:M 08 Mar 2025 20:12:38.015 * RDB is base AOF
+1:M 08 Mar 2025 20:12:38.015 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 08 Mar 2025 20:12:38.016 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 08 Mar 2025 20:12:38.016 * DB loaded from append only file: 0.002 seconds
+1:M 08 Mar 2025 20:12:38.016 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 08 Mar 2025 20:12:38.016 * Ready to accept connections tcp
+1:signal-handler (1741464765) Received SIGTERM scheduling shutdown...
+1:M 08 Mar 2025 20:12:45.087 * User requested shutdown...
+1:M 08 Mar 2025 20:12:45.087 * Calling fsync() on the AOF file.
+1:M 08 Mar 2025 20:12:45.087 * Saving the final RDB snapshot before exiting.
+1:M 08 Mar 2025 20:12:45.089 * DB saved on disk
+1:M 08 Mar 2025 20:12:45.089 * Removing the pid file.
+1:M 08 Mar 2025 20:12:45.089 # Redis is now ready to exit, bye bye...
+1:C 08 Mar 2025 20:22:25.206 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 08 Mar 2025 20:22:25.206 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 08 Mar 2025 20:22:25.206 * Configuration loaded
+1:M 08 Mar 2025 20:22:25.207 * monotonic clock: POSIX clock_gettime
+1:M 08 Mar 2025 20:22:25.208 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 08 Mar 2025 20:22:25.209 * Server initialized
+1:M 08 Mar 2025 20:22:25.209 * Reading RDB base file on AOF loading...
+1:M 08 Mar 2025 20:22:25.210 * Loading RDB produced by version 7.2.7
+1:M 08 Mar 2025 20:22:25.210 * RDB age 33602 seconds
+1:M 08 Mar 2025 20:22:25.210 * RDB memory usage when created 0.86 Mb
+1:M 08 Mar 2025 20:22:25.210 * RDB is base AOF
+1:M 08 Mar 2025 20:22:25.210 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 08 Mar 2025 20:22:25.210 * DB loaded from base file appendonly.aof.1.base.rdb: 0.001 seconds
+1:M 08 Mar 2025 20:22:25.211 * DB loaded from append only file: 0.002 seconds
+1:M 08 Mar 2025 20:22:25.211 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 08 Mar 2025 20:22:25.211 * Ready to accept connections tcp
+1:signal-handler (1741468438) Received SIGTERM scheduling shutdown...
+1:M 08 Mar 2025 21:13:58.656 * User requested shutdown...
+1:M 08 Mar 2025 21:13:58.656 * Calling fsync() on the AOF file.
+1:M 08 Mar 2025 21:13:58.656 * Saving the final RDB snapshot before exiting.
+1:M 08 Mar 2025 21:13:58.663 * DB saved on disk
+1:M 08 Mar 2025 21:13:58.663 * Removing the pid file.
+1:M 08 Mar 2025 21:13:58.664 # Redis is now ready to exit, bye bye...
+1:C 08 Mar 2025 21:22:23.916 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 08 Mar 2025 21:22:23.917 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 08 Mar 2025 21:22:23.917 * Configuration loaded
+1:M 08 Mar 2025 21:22:23.918 * monotonic clock: POSIX clock_gettime
+1:M 08 Mar 2025 21:22:23.919 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 08 Mar 2025 21:22:23.919 * Server initialized
+1:M 08 Mar 2025 21:22:23.920 * Reading RDB base file on AOF loading...
+1:M 08 Mar 2025 21:22:23.921 * Loading RDB produced by version 7.2.7
+1:M 08 Mar 2025 21:22:23.921 * RDB age 37200 seconds
+1:M 08 Mar 2025 21:22:23.921 * RDB memory usage when created 0.86 Mb
+1:M 08 Mar 2025 21:22:23.922 * RDB is base AOF
+1:M 08 Mar 2025 21:22:23.922 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 08 Mar 2025 21:22:23.922 * DB loaded from base file appendonly.aof.1.base.rdb: 0.002 seconds
+1:M 08 Mar 2025 21:22:23.922 * DB loaded from append only file: 0.002 seconds
+1:M 08 Mar 2025 21:22:23.922 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 08 Mar 2025 21:22:23.923 * Ready to accept connections tcp
+1:signal-handler (1741484447) Received SIGTERM scheduling shutdown...
+1:M 09 Mar 2025 01:40:47.468 * User requested shutdown...
+1:M 09 Mar 2025 01:40:47.470 * Calling fsync() on the AOF file.
+1:M 09 Mar 2025 01:40:47.470 * Saving the final RDB snapshot before exiting.
+1:M 09 Mar 2025 01:40:47.484 * DB saved on disk
+1:M 09 Mar 2025 01:40:47.485 * Removing the pid file.
+1:M 09 Mar 2025 01:40:47.486 # Redis is now ready to exit, bye bye...
+1:C 09 Mar 2025 01:47:58.054 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+1:C 09 Mar 2025 01:47:58.055 * Redis version=7.2.7, bits=64, commit=00000000, modified=0, pid=1, just started
+1:C 09 Mar 2025 01:47:58.055 * Configuration loaded
+1:M 09 Mar 2025 01:47:58.056 * monotonic clock: POSIX clock_gettime
+1:M 09 Mar 2025 01:47:58.056 # Failed to write PID file: Permission denied
+                _._                                                  
+           _.-``__ ''-._                                             
+      _.-``    `.  `_.  ''-._           Redis 7.2.7 (00000000/0) 64 bit
+  .-`` .-```.  ```\/    _.,_ ''-._                                  
+ (    '      ,       .-`  | `,    )     Running in standalone mode
+ |`-._`-...-` __...-.``-._|'` _.-'|     Port: 6379
+ |    `-._   `._    /     _.-'    |     PID: 1
+  `-._    `-._  `-./  _.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |           https://redis.io       
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+ |`-._`-._    `-.__.-'    _.-'_.-'|                                  
+ |    `-._`-._        _.-'_.-'    |                                  
+  `-._    `-._`-.__.-'_.-'    _.-'                                   
+      `-._    `-.__.-'    _.-'                                       
+          `-._        _.-'                                           
+              `-.__.-'                                               
+
+1:M 09 Mar 2025 01:47:58.057 * Server initialized
+1:M 09 Mar 2025 01:47:58.058 * Reading RDB base file on AOF loading...
+1:M 09 Mar 2025 01:47:58.058 * Loading RDB produced by version 7.2.7
+1:M 09 Mar 2025 01:47:58.059 * RDB age 53135 seconds
+1:M 09 Mar 2025 01:47:58.059 * RDB memory usage when created 0.86 Mb
+1:M 09 Mar 2025 01:47:58.059 * RDB is base AOF
+1:M 09 Mar 2025 01:47:58.060 * Done loading RDB, keys loaded: 0, keys expired: 0.
+1:M 09 Mar 2025 01:47:58.060 * DB loaded from base file appendonly.aof.1.base.rdb: 0.002 seconds
+1:M 09 Mar 2025 01:47:58.061 * DB loaded from append only file: 0.003 seconds
+1:M 09 Mar 2025 01:47:58.061 * Opening AOF incr file appendonly.aof.1.incr.aof on server start
+1:M 09 Mar 2025 01:47:58.061 * Ready to accept connections tcp

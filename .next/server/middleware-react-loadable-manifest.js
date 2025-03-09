@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST="{\"pages/webgl-test.js -> ../components/three-scene/CelestialCanvas\":{\"id\":\"pages/webgl-test.js -> ../components/three-scene/CelestialCanvas\",\"files\":[\"static/chunks/src_components_three-scene_CelestialCanvas_jsx.js\"]}}"

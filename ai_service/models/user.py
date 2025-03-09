@@ -5,7 +5,7 @@ Handles user data structures and validation.
 
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 class UserCreate(BaseModel):
     """Model for user registration"""
@@ -13,7 +13,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8)
     full_name: str = Field(..., min_length=2)
 
-    @validator('password')
+    @field_validator('password', mode='after')
     def password_strength(cls, v):
         """Validate password strength"""
         if not any(c.isdigit() for c in v):

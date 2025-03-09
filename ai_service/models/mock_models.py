@@ -1,0 +1,111 @@
+"""
+Mock models for testing and development environments.
+This module provides mock implementations of AI service models.
+"""
+
+from typing import Dict, List, Any, Optional
+import logging
+import json
+import os
+import random
+from datetime import datetime, timedelta
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+class MockOpenAIService:
+    """Mock implementation of the OpenAI service for testing."""
+
+    def __init__(self):
+        """Initialize the mock OpenAI service."""
+        logger.debug("Initializing mock OpenAI service")
+
+    async def generate_completion(self, prompt: str, task_type: str, max_tokens: int = 500,
+                               temperature: float = 0.7, system_message: Optional[str] = None) -> Dict[str, Any]:
+        """Generate a mock completion response."""
+        logger.debug(f"Mock generating completion for task: {task_type}")
+
+        # Return different mock responses based on task type
+        if "rectif" in task_type.lower():
+            return self._mock_rectification_response()
+        elif "quest" in task_type.lower():
+            return self._mock_questionnaire_response()
+        else:
+            return self._mock_general_response()
+
+    def _mock_rectification_response(self) -> Dict[str, Any]:
+        """Generate a mock rectification response."""
+        return {
+            "text": json.dumps({
+                "adjustment_minutes": 15,
+                "confidence": 85.5,
+                "reasoning": "Based on the analysis of planetary positions and life events."
+            }),
+            "model": "mock-gpt-4",
+            "usage": {
+                "prompt_tokens": 250,
+                "completion_tokens": 100,
+                "total_tokens": 350
+            },
+            "finish_reason": "stop"
+        }
+
+    def _mock_questionnaire_response(self) -> Dict[str, Any]:
+        """Generate a mock questionnaire response."""
+        return {
+            "text": json.dumps({
+                "text": "When did you experience a significant career change?",
+                "type": "date",
+                "options": []
+            }),
+            "model": "mock-gpt-4",
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 50,
+                "total_tokens": 250
+            },
+            "finish_reason": "stop"
+        }
+
+    def _mock_general_response(self) -> Dict[str, Any]:
+        """Generate a mock general response."""
+        return {
+            "text": "This is a mock response for testing purposes.",
+            "model": "mock-gpt-4",
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "total_tokens": 120
+            },
+            "finish_reason": "stop"
+        }
+
+class MockUnifiedRectificationModel:
+    """Mock implementation of the UnifiedRectificationModel for testing."""
+
+    def __init__(self):
+        """Initialize the mock unified rectification model."""
+        logger.debug("Initializing mock unified rectification model")
+
+    async def rectify_birth_time(self, birth_details: Dict[str, Any],
+                            answers: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate a mock birth time rectification."""
+        # Parse original time
+        original_time = birth_details.get("birthTime", "12:00")
+        time_parts = original_time.split(":")
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        # Make a simple adjustment for testing purposes
+        adjusted_minute = (minute + random.randint(1, 15)) % 60
+        adjusted_hour = (hour + (1 if adjusted_minute < minute else 0)) % 24
+
+        rectified_time = f"{adjusted_hour:02d}:{adjusted_minute:02d}"
+
+        return {
+            "originalTime": original_time,
+            "rectifiedTime": rectified_time,
+            "confidence": 85.0,
+            "reliability": "moderate",
+            "explanation": "Mock birth time rectification for testing."
+        }

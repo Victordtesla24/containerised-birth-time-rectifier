@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   frontend:
     build:
@@ -39,7 +37,13 @@ services:
     depends_on:
       ai_service:
         condition: service_healthy
-    restart: unless-stopped
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
   ai_service:
     build:
@@ -53,6 +57,8 @@ services:
       - ./setup.py:/app/setup.py
       - ai_service_venv:/app/.venv
       - ephemeris_data:/app/ephemeris
+      # Add cache volume for OpenAI service
+      - openai_cache:/app/cache
     environment:
       - PYTHONUNBUFFERED=1
       - ENVIRONMENT=${APP_ENV:-development}
@@ -62,23 +68,38 @@ services:
       - SWISSEPH_PATH=/app/ephemeris
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_API_KEY_DEV=${OPENAI_API_KEY_DEV:-}
-      - API_TIMEOUT=30
-      - CACHE_EXPIRY=3600
+      # Enhanced OpenAI service configuration
+      - API_TIMEOUT=${API_TIMEOUT:-60}
+      - CACHE_EXPIRY=${CACHE_EXPIRY:-3600}
+      - CACHE_DIR=/app/cache
       - GPU_MEMORY_FRACTION=0.7
-      - MODEL_CACHE_SIZE=100
+      - MODEL_CACHE_SIZE=${MODEL_CACHE_SIZE:-100}
+      - OPENAI_MODEL_RECTIFICATION=${OPENAI_MODEL_RECTIFICATION:-o1-preview}
+      - OPENAI_MODEL_EXPLANATION=${OPENAI_MODEL_EXPLANATION:-gpt-4-turbo}
+      - OPENAI_MODEL_AUXILIARY=${OPENAI_MODEL_AUXILIARY:-gpt-4o-mini}
+      - ENABLE_MODEL_PRELOADING=true
+      - REQUEST_RETRY_ATTEMPTS=3
+      - REQUEST_RETRY_BACKOFF=2
+      - TIMEZONE_API_KEY=${TIMEZONE_API_KEY:-Tz7kGn1Kf0aQb2cE3pYz8j6X}
     ports:
       - "8000:8000"
     command: /app/.venv/bin/python -m uvicorn ai_service.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: ${HEALTH_CHECK_INTERVAL:-10s}
-      timeout: ${HEALTH_CHECK_TIMEOUT:-5s}
-      retries: ${HEALTH_CHECK_RETRIES:-3}
-      start_period: ${HEALTH_CHECK_START_PERIOD:-20s}
+      interval: ${HEALTH_CHECK_INTERVAL:-15s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
+      retries: ${HEALTH_CHECK_RETRIES:-10}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
     depends_on:
       redis:
         condition: service_healthy
-    restart: unless-stopped
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
 
   redis:
     image: redis:7.2-alpine
@@ -92,10 +113,11 @@ services:
     command: ${REDIS_COMMAND:-redis-server /usr/local/etc/redis/redis.conf}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    restart: always
     deploy:
       resources:
         limits:
@@ -148,11 +170,10 @@ volumes:
     driver: local
   ephemeris_data:
     driver: local
+  openai_cache:
+    driver: local
   playwright-browsers:
     driver: local
 
-# Add environment variables to the top-level environment section
-HEALTH_CHECK_INTERVAL: 60s
-HEALTH_CHECK_TIMEOUT: 60s
-HEALTH_CHECK_START_PERIOD: 60s
-HEALTH_CHECK_RETRIES: 5
+# Note: Environment variables with default values are already defined inline
+# in each service's healthcheck section using ${VAR:-default} syntax

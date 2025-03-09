@@ -1,0 +1,244 @@
+import '../styles/globals.css';
+import '../styles/celestial.css';
+import '../styles/cosmic-animations.css';
+import '../components/ChartVisualization.css';
+import type { AppProps } from 'next/app';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import Head from 'next/head';
+import { useEffect, useState } from 'react';
+import { applyBrowserFixes } from '@/utils/browserPolyfills';
+import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
+import { CelestialBackground } from '@/components/visualization/CelestialBackground';
+import dynamic from 'next/dynamic';
+
+// Import QualityProvider with dynamic import to prevent SSR issues
+const QualityProvider = dynamic(
+  () => import('../components/providers/QualityProvider'),
+  { ssr: false }
+);
+
+function MyApp({ Component, pageProps }: AppProps) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+
+  // Mouse tracking for parallax effects
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+
+  // Create smooth spring-based motion
+  const smoothMouseX = useSpring(mouseX, { stiffness: 50, damping: 20 });
+  const smoothMouseY = useSpring(mouseY, { stiffness: 50, damping: 20 });
+
+  // Handle mouse movement
+  const handleMouseMove = (e: MouseEvent) => {
+    const { clientX, clientY } = e;
+
+    // Calculate normalized mouse position (-1 to 1)
+    const x = (clientX / window.innerWidth - 0.5) * 2;
+    const y = (clientY / window.innerHeight - 0.5) * 2;
+
+    // Set mouse position with smooth transitions
+    mouseX.set(x);
+    mouseY.set(y);
+    setMousePosition({ x, y });
+  };
+
+  // Apply browser compatibility fixes on client side
+  useEffect(() => {
+    applyBrowserFixes();
+
+    // Add mouse event listener for parallax effects
+    window.addEventListener('mousemove', handleMouseMove);
+
+    // Show enhanced visuals after a short delay for better performance
+    const timer = setTimeout(() => {
+      setIsLoaded(true);
+    }, 200);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Create transforms based on mouse position for parallax effects
+  const layerOneX = useTransform(smoothMouseX, [-1, 1], [-15, 15]);
+  const layerOneY = useTransform(smoothMouseY, [-1, 1], [-15, 15]);
+
+  const layerTwoX = useTransform(smoothMouseX, [-1, 1], [-25, 25]);
+  const layerTwoY = useTransform(smoothMouseY, [-1, 1], [-25, 25]);
+
+  return (
+    <ErrorBoundary>
+      {/* Wrap the app with QualityProvider for adaptive quality rendering */}
+      <QualityProvider>
+        <Head>
+          {/* Essential meta tags for better browser compatibility */}
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0" />
+          <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+          <meta name="color-scheme" content="dark" />
+          <meta name="format-detection" content="telephone=no" />
+          <meta name="theme-color" content="#000830" />
+
+          {/* Force text rendering optimization on all browsers */}
+          <style>{`
+            * {
+              text-rendering: optimizeLegibility;
+              -webkit-font-smoothing: antialiased;
+              -moz-osx-font-smoothing: grayscale;
+            }
+
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+              background-color: #000000;
+              color: #ffffff;
+              overflow-x: hidden;
+              perspective: 1000px;
+            }
+
+            .basic-text {
+              color: #ffffff;
+              text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+            }
+
+            .container {
+              width: 100%;
+              max-width: 1280px;
+              margin: 0 auto;
+              padding: 0 16px;
+            }
+
+            /* Enhanced 3D perspective for all pages */
+            .parallax-container {
+              transform-style: preserve-3d;
+              perspective: 1200px;
+            }
+
+            /* Additional cosmic effects */
+            .cosmic-dust {
+              pointer-events: none;
+              position: fixed;
+              inset: 0;
+              z-index: -5;
+            }
+
+            /* Improved shooting star animation */
+            @keyframes shootingStar {
+              0% {
+                transform: translateX(-100px) translateY(50px) rotate(15deg);
+                opacity: 0;
+              }
+              5% {
+                opacity: 1;
+              }
+              20% {
+                transform: translateX(calc(100vw + 100px)) translateY(-50px) rotate(15deg);
+                opacity: 0;
+              }
+              100% {
+                opacity: 0;
+              }
+            }
+          `}</style>
+        </Head>
+
+        {/* Enhanced Celestial Background with 3D depth */}
+        {isLoaded && (
+          <>
+            {/* Enhanced space background */}
+            <div className="fixed inset-0 -z-10">
+              <CelestialBackground />
+            </div>
+
+            {/* Additional parallax layers for enhanced depth */}
+            <motion.div
+              className="cosmic-dust"
+              style={{
+                x: layerOneX,
+                y: layerOneY,
+                zIndex: -4
+              }}
+            >
+              {/* Decorative stars with different opacities */}
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={`star-${i}`}
+                  className="absolute rounded-full bg-white animate-pulse"
+                  style={{
+                    width: `${Math.random() * 2 + 1}px`,
+                    height: `${Math.random() * 2 + 1}px`,
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                    opacity: Math.random() * 0.5 + 0.2,
+                    animationDuration: `${Math.random() * 3 + 2}s`,
+                    animationDelay: `${Math.random() * 2}s`
+                  }}
+                />
+              ))}
+            </motion.div>
+
+            <motion.div
+              className="cosmic-dust"
+              style={{
+                x: layerTwoX,
+                y: layerTwoY,
+                zIndex: -3
+              }}
+            >
+              {/* Decorative blue-tinted stars */}
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={`blue-star-${i}`}
+                  className="absolute rounded-full animate-pulse"
+                  style={{
+                    width: `${Math.random() * 3 + 1}px`,
+                    height: `${Math.random() * 3 + 1}px`,
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                    opacity: Math.random() * 0.6 + 0.2,
+                    backgroundColor: 'rgba(150, 200, 255, 0.8)',
+                    boxShadow: '0 0 4px rgba(150, 200, 255, 0.5)',
+                    animationDuration: `${Math.random() * 4 + 3}s`,
+                    animationDelay: `${Math.random() * 2}s`
+                  }}
+                />
+              ))}
+            </motion.div>
+
+            {/* Occasional shooting star effect */}
+            <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+              <div
+                className="absolute w-[100px] h-[1px] cosmic-shooting-star"
+                style={{
+                  background: 'linear-gradient(90deg, transparent, white, transparent)',
+                  top: '15%',
+                  left: '10%',
+                  animation: 'shootingStar 6s linear infinite',
+                  animationDelay: '3s'
+                }}
+              />
+              <div
+                className="absolute w-[80px] h-[1px] cosmic-shooting-star"
+                style={{
+                  background: 'linear-gradient(90deg, transparent, rgba(150, 200, 255, 0.8), transparent)',
+                  top: '45%',
+                  left: '25%',
+                  animation: 'shootingStar 8s linear infinite',
+                  animationDelay: '1s'
+                }}
+              />
+            </div>
+          </>
+        )}
+
+        <div className="basic-text celestial-text parallax-container">
+          <Component {...pageProps} />
+        </div>
+      </QualityProvider>
+    </ErrorBoundary>
+  );
+}
+
+export default MyApp;

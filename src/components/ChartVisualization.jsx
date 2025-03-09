@@ -8,6 +8,10 @@ import PropTypes from 'prop-types';
  * This component renders astrological charts with proper visualization
  * of all elements including Ketu and Ascendant as specified in the
  * implementation plan.
+ *
+ * @deprecated Use /components/charts/ChartVisualization.tsx instead.
+ * This file is kept for backward compatibility but will be removed in future versions.
+ * Consolidating with charts/ChartVisualization.tsx for better organization.
  */
 function ChartVisualization({ chartData, isRectified = false, originalChart = null }) {
   const svgRef = useRef(null);

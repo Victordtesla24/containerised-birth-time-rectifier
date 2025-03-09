@@ -1,3 +1,3 @@
 """
-Core functionality for astrological calculations
+Core functionality for the Birth Time Rectifier API.
 """

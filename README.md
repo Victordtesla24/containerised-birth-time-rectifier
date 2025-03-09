@@ -158,11 +158,34 @@ For more details on our testing framework, see the [Testing Documentation](tests
 
 ## Deployment
 
-The application can be deployed using Docker to various cloud platforms:
+The application can be deployed using Docker to various cloud platforms or directly to Vercel:
 
+### Cloud Platforms
 - [AWS Deployment Guide](docs/deployment/aws.md)
 - [Azure Deployment Guide](docs/deployment/azure.md)
 - [Google Cloud Deployment Guide](docs/deployment/gcp.md)
+
+### Vercel Deployment
+
+This project is configured for deployment on Vercel. For detailed instructions, see [Vercel Deployment Guide](docs/vercel-deployment-guide.md).
+
+[![Vercel Production Deployment](https://github.com/Victordtesla24/containerised-birth-time-rectifier/actions/workflows/vercel-deploy.yml/badge.svg)](https://github.com/Victordtesla24/containerised-birth-time-rectifier/actions/workflows/vercel-deploy.yml)
+
+#### Quick Start
+
+1. **Prerequisites**
+   - Vercel account
+   - GitHub account
+   - Required environment variables (see .env.example)
+
+2. **Setup**
+   - Fork/clone this repository
+   - Link it to your Vercel account
+   - Set up the required environment variables
+
+3. **Deployment**
+   - Push to main branch for production deployment
+   - Create pull requests for preview deployments
 
 ## Roadmap
 

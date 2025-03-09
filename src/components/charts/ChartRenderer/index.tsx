@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { ChartDimensions, ChartRendererProps } from './types';
 import {
   calculateChartDimensions,
@@ -34,20 +34,61 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
     ? data.divisionalCharts[selectedDivisionalChart]
     : data;
 
+  // Detect rendering capabilities and set appropriate flags
+  const renderCapabilities = useMemo(() => {
+    // Default to assuming basic capabilities
+    const capabilities = {
+      supportsCanvas2D: true,
+      hasReducedMotion: false,
+    };
+
+    // Check for reduced motion preference
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      capabilities.hasReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    }
+
+    return capabilities;
+  }, []);
+
+  // Error state tracking
+  const [renderError, setRenderError] = useState<string | null>(null);
+
+  // Progressive loading
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Rendering queue to prevent overwhelming the browser
+  const renderQueueRef = useRef<number | null>(null);
+
+  // Set loading complete after a short delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   const drawChart = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    try {
+      // Clear any previous render errors
+      setRenderError(null);
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) {
+        setRenderError("Could not get 2D context");
+        return;
+      }
 
-    // Apply transformations
-    ctx.save();
-    ctx.translate(pan.x, pan.y);
-    ctx.scale(scale, scale);
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+
+      // Apply transformations
+      ctx.save();
+      ctx.translate(pan.x, pan.y);
+      ctx.scale(scale, scale);
 
     // Calculate dimensions
     const dimensions = calculateChartDimensions(width, height);
@@ -55,21 +96,31 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
 
     // Draw celestial layers if enabled
     if (showCelestialLayers && data.visualization?.celestialLayers) {
-      data.visualization.celestialLayers.forEach(layer => {
-        const gradient = ctx.createRadialGradient(
-          centerX, centerY, 0,
-          centerX, centerY, radius * (1 + layer.depth)
-        );
+      try {
+        data.visualization.celestialLayers.forEach(layer => {
+          try {
+            const gradient = ctx.createRadialGradient(
+              centerX, centerY, 0,
+              centerX, centerY, radius * (1 + layer.depth)
+            );
 
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        gradient.addColorStop(0.5, `rgba(255, 255, 255, ${0.1 * layer.parallaxFactor})`);
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            gradient.addColorStop(0.5, `rgba(255, 255, 255, ${0.1 * layer.parallaxFactor})`);
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
 
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius * (1 + layer.depth), 0, 2 * Math.PI);
-        ctx.fill();
-      });
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius * (1 + layer.depth), 0, 2 * Math.PI);
+            ctx.fill();
+          } catch (layerError) {
+            console.warn("Error rendering celestial layer:", layerError);
+            // Continue with other layers rather than failing completely
+          }
+        });
+      } catch (layersError) {
+        console.warn("Error rendering celestial layers:", layersError);
+        // Continue with chart rendering even if celestial layers fail
+      }
     }
 
     // Draw main chart circle
@@ -131,43 +182,66 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
       console.warn('Error calculating or drawing aspects:', error);
     }
 
-    // Draw planets
+    // Draw planets - with multi-stage rendering pipeline to prevent memory spikes
+    // First pass - draw background circles only
     activeChart.planets.forEach(planet => {
-      const planetPos = calculatePlanetPosition(planet, dimensions);
+      try {
+        const planetPos = calculatePlanetPosition(planet, dimensions);
 
-      // Draw planet background circle
-      ctx.beginPath();
-      ctx.arc(planetPos.x, planetPos.y, 12, 0, 2 * Math.PI);
-      ctx.fillStyle = 'white';
-      ctx.fill();
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      // Draw planet symbol
-      ctx.font = '16px Arial';
-      ctx.fillStyle = '#000';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(getPlanetSymbol(planet.name || ''), planetPos.x, planetPos.y);
-
-      if (showLabels) {
-        // Determine retrograde status
-        const isRetrograde = planet.retrograde || (planet.speed !== undefined && planet.speed < 0);
-
-        // Draw degree and retrograde status
-        ctx.font = '10px Arial';
-        ctx.fillStyle = '#666';
-        const degree = typeof planet.degree === 'number'
-          ? planet.degree
-          : (planetPos.degree || 0);
-        ctx.fillText(
-          `${degree.toFixed(1)}° ${isRetrograde ? 'R' : ''}`,
-          planetPos.x,
-          planetPos.y + 20
-        );
+        // Draw planet background circle
+        ctx.beginPath();
+        ctx.arc(planetPos.x, planetPos.y, 12, 0, 2 * Math.PI);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } catch (error) {
+        console.warn(`Error rendering planet ${planet.name} background:`, error);
       }
     });
+
+    // Second pass - draw symbols
+    activeChart.planets.forEach(planet => {
+      try {
+        const planetPos = calculatePlanetPosition(planet, dimensions);
+
+        // Draw planet symbol
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(getPlanetSymbol(planet.name || ''), planetPos.x, planetPos.y);
+      } catch (error) {
+        console.warn(`Error rendering planet ${planet.name} symbol:`, error);
+      }
+    });
+
+    // Third pass - draw labels (only if enabled)
+    if (showLabels) {
+      activeChart.planets.forEach(planet => {
+        try {
+          const planetPos = calculatePlanetPosition(planet, dimensions);
+
+          // Determine retrograde status
+          const isRetrograde = planet.retrograde || (planet.speed !== undefined && planet.speed < 0);
+
+          // Draw degree and retrograde status
+          ctx.font = '10px Arial';
+          ctx.fillStyle = '#666';
+          const degree = typeof planet.degree === 'number'
+            ? planet.degree
+            : (planetPos.degree || 0);
+          ctx.fillText(
+            `${degree.toFixed(1)}° ${isRetrograde ? 'R' : ''}`,
+            planetPos.x,
+            planetPos.y + 20
+          );
+        } catch (error) {
+          console.warn(`Error rendering planet ${planet.name} labels:`, error);
+        }
+      });
+    }
 
     // Draw ascendant line or mark
     try {
@@ -220,10 +294,29 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
 
     // Restore the canvas
     ctx.restore();
+    } catch (error) {
+      console.error("Critical render error:", error);
+      setRenderError("Error rendering chart. Please try refreshing the page.");
+    }
   }, [data, width, height, showLabels, scale, pan, activeChart, showCelestialLayers]);
 
   useEffect(() => {
-    drawChart();
+    // Use requestAnimationFrame for smoother rendering and to prevent texture loading errors
+    if (renderQueueRef.current) {
+      cancelAnimationFrame(renderQueueRef.current);
+    }
+
+    renderQueueRef.current = requestAnimationFrame(() => {
+      drawChart();
+      renderQueueRef.current = null;
+    });
+
+    return () => {
+      if (renderQueueRef.current) {
+        cancelAnimationFrame(renderQueueRef.current);
+        renderQueueRef.current = null;
+      }
+    };
   }, [drawChart]);
 
   const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
@@ -325,6 +418,37 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
 
   return (
     <div className="relative h-full w-full">
+      {/* Progressive loading indicator */}
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-75 z-10">
+          <div className="flex flex-col items-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mb-2"></div>
+            <p className="text-gray-700">Loading chart...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error message banner */}
+      {renderError && (
+        <div className="absolute top-0 left-0 right-0 bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded mx-2 mt-2 z-20">
+          <p className="flex items-center">
+            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            {renderError}
+          </p>
+          <button
+            onClick={() => {
+              setRenderError(null);
+              drawChart();
+            }}
+            className="text-sm text-red-600 hover:text-red-800 underline mt-1"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
       <canvas
         ref={canvasRef}
         width={width}
@@ -342,8 +466,11 @@ const ChartRenderer: React.FC<ChartRendererProps> = ({
           height: 'auto',
           display: 'block',
           margin: '0 auto',
-          cursor: isDragging ? 'grabbing' : 'grab'
+          cursor: isDragging ? 'grabbing' : 'grab',
+          opacity: isLoading ? 0 : 1,
+          transition: 'opacity 0.3s ease-in-out'
         }}
+        aria-hidden={!!renderError}
       />
       <div className="absolute top-2 right-2 space-x-2">
         <button

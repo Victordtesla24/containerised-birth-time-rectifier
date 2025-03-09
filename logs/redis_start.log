@@ -1,1 +1,0 @@
-unable to get image 'redis:7.2-alpine': Cannot connect to the Docker daemon at unix:///Users/vicd/.docker/run/docker.sock. Is the docker daemon running?

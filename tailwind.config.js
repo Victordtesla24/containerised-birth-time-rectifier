@@ -27,9 +27,24 @@ module.exports = {
       borderRadius: {
         '4xl': '2rem',
       },
+      animation: {
+        'fadeIn': 'fadeIn 0.5s ease-in-out',
+        'fadeOut': 'fadeOut 0.5s ease-in-out',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        fadeOut: {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+      },
     },
   },
   plugins: [
     require('@tailwindcss/forms'),
   ],
-}; 
+};

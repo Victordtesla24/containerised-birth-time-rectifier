@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import * as d3 from 'd3';
-import './ChartVisualization.css';
+// CSS now imported globally in _app.tsx
 
 const ChartVisualization = ({ chartData }) => {
   const svgRef = useRef(null);

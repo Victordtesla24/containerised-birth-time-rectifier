@@ -1,198 +1,179 @@
 # Active Development Context
 
+## Current Work Focus
+
+We are currently analyzing and improving the API architecture of the Birth Time Rectifier application, with a specific focus on:
+
+1. Documenting and visualizing the API integration between frontend and backend components
+2. Identifying and addressing implementation gaps in the API architecture
+3. Creating a detailed plan for resolving these gaps
+4. Updating documentation with accurate flowcharts and implementation details
+
+## Recent Changes
+
+1. Created comprehensive flowcharts documenting:
+   - API integration between frontend UI components and backend services
+   - Detailed sequence diagram showing request/response flow
+   - Gap analysis highlighting implementation issues
+   - Implementation plan with prioritized tasks
+
+2. Identified key API architecture issues:
+   - API Router Issue: `/api` prefix not working correctly, leading to dual-registration workaround
+   - Missing Session Management: No endpoints for session initialization and management
+   - Incomplete Chart Comparison Service: Referenced but not fully implemented
+   - Missing Authentication/Authorization: No JWT implementation
+   - Incomplete Interpretation Service: Endpoint details not fully documented
+
+3. Created detailed implementation plan with:
+   - Prioritized tasks organized in phases
+   - Detailed timelines and resource requirements
+   - Risk assessment and mitigation strategies
+   - Testing approach
+
 ## Current State
 
-### Recently Completed Features
-1. Frontend Form Enhancement
-   - Added timezone selection with comprehensive validation
-   - Implemented form validation for all fields
-   - Added error handling and user feedback
-   - Improved form UI with better field organization
+### Implemented API Endpoints
 
-2. Chart Generation and Visualization
-   - Interactive chart display with controls
-   - Support for divisional charts
-   - Celestial background layers
-   - Planet information display
-   - Chart settings and customization
+| Endpoint | Implementation Status | Documentation Status | Testing Status |
+|----------|----------------------|---------------------|---------------|
+| `/api/chart/validate` and `/chart/validate` | Complete | Complete | Complete |
+| `/api/geocode` and `/geocode` | Complete | Complete | Complete |
+| `/api/chart/generate` and `/chart/generate` | Complete | Complete | Complete |
+| `/api/chart/{id}` and `/chart/{id}` | Complete | Complete | Complete |
+| `/api/questionnaire` and `/questionnaire` | Complete | Complete | Complete |
+| `/api/questionnaire/{id}/answer` and `/questionnaire/{id}/answer` | Complete | Complete | Complete |
+| `/api/chart/rectify` and `/chart/rectify` | Complete | Complete | Complete |
+| `/api/chart/export` and `/chart/export` | Complete | Complete | Complete |
+| `/api/health` and `/health` | Complete | Complete | Complete |
+| `/api/chart/compare` and `/chart/compare` | Incomplete | Incomplete | Not Started |
+| `/api/interpretation` and `/interpretation` | Incomplete | Incomplete | Not Started |
+| `/api/session/init` and `/session/init` | Missing | Incomplete | Not Started |
 
-3. Continuous Integration Pipeline
-   - GitHub Actions workflow implementation
-   - Code validation (linting, formatting, type checking)
-   - Automated testing with coverage requirements
-   - Security scanning (npm audit, OWASP)
-   - Preview deployments for pull requests
-   - Docker image builds with caching
+### Identified Gaps
 
-4. Enhanced Testing Infrastructure
-   - Jest configuration for frontend
-   - Integration tests with Redis service
-   - Mock implementations for browser APIs
-   - Coverage thresholds and reporting
-   - Test environment configuration
-   - Consolidated test scripts for improved maintenance
-   - Single test runner script with flexible configuration
-   - Menu-driven testing interface
-   - Consistent API endpoint management
+1. **API Router Issue**: The `/api` prefix routing is not working correctly
+   - **Status**: Workaround in place (dual-registration)
+   - **Priority**: High
+   - **Complexity**: Medium
 
-5. Kubernetes Deployment Configuration
-   - Implemented context-based deployment with KUBE_CONTEXT
-   - Added explicit context validation and verification
-   - Enhanced security for kubeconfig handling
-   - Added deployment verification steps with health checks
-   - Improved error handling and monitoring
-   - Added cluster connectivity verification
+2. **Session Management**: No session initialization or management
+   - **Status**: Not implemented
+   - **Priority**: High
+   - **Complexity**: High
 
-6. Test Suite Improvements
-   - Fixed BirthDetailsForm time validation tests
-   - Improved HTML5 time input handling
-   - Enhanced validation state management
-   - Added proper async operation handling
-   - Fixed coordinate display testing
-   - Consolidated test scripts into a single, robust test script
-   - Added comprehensive test patterns for all application flows
-   - Created constants file for API endpoints and test data
-   - Ensured consistent API endpoint usage across all tests
+3. **Authentication/Authorization**: No JWT implementation
+   - **Status**: Not implemented
+   - **Priority**: High
+   - **Complexity**: High
 
-7. TypeScript Linter Error Resolution
-   - Fixed missing 'aspects' property in ChartData objects across test files
-   - Added proper type checking for 'ascendant' property (number or object with degree)
-   - Updated BirthDetailsForm to use correct BirthDetails structure with nested coordinates
-   - Fixed Date vs String type conflicts by ensuring proper date formatting
-   - Updated LifeEventsQuestionnaire tests to match current implementation
-   - Created missing components (CelestialBackground, BirthChart) to fix import errors
-   - Updated DockerAIService interface to match BirthDetails structure
-   - Modified tsconfig.json for better type checking and module resolution
+4. **Chart Comparison Service**: Implementation incomplete
+   - **Status**: Partially implemented
+   - **Priority**: Medium
+   - **Complexity**: Medium
 
-### Active Components
-1. Frontend Components:
-   - BirthDetailsForm (Complete with validation)
-   - ChartRenderer (Complete with interactivity)
-   - BirthTimeRectifier container (Complete)
-   - CelestialBackground (Complete with progressive loading)
-   - BirthChart component (Complete)
+5. **Interpretation Service**: Documentation and implementation incomplete
+   - **Status**: Partially implemented
+   - **Priority**: Medium
+   - **Complexity**: Medium
 
-2. Backend Services:
-   - /rectify endpoint (Complete with timezone support)
-   - Time conversion utilities (Complete)
-   - GPU memory management (Operational)
+6. **Real-time Updates**: No WebSocket implementation for progress tracking
+   - **Status**: Not implemented
+   - **Priority**: Medium
+   - **Complexity**: Medium
 
-3. CI/CD Pipeline:
-   - GitHub Actions workflow (Operational)
-   - Test automation (Complete)
-   - Security scanning (Complete)
-   - Preview deployments (Ready)
-   - Kubernetes deployment (Enhanced with context validation)
-   - Consolidated test scripts (Complete)
+## Next Steps
 
-### Current Focus
-Test Consolidation and API Endpoint Architecture Consistency
+### Immediate Actions (Next 1-2 Weeks)
 
-### Latest Changes
-1. **Consolidated Test Scripts**
-   - Merged run-app-flow-test.sh and run-application-and-tests.sh into a single script
-   - Added comprehensive CLI options for flexibility
-   - Implemented menu-driven testing interface
-   - Enhanced error handling and service management
-   - Improved test pattern support for all application flows
-   - Added consistent API endpoint handling
-   - Created constants.js file for centralized test data and endpoints
+1. **Fix API Router Issue**
+   - Analyze current FastAPI router configuration
+   - Fix prefix handling in `main.py`
+   - Update router registration pattern
+   - Test all endpoints with correct `/api` prefix
+   - Implement redirection for backward compatibility
 
-2. **API Endpoint Architecture Management**
-   - Created constants.js file for centralized API endpoint definitions
-   - Ensured consistent usage of API endpoints across all tests
-   - Added health check endpoint handling
-   - Improved validation of API endpoint consistency
-   - Implemented dual-registration pattern with proper documentation:
-     - Primary endpoints with `/api/` prefix (e.g., `/api/chart/validate`)
-     - Alternative endpoints without prefix (e.g., `/chart/validate`)
-   - Enhanced error reporting for endpoint issues
-   - Verified proper nesting of chart endpoints under `/api/chart/` and `/chart/`
-   - Updated implementation_plan.md with comprehensive API architecture details
-   - Created detailed api_architecture_docs.md documentation
-   - Removed redundant backup files and consolidated router implementations
-   - Standardized API response formats across all endpoints
+2. **Implement Session Management**
+   - Design session management architecture
+   - Create session initialization endpoint
+   - Implement session persistence mechanism
+   - Add session validation middleware
+   - Create session retrieval and update endpoints
+   - Integrate session management with frontend
 
-3. **Test Flow Enhancement**
-   - Added support for testing all user flows from implementation plan:
-     - Complete astrological chart application flow (A→B→C→D→E→F→G→H→I→K→L→M)
-     - Validation failure path (A→B→C→B)
-     - Low confidence path (G→H→J→G)
-     - Boundary cases with extreme coordinates
-     - API endpoint validation
+3. **Add Authentication/Authorization**
+   - Design authentication system
+   - Implement user registration endpoint
+   - Create login/token generation endpoint
+   - Implement JWT middleware for protected routes
+   - Add permission management
+   - Create token refresh mechanism
+   - Integrate authentication with frontend
 
-### Active Files
-1. `consolidated-app-flow-test.sh`: New unified test script
-2. `tests/e2e/constants.js`: Centralized test constants
-3. `tests/e2e/chart.spec.js`: Chart application tests
-4. `docker-compose.yml`: Services configuration
-5. `tests/e2e/`: End-to-end test directory
+### Medium-term Actions (3-4 Weeks)
 
-### Next Steps
-1. **Additional Test Improvements**
-   - Add more edge case tests
-   - Enhance API endpoint verification
-   - Improve service health checking
-   - Add support for custom test configurations
-   - Enhance test reporting
+1. **Complete Chart Comparison Service**
+   - Design complete chart comparison data structure
+   - Implement chart difference detection algorithm
+   - Create chart comparison endpoint
+   - Add visualization support for differences
+   - Implement comparison caching
+   - Test with various chart types and conditions
 
-2. **Documentation Updates**
-   - Update testing documentation
-   - Document test script usage
-   - Ensure API endpoint documentation consistency across all files
-   - Create test pattern documentation
-   - Document test data management
-   - Update implementation_plan.md to reflect current API architecture
+2. **Standardize Error Handling**
+   - Design standardized error format
+   - Create central error handling middleware
+   - Implement error codes and messages
+   - Add field-specific validation error handling
+   - Create client-side error handling utilities
+   - Test error scenarios and recovery
 
-3. **CI/CD Integration**
-   - Integrate consolidated test script with CI pipeline
-   - Add test report generation
-   - Enhance test result visualization
-   - Implement automated test analysis
+3. **Add WebSocket Support**
+   - Design WebSocket architecture
+   - Implement WebSocket server
+   - Create progress notification system
+   - Add WebSocket support to frontend
+   - Implement connection management
+   - Test with long-running processes
 
-### Technical Decisions
-1. **Test Consolidation**
-   - Used a single script for all testing needs
-   - Implemented menu-driven interface for ease of use
-   - Added flexible CLI options for CI/CD integration
-   - Enhanced error handling and reporting
-   - Improved service management
+### Longer-term Actions (5-6 Weeks)
 
-2. **Constants Management**
-   - Centralized API endpoints in constants.js
-   - Defined test data in a single location
-   - Added utility functions for common operations
-   - Enhanced test case handling with specialized data
+1. **Improve Documentation**
+   - Audit current API documentation
+   - Update endpoint specifications
+   - Create example request/response pairs
+   - Implement OpenAPI/Swagger integration
+   - Add sequence diagrams for complex workflows
+   - Create developer guide
 
-### Current Priorities
-1. Verify consolidated test script functionality
-2. Test all application flows
-3. Ensure API endpoint architecture consistency across documentation and code
-4. Document testing approach
-5. Consolidate redundant script files (chart calculation scripts)
+2. **Enhance Questionnaire Flow**
+   - Redesign questionnaire data model
+   - Implement adaptive questioning algorithm
+   - Create multi-step questionnaire API
+   - Add progress tracking
+   - Implement answer validation logic
+   - Integrate with frontend wizard interface
 
-### Known Issues
-- None currently identified
+3. **Implement Interpretation Service**
+   - Design interpretation data model
+   - Create basic interpretations for planetary positions
+   - Implement aspect interpretation engine
+   - Add house placement interpretations
+   - Implement chart synthesis logic
+   - Create personalized report generation
+   - Test with various chart configurations
 
-### Recent Achievements
-- Successfully consolidated test scripts
-- Created centralized constants file
-- Improved test organization
-- Enhanced API endpoint management
-- Ensured all application flows are testable
+## Resources and References
 
-## Summary
+1. **API Architecture Documentation**
+   - `user_docs/api_architecture_docs.md` - Detailed API architecture overview
+   - `api_docs/api_documentation.md` - API endpoint documentation
 
-The API endpoint architecture has been fully standardized and documented. The application now implements a dual-registration pattern for all API endpoints, providing both primary endpoints (with `/api/` prefix) and alternative endpoints (without prefix) for backward compatibility.
+2. **Flowcharts**
+   - `flowcharts/api_integration_flowchart.md` - API integration flowchart
+   - `flowcharts/sequence_diagram.md` - Request/response sequence diagram
+   - `flowcharts/gap_analysis.md` - Gap analysis flowchart
+   - `flowcharts/implementation_plan.md` - Detailed implementation plan
 
-Key accomplishments:
-1. Implemented a consistent dual-registration pattern for all API endpoints
-2. Removed all redundant router backup files and other backup files
-3. Updated documentation in implementation_plan.md, technical_state.md, and systemPatterns.md
-4. Created comprehensive api_architecture_docs.md with detailed information
-5. Updated progress.md to reflect the completion of the API endpoint architecture tasks
-6. Ensured consistent endpoint usage across frontend and tests through constants.js
-7. Standardized API response formats across all endpoints
-8. Added proper error handling for all endpoints
-
-The API endpoint architecture is now fully documented and implemented consistently across the application, with a clear pattern for future development.
+3. **API Implementation**
+   - `ai_service/main.py` - Main application file with router registration
+   - `ai_service/api/routers/` - API router implementations

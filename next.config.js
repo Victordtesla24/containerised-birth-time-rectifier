@@ -30,8 +30,15 @@ const nextConfig = {
   },
   // Disable directories we've consolidated
   transpilePackages: [],
-  // Add Webpack configuration to ignore old directories
+  // Add Webpack configuration to ignore old directories and fix imports
   webpack: (config, { isServer }) => {
+    // Fix the three-mesh-bvh BatchedMesh import issue by providing a fallback module
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      // Intercept imports of three-mesh-bvh/src/utils/ExtensionUtilities.js
+      'three-mesh-bvh/src/utils/ExtensionUtilities.js': require.resolve('./patches/three-mesh-bvh/fix-batched-mesh.js'),
+    };
+
     // WASM configuration for Swiss Ephemeris
     config.experiments = {
       ...config.experiments,
@@ -62,7 +69,7 @@ const nextConfig = {
       ...config.watchOptions,
       ignored: ['**/service-manager/**', '**/frontend/**', '**/node_modules/**']
     };
-  
+
     return config;
   },
   // Environment variables that need to be available to the client
@@ -70,5 +77,14 @@ const nextConfig = {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   },
 };
+
+// Vercel-specific configurations
+if (process.env.VERCEL) {
+  nextConfig.env = {
+    ...nextConfig.env,
+    NEXT_PUBLIC_API_URL: process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/api` : 'https://birth-time-rectifier.vercel.app/api',
+    IS_VERCEL: 'true',
+  };
+}
 
 module.exports = nextConfig;

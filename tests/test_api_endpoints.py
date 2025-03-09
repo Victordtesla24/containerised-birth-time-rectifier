@@ -22,7 +22,7 @@ def test_root_health_endpoint():
 
 def test_api_health_endpoint():
     """Test the /api/health endpoint."""
-    response = client.get("/api/health")
+    response = client.get("/api/v1/health")
     assert response.status_code == 200
     data = response.json()
     assert "status" in data
@@ -92,19 +92,25 @@ def test_chart_generation():
 
 def test_geocoding():
     """Test the geocoding endpoint."""
-    # Try both endpoint paths
-    response = client.get("/geocode?query=New+York")
+    # Try multiple possible endpoint paths
+    response = client.get("/api/v1/geocode/geocode?query=New+York")
 
-    # If the first one fails, try the alternative
-    if response.status_code == 404:
+    # If the first one fails, try alternatives
+    if response.status_code not in [200, 201]:
+        response = client.get("/api/v1/geocode?query=New+York")
+
+    if response.status_code not in [200, 201]:
+        response = client.get("/geocode?query=New+York")
+
+    if response.status_code not in [200, 201]:
         response = client.get("/api/geocode?query=New+York")
 
-    # One of them should succeed
-    assert response.status_code in [200, 404], "Both geocoding endpoints failed"
-
-    # If both 404, skip the test
-    if response.status_code == 404:
+    # Skip the test if geocoding is not implemented
+    if response.status_code in [404, 405]:
         pytest.skip("Geocoding endpoint not found or not implemented")
+
+    # Ensure we got a successful response
+    assert response.status_code in [200, 201], f"All geocoding endpoints failed, last status: {response.status_code}"
 
     data = response.json()
     assert "latitude" in data

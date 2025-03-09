@@ -651,6 +651,258 @@ To register a webhook, use the following endpoint:
 }
 ```
 
+## API Integration Flows and Gaps
+
+This section outlines the integration flows between frontend components and API endpoints, as well as identified integration gaps.
+
+### Complete Application Flow with API Endpoints
+
+The following diagram illustrates the complete flow of the application, showing how frontend UI/UX components interact with API endpoints:
+
+```mermaid
+flowchart TD
+    subgraph "Frontend UI/UX Components"
+        A[Landing Page] --> B[Birth Details Form]
+        B --> C{Valid Details?}
+        C -->|Yes| D[Initial Chart Generation]
+        C -->|No| B
+        D --> E[Chart Visualization]
+        E --> F[Questionnaire]
+        F --> G[AI Analysis Processing]
+        G --> H{Confidence > 80%?}
+        H -->|Yes| I[Chart with Rectified Birth Time]
+        H -->|No| J[Additional Questions]
+        J --> G
+        I --> K[Results Dashboard]
+        K --> L[Export/Share]
+    end
+
+    subgraph "API Integration Layer"
+        API1["/api/session/init\n/session/init"] -.-> A
+        B -.-> API2["/api/chart/validate\n/chart/validate"]
+        B -.-> API3["/api/geocode\n/geocode"]
+        D -.-> API4["/api/chart/generate\n/chart/generate"]
+        E -.-> API5["/api/chart/{id}\n/chart/{id}"]
+        F -.-> API6["/api/questionnaire\n/questionnaire"]
+        F -.-> API7["/api/questionnaire/{id}/answer\n/questionnaire/{id}/answer"]
+        G -.-> API8["/api/chart/rectify\n/chart/rectify"]
+        I -.-> API9["/api/chart/compare\n/chart/compare"]
+        K -.-> API10["/api/interpretation\n/interpretation"]
+        L -.-> API11["/api/chart/export\n/chart/export"]
+    end
+
+    subgraph "Backend Services"
+        API2 --> BS1[Validation Service]
+        API3 --> BS2[Geocoding Service]
+        API4 --> BS3[Chart Calculation Service]
+        API5 --> BS4[Chart Retrieval Service]
+        API6 --> BS5[Dynamic Questionnaire Service]
+        API7 --> BS5
+        API8 --> BS6[Birth Time Rectification Service]
+        API9 --> BS7[Chart Comparison Service]
+        API10 --> BS8[Interpretation Service]
+        API11 --> BS9[Export Service]
+        API1 --> BS10[Session Management Service]
+    end
+
+    subgraph "Identified Gaps"
+        GAP1["API Router Issue: /api prefix not working correctly\nWorkaround: Duplicate endpoints at root level"]
+        GAP2["Chart Comparison Service referenced but not fully documented"]
+        GAP3["Session Management Service needed but implementation details unclear"]
+        GAP4["Interpretation Service referenced but endpoint details incomplete"]
+    end
+```
+
+### API Request/Response Sequence
+
+This sequence diagram illustrates the detailed request/response flow between frontend components, API endpoints, and backend services:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant LandingPage as Landing Page
+    participant BirthForm as Birth Details Form
+    participant ChartGen as Chart Generation
+    participant ChartVis as Chart Visualization
+    participant Question as Questionnaire
+    participant AIAnalysis as AI Analysis
+    participant Results as Results Dashboard
+    participant ExportShare as Export/Share
+    participant API as API Layer
+    participant Backend as Backend Services
+
+    User->>LandingPage: Visit application
+    LandingPage->>API: GET /api/session/init
+    API->>Backend: Initialize session
+    Backend-->>API: Session data
+    API-->>LandingPage: Session response
+
+    LandingPage->>BirthForm: Navigate to form
+    User->>BirthForm: Enter birth details
+    BirthForm->>API: POST /api/geocode
+    Note over BirthForm,API: {query: "Location"}
+    API->>Backend: Process location
+    Backend-->>API: Location data with coordinates
+    API-->>BirthForm: {latitude, longitude, timezone}
+
+    BirthForm->>API: POST /api/chart/validate
+    Note over BirthForm,API: {birth_date, birth_time, latitude, longitude, timezone}
+    API->>Backend: Validate details
+    Backend-->>API: Validation result
+    API-->>BirthForm: {valid: true/false, errors: [...]}
+
+    BirthForm->>ChartGen: Submit validated data
+    ChartGen->>API: POST /api/chart/generate
+    Note over ChartGen,API: {birth_date, birth_time, latitude, longitude, timezone, options: {...}}
+    API->>Backend: Generate chart
+    Backend-->>API: Chart data
+    API-->>ChartGen: {chart_id, ascendant, planets, houses}
+
+    ChartGen->>ChartVis: Display chart
+    ChartVis->>API: GET /api/chart/{id}
+    API->>Backend: Retrieve chart
+    Backend-->>API: Detailed chart data
+    API-->>ChartVis: {chart_id, ascendant, planets, houses, aspects}
+
+    ChartVis->>Question: Navigate to questionnaire
+    Question->>API: GET /api/questionnaire
+    API->>Backend: Get questions
+    Backend-->>API: Question data
+    API-->>Question: {questions: [...]}
+
+    Question->>API: POST /api/questionnaire/{id}/answer
+    Note over Question,API: {question_id, answer}
+    API->>Backend: Process answers
+    Backend-->>API: Next question or completion
+
+    Question->>AIAnalysis: Submit all answers
+    AIAnalysis->>API: POST /api/chart/rectify
+    Note over AIAnalysis,API: {chart_id, answers: [...]}
+    API->>Backend: Rectify birth time
+    Note over Backend: Processing may take time
+    Backend-->>API: Rectification result
+    API-->>AIAnalysis: {confidence_score, rectified_time, rectified_chart_id}
+
+    AIAnalysis->>Results: Show results
+    Results->>API: GET /api/chart/compare
+    Note over Results,API: {chart1_id, chart2_id}
+    API->>Backend: Compare charts
+    Backend-->>API: Comparison data
+    API-->>Results: {differences: [...]}
+
+    Results->>API: GET /api/interpretation
+    API->>Backend: Generate interpretation
+    Backend-->>API: Personalized insights
+    API-->>Results: {insights: [...]}
+
+    Results->>ExportShare: Navigate to export
+    ExportShare->>API: POST /api/chart/export
+    Note over ExportShare,API: {chart_id, format, options: {...}}
+    API->>Backend: Generate export
+    Backend-->>API: Export data or URL
+    API-->>ExportShare: {export_url or binary_data}
+```
+
+### Integration Gaps Analysis
+
+The following diagram classifies and shows the relationships between identified integration gaps:
+
+```mermaid
+graph TD
+    subgraph "Critical Implementation Gaps"
+        G1[API Router Issue: /api Prefix Not Working]
+        G2[Chart Comparison API Implementation: Incomplete]
+        G3[Dual-Registration Pattern: Workaround vs. Permanent Solution]
+        G4[Session Management: Implementation Details Unclear]
+    end
+
+    subgraph "Documentation Gaps"
+        D1[Interpretation Service: API Documentation Incomplete]
+        D2[Questionnaire Flow: Multi-step Process Not Fully Documented]
+        D3[AI Analysis Processing: Data Flow Not Clearly Defined]
+    end
+
+    subgraph "Integration Gaps"
+        I1[Frontend-Backend Error Handling: Not Standardized]
+        I2[Real-time Updates: WebSocket Integration Missing]
+        I3[Authentication/Authorization: Not Fully Implemented]
+    end
+
+    G1 -->|Leads to| I1
+    G3 -->|Creates| D2
+    G2 -->|Affects| I2
+    G4 -->|Impacts| I3
+    D1 -->|Causes| I1
+    D3 -->|Results in| I2
+
+    classDef critical fill:#ff6666,stroke:#333,stroke-width:2px;
+    classDef moderate fill:#ffcc66,stroke:#333,stroke-width:2px;
+    classDef minor fill:#ffff99,stroke:#333,stroke-width:2px;
+
+    class G1,G3 critical;
+    class G2,G4,D3 moderate;
+    class D1,D2,I1,I2,I3 minor;
+```
+
+### Gap Details and Mitigation
+
+#### Critical Implementation Gaps
+
+1. **API Router Issue: /api Prefix Not Working**
+   - **Issue**: The `/api` prefix routing is not working correctly
+   - **Workaround**: Dual-registration pattern where endpoints are registered both with and without the `/api` prefix
+   - **Impact**: Development complexity, potential for inconsistent behavior
+   - **Mitigation**: Investigate FastAPI router configuration, fix root cause of prefix issue
+
+2. **Chart Comparison API Implementation: Incomplete**
+   - **Issue**: The Chart Comparison Service is referenced in the flow but implementation details are incomplete
+   - **Impact**: Limited ability to compare original and rectified charts
+   - **Mitigation**: Complete implementation with detailed documentation
+
+3. **Dual-Registration Pattern: Workaround vs. Permanent Solution**
+   - **Issue**: The dual-registration pattern is a workaround rather than a permanent solution
+   - **Impact**: Code duplication, maintenance complexity
+   - **Mitigation**: Resolve API router issue, implement proper routing with deprecation strategy
+
+4. **Session Management: Implementation Details Unclear**
+   - **Issue**: Session management service is needed but implementation details are unclear
+   - **Impact**: Limited user session persistence, potential for authentication issues
+   - **Mitigation**: Document and implement comprehensive session management
+
+#### Documentation Gaps
+
+1. **Interpretation Service: API Documentation Incomplete**
+   - **Issue**: The Interpretation Service is referenced for the Results page but endpoint specifications are incomplete
+   - **Impact**: Limited understanding of how to use interpretation features
+   - **Mitigation**: Complete documentation with examples and expected response formats
+
+2. **Questionnaire Flow: Multi-step Process Not Fully Documented**
+   - **Issue**: The multi-step questionnaire process lacks detailed API documentation
+   - **Impact**: Difficult to implement client-side questionnaire flow
+   - **Mitigation**: Add sequence diagrams and step-by-step guides
+
+3. **AI Analysis Processing: Data Flow Not Clearly Defined**
+   - **Issue**: The data flow for AI analysis processing is not clearly defined
+   - **Impact**: Limited understanding of how to process and interpret AI analysis results
+   - **Mitigation**: Document the complete data flow with examples
+
+#### Integration Gaps
+
+1. **Frontend-Backend Error Handling: Not Standardized**
+   - **Issue**: Error handling across frontend-backend interactions is not standardized
+   - **Impact**: Inconsistent error messages, difficult debugging
+   - **Mitigation**: Implement standardized error handling with clear error codes
+
+2. **Real-time Updates: WebSocket Integration Missing**
+   - **Issue**: No WebSocket or SSE implementation for long-running processes like AI analysis
+   - **Impact**: Limited real-time feedback during processing
+   - **Mitigation**: Implement WebSocket support for progress updates
+
+3. **Authentication/Authorization: Not Fully Implemented**
+   - **Issue**: Authentication and authorization not fully implemented in the documented API flow
+   - **Impact**: Limited security controls, potential for unauthorized access
+   - **Mitigation**: Implement comprehensive authentication and authorization
+
 ## SDK Libraries
 
 We provide official SDK libraries for easy integration:

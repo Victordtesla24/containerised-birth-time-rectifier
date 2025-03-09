@@ -1,0 +1,15 @@
+--- ExtensionUtilities.js
++++ ExtensionUtilities.js
+@@ -1,11 +1,11 @@
+ import { Ray, Matrix4, Mesh, Vector3, Sphere, REVISION } from 'three';
+ import { convertRaycastIntersect } from './GeometryRayIntersectUtilities.js';
+ import { MeshBVH } from '../core/MeshBVH.js';
+-import * as THREE from 'three';
+
+-const BatchedMesh = THREE.BatchedMesh || null; // this is necessary to not break three.js r157-
++// BatchedMesh doesn't exist in this three.js version, so define as null
++const BatchedMesh = null; // No need to import from THREE
++
+ const IS_REVISION_166 = parseInt( REVISION ) >= 166;
+ const ray = /* @__PURE__ */ new Ray();
+ const direction = /* @__PURE__ */ new Vector3();

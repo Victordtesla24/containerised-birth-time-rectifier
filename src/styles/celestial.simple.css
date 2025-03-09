@@ -1,0 +1,279 @@
+/* Enhanced Celestial Styling for 3D Depth Effects */
+
+:root {
+  --glow-blue: rgba(96, 165, 250, 0.6);
+  --glow-purple: rgba(167, 139, 250, 0.6);
+  --star-color: rgba(255, 255, 255, 0.95);
+  --space-bg-primary: #000814;
+  --space-bg-secondary: #001233;
+  --nebula-purple: rgba(138, 43, 226, 0.3);
+  --nebula-blue: rgba(65, 105, 225, 0.3);
+}
+
+/* True 3D space scene setup */
+body {
+  perspective: 1000px;
+  overflow-x: hidden;
+  background-color: var(--space-bg-primary);
+  background-image: linear-gradient(to bottom, var(--space-bg-primary), var(--space-bg-secondary));
+  min-height: 100vh;
+  transform-style: preserve-3d;
+}
+
+/* Base cosmic layer effects for depth */
+.parallax-layer-0 {
+  transform: translateZ(0) scale(1);
+  z-index: 0;
+  will-change: transform, opacity;
+}
+
+.parallax-layer-1 {
+  transform: translateZ(50px) scale(0.95);
+  z-index: 1;
+  will-change: transform, opacity;
+}
+
+.parallax-layer-2 {
+  transform: translateZ(100px) scale(0.9);
+  z-index: 2;
+  will-change: transform, opacity;
+}
+
+.parallax-layer-3 {
+  transform: translateZ(150px) scale(0.85);
+  z-index: 3;
+  will-change: transform, opacity;
+}
+
+.parallax-layer-4 {
+  transform: translateZ(200px) scale(0.8);
+  z-index: 4;
+  will-change: transform, opacity;
+}
+
+/* Celestial background container */
+.celestial-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: -1;
+  transform-style: preserve-3d;
+}
+
+/* Star field layers with varying depths */
+.star-field {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.star-field-layer-1 { transform: translateZ(10px); }
+.star-field-layer-2 { transform: translateZ(30px); }
+.star-field-layer-3 { transform: translateZ(60px); }
+
+/* Individual star styling with improved glow */
+.star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background-color: var(--star-color);
+  border-radius: 50%;
+  box-shadow: 0 0 3px 1px rgba(255, 255, 255, 0.5);
+  will-change: opacity;
+}
+
+/* Star variations for visual interest */
+.star-medium {
+  width: 3px;
+  height: 3px;
+  box-shadow: 0 0 4px 2px rgba(255, 255, 255, 0.6);
+}
+
+.star-large {
+  width: 4px;
+  height: 4px;
+  box-shadow: 0 0 6px 3px rgba(255, 255, 255, 0.7);
+}
+
+/* Nebula cloud effects */
+.cosmic-nebula {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(30px);
+  opacity: 0.3;
+  background-image: radial-gradient(
+    circle,
+    var(--nebula-purple),
+    var(--nebula-blue),
+    transparent
+  );
+  will-change: transform, opacity;
+}
+
+/* Enhanced planet glow effects */
+.planet-glow {
+  box-shadow: 0 0 20px 10px var(--glow-blue);
+  border-radius: 50%;
+  will-change: transform, box-shadow;
+}
+
+.planet-glow-alt {
+  box-shadow: 0 0 25px 12px var(--glow-purple);
+  border-radius: 50%;
+  will-change: transform, box-shadow;
+}
+
+/* Content container with 3D depth */
+.cosmic-content {
+  position: relative;
+  transform-style: preserve-3d;
+  z-index: 1;
+}
+
+/* Enhanced 3D card effects */
+.cosmic-card {
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 16px;
+  padding: 24px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.3),
+    0 0 8px rgba(96, 165, 250, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transform-style: preserve-3d;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  will-change: transform, box-shadow;
+}
+
+.cosmic-card:hover {
+  transform: translateY(-10px) rotateX(2deg) rotateY(2deg);
+  box-shadow:
+    0 15px 30px rgba(0, 0, 0, 0.4),
+    0 0 15px rgba(96, 165, 250, 0.4),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+/* Multi-layer 3D text effects */
+.cosmic-heading {
+  position: relative;
+  font-weight: bold;
+  color: white;
+  text-shadow:
+    0 0 5px rgba(96, 165, 250, 0.5),
+    0 0 15px rgba(96, 165, 250, 0.3);
+  transform-style: preserve-3d;
+}
+
+.cosmic-heading::before {
+  content: attr(data-text);
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateZ(-5px);
+  opacity: 0.3;
+  filter: blur(2px);
+  color: rgba(167, 139, 250, 0.8);
+}
+
+/* Enhanced interactive elements */
+.cosmic-interactive {
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.cosmic-interactive:hover {
+  transform: translateY(-5px) translateZ(10px) scale(1.05);
+}
+
+/* Realistic planet rotation effects */
+.planet-orbit {
+  position: absolute;
+  border: 1px solid rgba(96, 165, 250, 0.1);
+  border-radius: 50%;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.planet {
+  position: absolute;
+  border-radius: 50%;
+  background-size: cover;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+/* Mouse-reactive parallax adjustments */
+.mouse-parallax {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+/* Progressive loading animation */
+.cosmic-loader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--space-bg-primary);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  transition: opacity 0.5s ease, visibility 0.5s ease;
+  will-change: opacity, visibility;
+}
+
+.cosmic-loader.loaded {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.cosmic-spinner {
+  width: 60px;
+  height: 60px;
+  border: 3px solid rgba(96, 165, 250, 0.1);
+  border-top-color: rgba(96, 165, 250, 0.8);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  will-change: transform;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Performance optimizations for 3D effects */
+.hardware-accelerated {
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Responsive adjustments for 3D depth effects */
+@media (max-width: 768px) {
+  .parallax-layer-2 {
+    transform: translateZ(50px) scale(0.95);
+  }
+
+  .parallax-layer-3 {
+    transform: translateZ(75px) scale(0.92);
+  }
+
+  .parallax-layer-4 {
+    transform: translateZ(100px) scale(0.9);
+  }
+
+  .cosmic-card:hover {
+    transform: translateY(-5px) rotateX(1deg) rotateY(1deg);
+  }
+}

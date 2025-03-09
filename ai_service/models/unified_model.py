@@ -8,6 +8,7 @@ import random
 import time
 import json
 import re
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union, Tuple
 
@@ -171,8 +172,26 @@ class UnifiedRectificationModel:
         if chart_data and "planets" in chart_data:
             planets_str = "\n".join([
                 f"- {planet['name']}: {planet.get('longitude', 0)}° in {planet.get('sign', '')}, "
-                f"House: {planet.get('house', '')}"
+                f"House: {planet.get('house', '')}, Retrograde: {planet.get('isRetrograde', False)}"
                 for planet in chart_data.get("planets", [])
+            ])
+
+        # Format house cusps from chart data
+        houses_str = ""
+        if chart_data and "houses" in chart_data:
+            houses_str = "\n".join([
+                f"- House {house.get('number', '')}: {house.get('sign', '')}, "
+                f"Start: {house.get('startDegree', 0)}°, End: {house.get('endDegree', 0)}°"
+                for house in chart_data.get("houses", [])
+            ])
+
+        # Format aspects from chart data
+        aspects_str = ""
+        if chart_data and "aspects" in chart_data:
+            aspects_str = "\n".join([
+                f"- {aspect.get('planet1', '')} {aspect.get('aspectType', '')} {aspect.get('planet2', '')}, "
+                f"Orb: {aspect.get('orb', 0)}°, Influence: {aspect.get('influence', '')}"
+                for aspect in chart_data.get("aspects", [])[:10]  # Limit to 10 most important aspects
             ])
 
         # Format questionnaire responses
@@ -183,9 +202,13 @@ class UnifiedRectificationModel:
                 for resp in questionnaire_data.get("responses", [])
             ])
 
-        # Create the prompt
+        # Extract important life events from questionnaire
+        life_events = self._extract_life_events_from_questionnaire(questionnaire_data)
+        life_events_str = "\n".join([f"- {event}" for event in life_events]) if life_events else "No specific life events provided."
+
+        # Create the prompt with enhanced astrological details
         prompt = f"""
-        As an expert in Vedic astrology, perform a detailed birth time rectification analysis based on the following information:
+        As an expert in Vedic astrology with specialization in birth time rectification, analyze the following chart and determine the most accurate birth time based on all astrological principles and life events.
 
         BIRTH DETAILS:
         Date: {birth_date}
@@ -195,39 +218,96 @@ class UnifiedRectificationModel:
 
         CHART DATA (ORIGINAL):
         Ascendant: {chart_data.get('ascendant', {}).get('degree', 0)}° {chart_data.get('ascendant', {}).get('sign', '')}
+        MC/Midheaven: {chart_data.get('midheaven', {}).get('sign', '')}, {chart_data.get('midheaven', {}).get('degree', 0)}°
 
         PLANETARY POSITIONS:
         {planets_str}
 
+        HOUSE CUSPS:
+        {houses_str}
+
+        KEY ASPECTS:
+        {aspects_str}
+
         QUESTIONNAIRE RESPONSES:
         {responses_str}
 
-        ANALYSIS REQUESTED:
-        Based on these details, determine the most accurate birth time rectification. Focus on:
-        1. Planetary positions relative to houses and angles
-        2. Correlation between life events and planetary transits
-        3. Dashas/planetary periods alignment with life experiences
-        4. Ayanamsa corrections and calculation precision
+        SIGNIFICANT LIFE EVENTS:
+        {life_events_str}
 
-        INSTRUCTIONS:
-        - Analyze using three methods: Tattva (traditional), Nadi, and KP system
-        - Calculate the most likely adjustment in minutes (positive for later, negative for earlier)
-        - Provide a confidence score (0-100)
-        - Keep the response focused on the numerical adjustment and confidence
+        MULTI-TECHNIQUE ANALYSIS:
+        Perform birth time rectification using the three major Vedic astrology systems:
+        1. TATTVA (Traditional Vedic): 40% weight - Focus on ascendant-based timing and traditional planetary significations
+        2. NADI ASTROLOGY: 35% weight - Analyze subtle timing indicators and planetary karakas
+        3. KRISHNAMURTI PADDHATI (KP): 25% weight - Utilize sub-lord analysis and stellar influences
+
+        TECHNICAL REQUIREMENTS:
+        - Planetary longitude calculations must maintain ±0.25° margin of error
+        - Dasha transition time must be accurate within ±12 hours
+        - House cusp calculations must maintain ±1° margin of error
+
+        DELIVERABLES:
+        1. Precise birth time adjustment in minutes (positive or negative)
+        2. Confidence score (0-100) with statistical basis
+        3. Brief reasoning explaining astrological indicators
+        4. Validation of timing through life event correlations
 
         FORMAT YOUR RESPONSE AS JSON:
         {{
           "adjustment_minutes": [number],
           "confidence": [number],
-          "reasoning": "[brief explanation]"
+          "reasoning": "[brief explanation]",
+          "technique_details": {{
+             "tattva": "[brief findings]",
+             "nadi": "[brief findings]",
+             "kp": "[brief findings]"
+          }}
         }}
         """
 
         return prompt
 
+    def _extract_life_events_from_questionnaire(self, questionnaire_data: Dict[str, Any]) -> List[str]:
+        """
+        Extract important life events from questionnaire data.
+
+        Args:
+            questionnaire_data: Questionnaire responses
+
+        Returns:
+            List of life event strings
+        """
+        life_events = []
+
+        if "responses" not in questionnaire_data:
+            return life_events
+
+        # Look for responses about significant life events
+        event_keywords = ["when did", "occurred", "happened", "experience", "life event",
+                         "marriage", "career", "birth", "death", "moved", "education",
+                         "relationship", "health", "transition"]
+
+        for resp in questionnaire_data.get("responses", []):
+            question = resp.get("question", "").lower()
+            answer = resp.get("answer", "")
+
+            # Skip if no answer provided
+            if not answer or answer.lower() in ["no", "none", "n/a", "unknown"]:
+                continue
+
+            # Check if question is about a life event
+            is_event_question = any(keyword in question.lower() for keyword in event_keywords)
+
+            if is_event_question:
+                # Format as "Event: Answer"
+                event = f"{question.strip('?:')}: {answer}"
+                life_events.append(event)
+
+        return life_events
+
     def _parse_rectification_response(self, response_content: str) -> Dict[str, Any]:
         """
-        Parse the AI response to extract adjustment and confidence.
+        Parse the AI response to extract adjustment, confidence and technique details.
 
         Args:
             response_content: Raw response from OpenAI
@@ -242,11 +322,23 @@ class UnifiedRectificationModel:
 
             # Validate expected fields
             if "adjustment_minutes" in data and "confidence" in data:
-                return {
+                result = {
                     "adjustment_minutes": int(data["adjustment_minutes"]),
                     "confidence": float(data["confidence"]),
                     "reasoning": data.get("reasoning", "")
                 }
+
+                # Extract technique details if available
+                if "technique_details" in data and isinstance(data["technique_details"], dict):
+                    result["technique_details"] = data["technique_details"]
+
+                    # Calculate weighted confidence if not already provided
+                    if "weighted_confidence" not in data and all(k in data["technique_details"] for k in self.technique_weights):
+                        # This is just a placeholder for demonstration - in a real implementation,
+                        # we would assess the confidence from each technique more carefully
+                        result["weighted_confidence"] = result["confidence"]
+
+                return result
             else:
                 logger.warning(f"Missing required fields in AI response: {data}")
         except json.JSONDecodeError:
@@ -265,13 +357,31 @@ class UnifiedRectificationModel:
             if confidence_match:
                 result["confidence"] = float(confidence_match.group(1))
 
+            # Try to extract technique information
+            tattva_match = re.search(r'tattva["\s:]+([^"}\r\n]+)', response_content)
+            nadi_match = re.search(r'nadi["\s:]+([^"}\r\n]+)', response_content)
+            kp_match = re.search(r'kp["\s:]+([^"}\r\n]+)', response_content)
+
+            # If we found any technique information, add it to result
+            if any([tattva_match, nadi_match, kp_match]):
+                technique_details = {}
+                if tattva_match:
+                    technique_details["tattva"] = tattva_match.group(1).strip()
+                if nadi_match:
+                    technique_details["nadi"] = nadi_match.group(1).strip()
+                if kp_match:
+                    technique_details["kp"] = kp_match.group(1).strip()
+
+                result["technique_details"] = technique_details
+
             if result:
                 return result
 
         # Default values if parsing fails
         return {
             "adjustment_minutes": 0,
-            "confidence": 60.0
+            "confidence": 60.0,
+            "reasoning": "Unable to determine accurate adjustment due to parsing issues."
         }
 
     def _update_cache_management(self):
@@ -589,8 +699,7 @@ class UnifiedRectificationModel:
                     prompt=prompt,
                     task_type="explanation",  # Routes to GPT-4 Turbo
                     max_tokens=350,
-                    temperature=0.7,
-                    system_message="You are an expert in Vedic astrology specializing in birth time rectification."
+                    temperature=0.7
                 )
 
                 # Extract and return the explanation
@@ -606,7 +715,7 @@ class UnifiedRectificationModel:
                 # Fall back to template-based explanation if API fails
                 return self._generate_fallback_explanation(adjustment_minutes, reliability, questionnaire_data)
         else:
-            # If OpenAI service is not available, use fallback
+            # Always use warning level for important service unavailability
             logger.warning("OpenAI service not available, using fallback explanation")
             return self._generate_fallback_explanation(adjustment_minutes, reliability, questionnaire_data)
 

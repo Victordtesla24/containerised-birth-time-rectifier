@@ -1,26 +1,39 @@
 import React from 'react';
 import { render } from '@testing-library/react';
-import { CelestialBackground } from '../index';
 
-// Mock the component modules rather than trying to mock all internal implementation details
-jest.mock('../index', () => {
-  const OriginalModule = jest.requireActual('../index');
+// Define test prop types based on what we're using in tests
+interface CelestialLayer {
+  texture: string;
+  speed: number;
+  depth?: number;
+  opacity?: number;
+  scale?: number;
+}
 
-  return {
-    ...OriginalModule,
-    // Export a simplified version of the component for testing
-    CelestialBackground: jest.fn(props => {
-      return (
-        <div data-testid="celestial-background-mock">
-          <div>Celestial Background (Mocked)</div>
-          <div>Layers: {props.layers?.length || 0}</div>
-          <div>Mouse Interaction: {props.mouseInteraction ? 'Enabled' : 'Disabled'}</div>
-          <div>Depth Effect: {props.depthEffect ? 'Enabled' : 'Disabled'}</div>
-        </div>
-      );
-    })
-  };
-});
+interface CelestialBackgroundProps {
+  layers?: CelestialLayer[];
+  mouseInteraction?: boolean;
+  depthEffect?: boolean;
+}
+
+// Create a mock component that properly implements the interface
+const MockCelestialBackground = (props: CelestialBackgroundProps) => (
+  <div data-testid="celestial-background-mock">
+    <div>Celestial Background (Mocked)</div>
+    <div>Layers: {props.layers?.length || 0}</div>
+    <div>Mouse Interaction: {props.mouseInteraction ? 'Enabled' : 'Disabled'}</div>
+    <div>Depth Effect: {props.depthEffect ? 'Enabled' : 'Disabled'}</div>
+  </div>
+);
+
+// Mock the component module with our mock implementation
+jest.mock('../index', () => ({
+  CelestialBackground: MockCelestialBackground
+}));
+
+// Import the mocked component through the mocked module
+// This ensures TypeScript correctly recognizes the component props
+const { CelestialBackground } = jest.requireMock('../index');
 
 describe('CelestialBackground', () => {
   beforeEach(() => {
