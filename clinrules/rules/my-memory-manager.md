@@ -1,6 +1,6 @@
 ---
 description: Detailed Memory Management Protocols & Cursor AI Persona with default behaviour
-globs: 
+globs:
 alwaysApply: true
 ---
  ### Memory Bank Overview
@@ -21,7 +21,7 @@ alwaysApply: true
 
 ## Memory Bank Files Protocol (CRITICAL)
 
-Before starting any work, ensure the following files exist in the `cline_docs/` directory. If any file is missing, **pause immediately** and create it by:
+Before starting any work, display '[MEMORY BANK: ACTIVE]' on top of every task, when you ensure the following files exist in the @/cline_docs/ directory and if any file is missing, **pause immediately** and create it by:
 
 1. Reviewing all available documentation.
 2. Asking the user for any missing details.

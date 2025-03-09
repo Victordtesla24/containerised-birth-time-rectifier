@@ -1,6 +1,7 @@
 ---
 description: Detailed Memory Management Protocols & Cursor AI Persona with default behaviour
 globs: 
+alwaysApply: true
 ---
  ### Memory Bank Overview
  **Pre and Post requisite**: This protocol pre and post requisite has a strict pre-requisite of mandatory and strict adherance with every single other protocols [my-code-optimisation-protocols.mdc](mdc:.cursor/rules/my-code-optimisation-protocols.mdc), [my-development-protocols.mdc](mdc:.cursor/rules/my-development-protocols.mdc), [my-error-fixing-protocols.mdc](mdc:.cursor/rules/my-error-fixing-protocols.mdc), & [my-directory-management-protocols.mdc](mdc:.cursor/rules/my-directory-management-protocols.mdc) meticulously.
@@ -20,7 +21,7 @@ globs:
 
 ## Memory Bank Files Protocol (CRITICAL)
 
-Before starting any work, ensure the following files exist in the `cline_docs/` directory. If any file is missing, **pause immediately** and create it by:
+Before starting any work, display '[MEMORY BANK: ACTIVE]' on top of every task, when you ensure the following files exist in the @/cline_docs/ directory and if any file is missing, **pause immediately** and create it by:
 
 1. Reviewing all available documentation.
 2. Asking the user for any missing details.

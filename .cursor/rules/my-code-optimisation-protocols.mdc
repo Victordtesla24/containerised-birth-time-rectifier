@@ -1,6 +1,7 @@
 ---
 description: Detailed Code Optimization Protocol that describes how to optimise existing code
 globs: 
+alwaysApply: true
 ---
 ### Code Optimization Protocol
 **Pre and Post requisite**: This protocol pre and post requisite has a strict pre-requisite of mandatory and strict adherance with every single other protocols [my-development-protocols.mdc](mdc:.cursor/rules/my-development-protocols.mdc), [my-error-fixing-protocols.mdc](mdc:.cursor/rules/my-error-fixing-protocols.mdc), [my-directory-management-protocols.mdc](mdc:.cursor/rules/my-directory-management-protocols.mdc), & [my-memory-manager.mdc](mdc:.cursor/rules/my-memory-manager.mdc) meticulously.

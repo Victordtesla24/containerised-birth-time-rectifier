@@ -1,6 +1,7 @@
 ---
 description: Detailed Development Protocols of building new features, modifying current features and new capabilities
 globs: 
+alwaysApply: true
 ---
 ### Development Protocol (Fail Fast & Iterative)
 **Pre and Post requisite**: This protocol pre and post requisite has a strict pre-requisite of mandatory and strict adherance with every single other protocols [my-code-optimisation-protocols.mdc](mdc:.cursor/rules/my-code-optimisation-protocols.mdc), [my-directory-management-protocols.mdc](mdc:.cursor/rules/my-directory-management-protocols.mdc), [my-error-fixing-protocols.mdc](mdc:.cursor/rules/my-error-fixing-protocols.mdc), [my-memory-manager.mdc](mdc:.cursor/rules/my-memory-manager.mdc) meticulously.

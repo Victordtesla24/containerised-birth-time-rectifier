@@ -1,7 +1,7 @@
 ---
 description: Detailed Error Resolution & Error Fixing Protocols to fix errors systematically and comprehensively
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 #### Error Fixing Protocol
 **Pre and Post requisite**: This protocol pre and post requisite has a strict pre-requisite of mandatory and strict adherance with every single other protocols [my-code-optimisation-protocols.mdc](mdc:.cursor/rules/my-code-optimisation-protocols.mdc), [my-development-protocols.mdc](mdc:.cursor/rules/my-development-protocols.mdc), [my-directory-management-protocols.mdc](mdc:.cursor/rules/my-directory-management-protocols.mdc), & [my-memory-manager.mdc](mdc:.cursor/rules/my-memory-manager.mdc) meticulously.
