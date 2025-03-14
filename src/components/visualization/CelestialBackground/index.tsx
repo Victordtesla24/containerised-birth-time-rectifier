@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import * as React from 'react';
+const { useEffect, useRef, useState, useMemo } = React;
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
@@ -1634,7 +1635,7 @@ export const CelestialBackground: React.FC<CelestialBackgroundProps> = ({
   };
 
   // Setup effect
-  useEffect(() => {
+  React.useEffect(() => {
     // Initialize Three.js
     const threeContext = initThreeJS();
     if (!threeContext) return;

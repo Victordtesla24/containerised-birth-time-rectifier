@@ -8,94 +8,111 @@ import json
 import time
 import os
 import pytest
+import uuid
+from typing import Dict, Any
 
 # Base URL for API tests
 BASE_URL = "http://localhost:8000"
 
-def test_session_init():
-    """Test session initialization endpoint"""
-    # Make request to session init endpoint
-    response = requests.get(f"{BASE_URL}/api/v1/session/init")
+def test_session_initialization():
+    """Test that the session initialization endpoint returns a valid session ID."""
+    try:
+        response = requests.get(f"{BASE_URL}/api/v1/session/init")
+        assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
 
-    # Check status code
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
+        data = response.json()
+        assert "session_id" in data, "Response does not contain session_id"
+        assert isinstance(data["session_id"], str), "session_id is not a string"
+        assert len(data["session_id"]) > 0, "session_id is empty"
 
-    # Check response JSON structure
-    data = response.json()
-    assert "session_id" in data, "Response missing session_id field"
-    assert "created_at" in data, "Response missing created_at field"
-    assert "expires_at" in data, "Response missing expires_at field"
-    assert "status" in data, "Response missing status field"
-    assert data["status"] == "active", f"Expected status 'active', got '{data['status']}'"
+        # Check for other expected fields
+        assert "created_at" in data, "Response does not contain created_at"
+        assert "expires_at" in data, "Response does not contain expires_at"
+        assert "status" in data, "Response does not contain status"
+        assert data["status"] == "active", f"Expected status to be 'active', got '{data['status']}'"
 
-    # Store session_id for subsequent tests
-    session_id = data["session_id"]
-    # Don't return values, use the fixture instead
-    assert session_id is not None, "Session ID should not be None"
-    assert response.cookies is not None, "Session cookies should not be None"
+        # Verify that the session ID is a valid UUID
+        try:
+            uuid_obj = uuid.UUID(data["session_id"])
+            assert str(uuid_obj) == data["session_id"], "session_id is not a valid UUID"
+        except ValueError:
+            pytest.fail("session_id is not a valid UUID format")
 
-def test_session_status(session_info):
-    """Test session status endpoint with an active session"""
-    session_id, cookies = session_info
+        # Verify that created_at is a valid timestamp
+        assert isinstance(data["created_at"], (int, float)), "created_at is not a number"
+        assert data["created_at"] <= time.time(), "created_at is in the future"
 
-    # Make request to session status endpoint
-    response = requests.get(
-        f"{BASE_URL}/api/v1/session/status",
-        cookies=cookies
-    )
+        # Verify that expires_at is a valid timestamp in the future
+        assert isinstance(data["expires_at"], (int, float)), "expires_at is not a number"
+        assert data["expires_at"] > time.time(), "expires_at is not in the future"
 
-    # Check status code
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
+        print(f"Session initialized with ID: {data['session_id']}")
+        # Store the session ID for other tests
+        global session_id
+        session_id = data["session_id"]
+    except Exception as e:
+        pytest.fail(f"Session initialization failed: {str(e)}")
 
-    # Check response JSON structure
-    data = response.json()
-    assert "session_id" in data, "Response missing session_id field"
-    assert data["session_id"] == session_id, f"Expected session_id '{session_id}', got '{data['session_id']}'"
-    assert "status" in data, "Response missing status field"
-    assert data["status"] == "active", f"Expected status 'active', got '{data['status']}'"
+def test_session_status():
+    """Test that the session status endpoint returns the correct status for a valid session."""
+    # First, initialize a session if not already done
+    if not 'session_id' in globals():
+        test_session_initialization()
 
-def test_session_data_update(session_info):
-    """Test updating session data"""
-    session_id, cookies = session_info
+    try:
+        # Now check the session status
+        response = requests.get(f"{BASE_URL}/api/v1/session/status", headers={"X-Session-ID": session_id})
+        assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
 
-    # Test data to store in session
-    test_data = {
-        "test_key": "test_value",
-        "nested": {
-            "field1": 123,
-            "field2": True
+        data = response.json()
+        assert "session_id" in data, "Response does not contain session_id"
+        assert data["session_id"] == session_id, f"Expected session_id {session_id}, got {data['session_id']}"
+        assert "status" in data, "Response does not contain status"
+        assert data["status"] == "active", f"Expected status to be 'active', got '{data['status']}'"
+
+        print(f"Session status checked for ID: {session_id}")
+    except Exception as e:
+        pytest.fail(f"Session status check failed: {str(e)}")
+
+def test_session_data_update():
+    """Test that the session data update endpoint correctly updates session data."""
+    # First, initialize a session if not already done
+    if not 'session_id' in globals():
+        test_session_initialization()
+
+    try:
+        # Update session data
+        test_data = {
+            "test_key": "test_value",
+            "test_number": 42,
+            "test_bool": True
         }
-    }
 
-    # Make request to update session data
-    response = requests.post(
-        f"{BASE_URL}/api/v1/session/data",
-        json=test_data,
-        cookies=cookies
-    )
+        response = requests.post(
+            f"{BASE_URL}/api/v1/session/data",
+            headers={"X-Session-ID": session_id},
+            json=test_data
+        )
+        assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
 
-    # Check status code
-    assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
+        data = response.json()
+        assert "status" in data, "Response does not contain status"
+        assert data["status"] == "success", f"Expected status to be 'success', got '{data['status']}'"
 
-    # Check response JSON structure
-    data = response.json()
-    assert "status" in data, "Response missing status field"
-    assert data["status"] == "success", f"Expected status 'success', got '{data['status']}'"
+        print(f"Session data updated for ID: {session_id}")
 
-    # Now get session status to verify data was stored
-    response = requests.get(
-        f"{BASE_URL}/api/v1/session/status",
-        cookies=cookies
-    )
+        # Now check that the data was actually updated
+        response = requests.get(f"{BASE_URL}/api/v1/session/data", headers={"X-Session-ID": session_id})
+        assert response.status_code == 200, f"Expected status code 200, got {response.status_code}"
 
-    # Check if our test data is in the session
-    # Note: This assumes the session status endpoint returns session data,
-    # which it might not in the actual implementation
-    data = response.json()
-    if "test_key" in data:
-        assert data["test_key"] == test_data["test_key"], "Session data not stored correctly"
-    else:
-        print("Warning: Cannot verify if session data was stored - session status endpoint doesn't return session data")
+        data = response.json()
+        for key, value in test_data.items():
+            assert key in data, f"Response does not contain {key}"
+            assert data[key] == value, f"Expected {key} to be {value}, got {data[key]}"
+
+        print(f"Session data verified for ID: {session_id}")
+    except Exception as e:
+        pytest.fail(f"Session data update failed: {str(e)}")
 
 @pytest.fixture
 def session_info():
@@ -118,17 +135,17 @@ def run_tests():
     try:
         # Initialize session
         print("Testing session initialization...")
-        session_info = test_session_init()
+        test_session_initialization()
         print("✅ Session initialization successful")
 
         # Test session status
         print("Testing session status...")
-        test_session_status(session_info)
+        test_session_status()
         print("✅ Session status check successful")
 
         # Test session data update
         print("Testing session data update...")
-        test_session_data_update(session_info)
+        test_session_data_update()
         print("✅ Session data update successful")
 
         print("\nAll session management tests passed!")

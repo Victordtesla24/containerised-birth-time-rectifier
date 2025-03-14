@@ -2,6 +2,6 @@
 Services package for API operations.
 """
 
-from .openai_service import OpenAIService
+from .openai import OpenAIService
 
 __all__ = ["OpenAIService"]

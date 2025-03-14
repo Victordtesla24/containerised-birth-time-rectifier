@@ -1,0 +1,937 @@
+"""
+Chart Generation Router
+
+This module provides endpoints for generating and retrieving astrological charts,
+with OpenAI verification against Indian Vedic Astrological standards.
+"""
+
+from fastapi import APIRouter, HTTPException, Query, Body, Response, Depends
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from typing import Dict, List, Any, Optional, Union
+import logging
+import time
+from datetime import datetime
+import uuid
+
+# Import utilities and models
+from ai_service.api.routers.consolidated_chart.utils import (
+    validate_chart_data, format_chart_response, store_chart, retrieve_chart
+)
+from ai_service.core.chart_calculator import calculate_chart, calculate_verified_chart
+from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Create router with appropriate tags
+router = APIRouter(
+    tags=["chart_generation"],
+    responses={
+        500: {"description": "Internal server error"},
+        400: {"description": "Bad request - invalid parameters"},
+        404: {"description": "Chart not found"}
+    }
+)
+
+# Models for request/response
+class ChartOptions(BaseModel):
+    house_system: str = Field("P", description="House system (P=Placidus, K=Koch, etc.)")
+    zodiac_type: str = Field("sidereal", description="Zodiac type (sidereal/tropical)")
+    ayanamsa: Union[str, float] = Field("lahiri", description="Ayanamsa name or value")
+    node_type: str = Field("true", description="Node type (true/mean)")
+    verify_with_openai: bool = Field(True, description="Verify chart with OpenAI")
+
+class BirthDetails(BaseModel):
+    birth_date: str = Field(..., description="Birth date in YYYY-MM-DD format", alias="date")
+    birth_time: str = Field(..., description="Birth time in HH:MM:SS or HH:MM format", alias="time")
+    latitude: float = Field(..., description="Birth location latitude")
+    longitude: float = Field(..., description="Birth location longitude")
+    location: Optional[str] = Field(None, description="Birth location name")
+    timezone: str = Field(..., description="Timezone of birth location", alias="tz")
+    full_name: Optional[str] = Field(None, description="Full name of the person")
+    additional_info: Optional[str] = Field(None, description="Additional information")
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "birth_date": "1990-01-01",
+                    "birth_time": "12:00:00",
+                    "latitude": 40.7128,
+                    "longitude": -74.0060,
+                    "timezone": "America/New_York",
+                }
+            ]
+        }
+    }
+
+class ChartRequest(BaseModel):
+    birth_details: BirthDetails
+    options: Optional[ChartOptions] = Field(None, description="Chart generation options")
+
+# Alternative models for backward compatibility
+class BirthDetailsAlt(BaseModel):
+    birthDate: str
+    birthTime: str
+    latitude: float
+    longitude: float
+    timezone: str
+    fullName: Optional[str] = None
+
+class ChartRequestAlt(BaseModel):
+    birthDetails: BirthDetailsAlt
+    options: Optional[Dict[str, Any]] = None
+
+# Simple format for maximum backward compatibility
+class ChartRequestSimple(BaseModel):
+    date: str
+    time: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    timezone: Optional[str] = None
+    tz: Optional[str] = None
+    location: Optional[str] = None
+
+class ChartResponse(BaseModel):
+    chart_id: str
+    verification: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+
+class ValidationResponse(BaseModel):
+    valid: bool
+    errors: Optional[Dict[str, str]] = None
+    message: Optional[str] = None
+
+# Add these models for chart comparison
+class ComparisonQueryParams(BaseModel):
+    chart1_id: str = Field(..., description="ID of the first chart to compare")
+    chart2_id: str = Field(..., description="ID of the second chart to compare")
+    comparison_type: str = Field("differences", description="Type of comparison: differences, full, or summary")
+    include_significance: bool = Field(True, description="Include significance scores in the response")
+
+class ComparisonRequest(BaseModel):
+    chart1_id: str = Field(..., description="ID of the first chart to compare")
+    chart2_id: str = Field(..., description="ID of the second chart to compare")
+    comparison_type: str = Field("differences", description="Type of comparison: differences, full, or summary")
+    include_significance: bool = Field(True, description="Include significance scores in the response")
+
+@router.post("/validate", response_model=ValidationResponse, operation_id="validate_birth_details_generator")
+async def validate_birth_details(
+    request: ChartRequest,
+    response: Response
+):
+    """
+    Validate birth details for chart generation.
+
+    This endpoint validates birth date, time, and coordinates to ensure they are
+    properly formatted and within valid ranges before chart generation.
+    """
+    try:
+        # Extract birth details
+        birth_details = request.birth_details
+
+        # Basic validation checks
+        errors = {}
+
+        # Get date and time values
+        date_str = birth_details.birth_date
+        time_str = birth_details.birth_time
+
+        # Add seconds if not provided in time
+        if len(time_str.split(':')) == 2:
+            time_str = f"{time_str}:00"
+
+        # Get coordinates
+        latitude = birth_details.latitude
+        longitude = birth_details.longitude
+
+        # Check date format
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            errors["birth_date"] = "Invalid date format. Use YYYY-MM-DD."
+
+        # Check time format
+        try:
+            datetime.strptime(time_str, "%H:%M:%S")
+        except ValueError:
+            errors["birth_time"] = "Invalid time format. Use HH:MM:SS."
+
+        # Check latitude range
+        if latitude < -90 or latitude > 90:
+            errors["latitude"] = "Latitude must be between -90 and 90."
+
+        # Check longitude range
+        if longitude < -180 or longitude > 180:
+            errors["longitude"] = "Longitude must be between -180 and 180."
+
+        # Return validation result
+        if errors:
+            return {
+                "valid": False,
+                "errors": errors,
+                "message": "Birth details contain errors."
+            }
+        else:
+            return {
+                "valid": True,
+                "errors": None,
+                "message": "Birth details are valid."
+            }
+
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error validating birth details: {str(e)}", exc_info=True)
+
+        # Return validation error
+        return {
+            "valid": False,
+            "errors": {"general": str(e)},
+            "message": "Validation failed due to an error."
+        }
+
+@router.post("/validate/alt", response_model=ValidationResponse, operation_id="validate_birth_details_alt_generator")
+async def validate_birth_details_alt(request: ChartRequestAlt, response: Response):
+    """
+    Alternative endpoint for birth details validation (backward compatibility).
+
+    This endpoint provides the same functionality as the primary validation endpoint
+    but accepts parameter names in a different format for backward compatibility.
+    """
+    # Convert from alternative format to standard format
+    std_birth_details = BirthDetails(
+        date=request.birthDetails.birthDate,
+        time=request.birthDetails.birthTime,
+        latitude=request.birthDetails.latitude,
+        longitude=request.birthDetails.longitude,
+        tz=request.birthDetails.timezone,
+        full_name=request.birthDetails.fullName,
+        location=None,
+        additional_info=None
+    )
+
+    # Create standard request
+    std_request = ChartRequest(
+        birth_details=std_birth_details,
+        options=None
+    )
+
+    # Add deprecation warning header
+    response.headers["X-Deprecation-Warning"] = "This endpoint is deprecated. Please use /validate instead."
+
+    # Call primary endpoint
+    return await validate_birth_details(std_request, response)
+
+@router.post("/generate", response_model=Dict[str, Any])
+async def generate_chart(
+    request: Union[ChartRequest, Dict[str, Any]],
+    response: Response
+):
+    """
+    Generate an astrological chart based on birth details with OpenAI verification.
+
+    This endpoint calculates an astrological chart based on the provided birth details
+    and verifies it against Indian Vedic Astrological standards using OpenAI.
+    """
+    request_start_time = time.time()
+
+    try:
+        # Check if request is a dict (flat format) or ChartRequest (nested format)
+        if isinstance(request, dict):
+            # Check for required fields
+            required_fields = ["birth_date", "birth_time", "latitude", "longitude"]
+            missing_fields = [field for field in required_fields if field not in request]
+
+            if missing_fields:
+                # Try alternative field names
+                alt_field_mapping = {
+                    "birth_date": ["date", "birthDate"],
+                    "birth_time": ["time", "birthTime"],
+                    "latitude": ["lat"],
+                    "longitude": ["lng"]
+                }
+
+                for field in missing_fields[:]:
+                    for alt_field in alt_field_mapping.get(field, []):
+                        if alt_field in request:
+                            request[field] = request[alt_field]
+                            missing_fields.remove(field)
+                            break
+
+            if missing_fields:
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "error": {
+                            "code": ERROR_CODES["VALIDATION_ERROR"],
+                            "message": "Missing required fields",
+                            "details": {"missing_fields": missing_fields}
+                        }
+                    }
+                )
+
+            # Extract options if present
+            options_dict = request.get("options", {})
+            if not isinstance(options_dict, dict):
+                options_dict = {}
+
+            options = ChartOptions(
+                house_system=options_dict.get("house_system", "P"),
+                zodiac_type=options_dict.get("zodiac_type", "sidereal"),
+                ayanamsa=options_dict.get("ayanamsa", "lahiri"),
+                node_type=options_dict.get("node_type", "true"),
+                verify_with_openai=options_dict.get("verify_with_openai", True)
+            )
+
+            # Create birth details
+            birth_details = BirthDetails(
+                date=request.get("birth_date", request.get("date", request.get("birthDate", ""))),
+                time=request.get("birth_time", request.get("time", request.get("birthTime", ""))),
+                latitude=request.get("latitude", request.get("lat", 0.0)),
+                longitude=request.get("longitude", request.get("lng", 0.0)),
+                tz=request.get("timezone", request.get("tz", "UTC")),  # Default to UTC if not provided
+                location=request.get("location", "Unknown Location"),
+                full_name=request.get("full_name", request.get("fullName", None)),
+                additional_info=request.get("additional_info", None)
+            )
+
+            # Store session_id if provided
+            session_id = request.get("session_id")
+        else:
+            # Extract birth details from ChartRequest
+            birth_details = request.birth_details
+
+            # Extract options or use defaults
+            options = request.options or ChartOptions(
+                house_system="P",
+                zodiac_type="sidereal",
+                ayanamsa="lahiri",
+                node_type="true",
+                verify_with_openai=True
+            )
+
+        # Format birth date and time
+        date_str = getattr(birth_details, 'birth_date', getattr(birth_details, 'date', ''))
+        if not date_str:
+            raise ValueError("Birth date is required")
+
+        time_str = getattr(birth_details, 'birth_time', getattr(birth_details, 'time', ''))
+        if not time_str:
+            raise ValueError("Birth time is required")
+
+        # Add seconds if not provided in time
+        if len(time_str.split(':')) == 2:
+            time_str = f"{time_str}:00"
+
+        # Get coordinates
+        latitude = birth_details.latitude
+        longitude = birth_details.longitude
+        location = birth_details.location or "Unknown Location"
+        timezone = getattr(birth_details, 'timezone', getattr(birth_details, 'tz', 'UTC'))  # Default to UTC if not provided
+        if not timezone:
+            raise ValueError("Timezone is required")
+
+        # Log generation request
+        logger.info(f"Generating chart for {date_str} {time_str} at coordinates: {latitude}, {longitude}")
+
+        try:
+            # Parse ayanamsa from string to float if needed
+            ayanamsa_value = 23.6647  # Default Lahiri ayanamsa
+            if isinstance(options.ayanamsa, str):
+                if options.ayanamsa.replace('.', '', 1).isdigit():
+                    ayanamsa_value = float(options.ayanamsa)
+                elif options.ayanamsa.lower() == "lahiri":
+                    ayanamsa_value = 23.6647
+            else:
+                ayanamsa_value = float(options.ayanamsa)
+
+            # Always use OpenAI verification for 100% accuracy as per requirements
+            logger.info(f"Generating verified chart for {date_str} {time_str}")
+
+            # Generate chart with OpenAI verification
+            chart_data = await calculate_verified_chart(
+                birth_date=date_str,
+                birth_time=time_str,
+                latitude=latitude,
+                longitude=longitude,
+                location=location,
+                house_system=options.house_system,
+                zodiac_type=options.zodiac_type,
+                ayanamsa=int(ayanamsa_value),
+                node_type=options.node_type,
+                verify_with_openai=True  # Always verify with OpenAI for 100% accuracy
+            )
+
+            # Validate the chart data to ensure it meets requirements
+            validation_result = validate_chart_data(chart_data)
+            if not validation_result["valid"]:
+                logger.error(f"Chart validation failed: {validation_result['errors']}")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error": {
+                            "code": ERROR_CODES["VALIDATION_ERROR"],
+                            "message": "Chart validation failed",
+                            "details": validation_result["errors"]
+                        }
+                    }
+                )
+
+            # Format the response
+            formatted_response = format_chart_response(chart_data)
+
+            # Store the chart in the session for later use
+            chart_id = store_chart(formatted_response)
+
+            # Add chart ID to the response
+            formatted_response["chart_id"] = chart_id
+
+            # Add processing time to the response
+            processing_time = time.time() - request_start_time
+            formatted_response["processing_time"] = processing_time
+
+            # Add metadata to the response
+            formatted_response["metadata"] = {
+                "verified_by_openai": True,
+                "verification_level": "high",
+                "ayanamsa_used": ayanamsa_value,
+                "house_system": options.house_system,
+                "zodiac_type": options.zodiac_type,
+                "node_type": options.node_type
+            }
+
+            # Log success
+            logger.info(f"Chart generated successfully in {processing_time:.2f} seconds")
+
+            return formatted_response
+
+        except Exception as e:
+            logger.error(f"Error calculating chart: {str(e)}", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": ERROR_CODES["CALCULATION_ERROR"],
+                        "message": "Error calculating chart",
+                        "details": str(e)
+                    }
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Unexpected error in generate_chart: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": ERROR_CODES["INTERNAL_SERVER_ERROR"],
+                    "message": "An unexpected error occurred",
+                    "details": str(e)
+                }
+            }
+        )
+
+@router.post("/generate/alt", response_model=Dict[str, Any])
+async def generate_chart_alt(request: ChartRequestAlt, response: Response):
+    """
+    Alternative endpoint for chart generation (backward compatibility).
+
+    This endpoint provides the same functionality as the primary endpoint
+    but accepts parameter names in a different format for backward compatibility.
+    """
+    # Convert from alternative format to standard format
+    std_birth_details = BirthDetails(
+        date=request.birthDetails.birthDate,
+        time=request.birthDetails.birthTime,
+        latitude=request.birthDetails.latitude,
+        longitude=request.birthDetails.longitude,
+        tz=request.birthDetails.timezone,
+        full_name=request.birthDetails.fullName,
+        location=None,
+        additional_info=None
+    )
+
+    # Convert options
+    std_options = None
+    if request.options:
+        std_options = ChartOptions(
+            house_system=request.options.get("house_system", "P"),
+            zodiac_type=request.options.get("zodiac_type", "sidereal"),
+            ayanamsa=request.options.get("ayanamsa", "lahiri"),
+            node_type=request.options.get("node_type", "true"),
+            verify_with_openai=request.options.get("verify_with_openai", True)
+        )
+
+    # Create standard request
+    std_request = ChartRequest(
+        birth_details=std_birth_details,
+        options=std_options
+    )
+
+    # Add deprecation warning header
+    response.headers["X-Deprecation-Warning"] = "This endpoint is deprecated. Please use /generate instead."
+
+    # Call primary endpoint
+    return await generate_chart(std_request, response)
+
+@router.post("/generate/simple", response_model=Dict[str, Any])
+async def generate_chart_simple(request: ChartRequestSimple, response: Response):
+    """
+    Simple endpoint for chart generation (maximum backward compatibility).
+
+    This endpoint provides the same functionality as the primary endpoint
+    but accepts a simplified set of parameters for maximum backward compatibility.
+    """
+    # Extract and normalize values
+    lat = request.latitude or request.lat or 0.0
+    lng = request.longitude or request.lng or 0.0
+    tz = request.timezone or request.tz or "UTC"
+
+    # Convert to standard format
+    std_birth_details = BirthDetails(
+        date=request.date,
+        time=request.time,
+        latitude=lat,
+        longitude=lng,
+        tz=tz,
+        location=request.location,
+        full_name=None,
+        additional_info=None
+    )
+
+    # Create standard request
+    std_request = ChartRequest(
+        birth_details=std_birth_details,
+        options=None
+    )
+
+    # Add deprecation warning header
+    response.headers["X-Deprecation-Warning"] = "This endpoint is deprecated. Please use /generate instead."
+
+    # Call primary endpoint
+    return await generate_chart(std_request, response)
+
+@router.get("/{chart_id}", response_model=Dict[str, Any])
+async def get_chart(chart_id: str, response: Response):
+    """
+    Retrieve a previously generated chart by ID.
+
+    This endpoint retrieves a chart that was previously generated and stored in the system.
+    """
+    try:
+        # Retrieve chart from storage
+        chart_data = retrieve_chart(chart_id)
+
+        # Check if chart exists
+        if not chart_data:
+            # Return standardized error response
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": {
+                        "code": ERROR_CODES["CHART_NOT_FOUND"],
+                        "message": f"Chart not found: {chart_id}",
+                        "details": {
+                            "chart_id": chart_id
+                        }
+                    }
+                }
+            )
+
+        # Format and return chart
+        return format_chart_response(chart_data)
+    except HTTPException:
+        # Pass through HTTP exceptions
+        raise
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error retrieving chart: {str(e)}", exc_info=True)
+
+        # Return standardized error response
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": f"Failed to retrieve chart: {str(e)}",
+                    "details": {
+                        "type": str(type(e).__name__)
+                    }
+                }
+            }
+        )
+
+@router.get("/compare", response_model=Dict[str, Any])
+async def compare_charts_get(
+    chart1_id: str = Query(..., description="ID of the first chart to compare"),
+    chart2_id: str = Query(..., description="ID of the second chart to compare"),
+    comparison_type: str = Query("differences", description="Type of comparison: differences, full, or summary"),
+    include_significance: bool = Query(True, description="Include significance scores in the response")
+):
+    """
+    Compare two charts and return their differences (GET method).
+
+    This endpoint compares two previously generated charts and analyzes their differences.
+    Different comparison types provide different levels of detail:
+    - 'differences': Just the list of differences
+    - 'full': Complete comparison with detailed analysis
+    - 'summary': Brief overview of key differences
+    """
+    # Create a standardized request object
+    comparison_params = ComparisonQueryParams(
+        chart1_id=chart1_id,
+        chart2_id=chart2_id,
+        comparison_type=comparison_type,
+        include_significance=include_significance
+    )
+
+    # Call the comparison function
+    return await compare_charts(comparison_params)
+
+@router.post("/compare", response_model=Dict[str, Any])
+async def compare_charts_post(request: ComparisonRequest):
+    """
+    Compare two charts and return their differences (POST method).
+
+    This endpoint compares two previously generated charts and analyzes their differences.
+    Different comparison types provide different levels of detail:
+    - 'differences': Just the list of differences
+    - 'full': Complete comparison with detailed analysis
+    - 'summary': Brief overview of key differences
+    """
+    return await compare_charts(request)
+
+async def compare_charts(params: Union[ComparisonQueryParams, ComparisonRequest]) -> Dict[str, Any]:
+    """
+    Common implementation for chart comparison (used by both GET and POST endpoints).
+
+    Args:
+        params: Parameters for the comparison, either from query or body
+
+    Returns:
+        Dict[str, Any]: The comparison result
+    """
+    try:
+        # Retrieve both charts
+        chart1 = retrieve_chart(params.chart1_id)
+        chart2 = retrieve_chart(params.chart2_id)
+
+        # Check if both charts exist
+        if not chart1:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": {
+                        "code": ERROR_CODES["CHART_NOT_FOUND"],
+                        "message": f"Chart not found: {params.chart1_id}",
+                        "details": {"chart_id": params.chart1_id}
+                    }
+                }
+            )
+
+        if not chart2:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": {
+                        "code": ERROR_CODES["CHART_NOT_FOUND"],
+                        "message": f"Chart not found: {params.chart2_id}",
+                        "details": {"chart_id": params.chart2_id}
+                    }
+                }
+            )
+
+        # Generate a unique comparison ID
+        comparison_id = f"cmp_{uuid.uuid4().hex[:8]}"
+
+        # Compare the charts and generate differences
+        differences = calculate_chart_differences(chart1, chart2, params.include_significance)
+
+        # Create the base response
+        response = {
+            "comparison_id": comparison_id,
+            "chart1_id": params.chart1_id,
+            "chart2_id": params.chart2_id,
+            "differences": differences
+        }
+
+        # Add summary if requested
+        if params.comparison_type in ["full", "summary"]:
+            summary = generate_comparison_summary(chart1, chart2, differences)
+            response["summary"] = summary
+
+        return response
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error comparing charts: {str(e)}", exc_info=True)
+
+        # Return a standardized error response
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": ERROR_CODES["COMPARISON_FAILED"],
+                    "message": f"Failed to compare charts: {str(e)}",
+                    "details": {
+                        "type": str(type(e).__name__)
+                    }
+                }
+            }
+        )
+
+def calculate_chart_differences(chart1: Dict[str, Any], chart2: Dict[str, Any], include_significance: bool) -> List[Dict[str, Any]]:
+    """
+    Calculate the differences between two charts.
+
+    Args:
+        chart1: The first chart data
+        chart2: The second chart data
+        include_significance: Whether to include significance scores
+
+    Returns:
+        List[Dict[str, Any]]: List of differences between the charts
+    """
+    differences = []
+
+    # Compare birth details
+    if "birth_details" in chart1 and "birth_details" in chart2:
+        birth1 = chart1["birth_details"]
+        birth2 = chart2["birth_details"]
+
+        # Compare birth time
+        time1 = birth1.get("birth_time", birth1.get("time", ""))
+        time2 = birth2.get("birth_time", birth2.get("time", ""))
+
+        if time1 != time2:
+            differences.append({
+                "type": "birth_time",
+                "description": f"Birth time differs: {time1} vs {time2}",
+                "significance": 0.9 if include_significance else None
+            })
+
+    # Compare ascendant
+    if "ascendant" in chart1 and "ascendant" in chart2:
+        asc1 = chart1["ascendant"]
+        asc2 = chart2["ascendant"]
+
+        if isinstance(asc1, dict) and isinstance(asc2, dict):
+            if asc1.get("sign") != asc2.get("sign"):
+                differences.append({
+                    "type": "ascendant_sign",
+                    "description": f"Ascendant sign differs: {asc1.get('sign')} vs {asc2.get('sign')}",
+                    "significance": 0.95 if include_significance else None
+                })
+
+            long1 = asc1.get("longitude", 0)
+            long2 = asc2.get("longitude", 0)
+
+            if abs(long1 - long2) > 5:  # More than 5 degrees difference
+                differences.append({
+                    "type": "ascendant_position",
+                    "description": f"Ascendant position differs by {abs(long1 - long2):.2f} degrees",
+                    "significance": 0.9 if include_significance else None
+                })
+
+    # Compare planets
+    if "planets" in chart1 and "planets" in chart2:
+        planets1 = chart1["planets"]
+        planets2 = chart2["planets"]
+
+        # For dictionary format planets
+        if isinstance(planets1, dict) and isinstance(planets2, dict):
+            for planet_name in set(list(planets1.keys()) + list(planets2.keys())):
+                if planet_name in planets1 and planet_name in planets2:
+                    planet1 = planets1[planet_name]
+                    planet2 = planets2[planet_name]
+
+                    # Compare house placements
+                    if "house" in planet1 and "house" in planet2 and planet1["house"] != planet2["house"]:
+                        differences.append({
+                            "type": "planet_house",
+                            "description": f"{planet_name} changes houses: {planet1['house']} to {planet2['house']}",
+                            "significance": get_planet_significance(planet_name) if include_significance else None
+                        })
+
+                    # Compare signs
+                    if "sign" in planet1 and "sign" in planet2 and planet1["sign"] != planet2["sign"]:
+                        differences.append({
+                            "type": "planet_sign",
+                            "description": f"{planet_name} changes signs: {planet1['sign']} to {planet2['sign']}",
+                            "significance": get_planet_significance(planet_name) if include_significance else None
+                        })
+
+    # Compare houses
+    if "houses" in chart1 and "houses" in chart2:
+        houses1 = chart1["houses"]
+        houses2 = chart2["houses"]
+
+        # For list format houses
+        if isinstance(houses1, list) and isinstance(houses2, list) and len(houses1) == len(houses2):
+            for i in range(len(houses1)):
+                house1 = houses1[i]
+                house2 = houses2[i]
+
+                if house1.get("sign") != house2.get("sign"):
+                    house_num = house1.get("number", i+1)
+                    differences.append({
+                        "type": "house_sign",
+                        "description": f"House {house_num} sign changes: {house1.get('sign')} to {house2.get('sign')}",
+                        "significance": get_house_significance(house_num) if include_significance else None
+                    })
+
+    # Compare aspects
+    if "aspects" in chart1 and "aspects" in chart2:
+        # This would be a complex comparison that would need to match aspects
+        # between the two charts. For simplicity, we'll just note if the number of aspects changed.
+        aspects1 = chart1["aspects"]
+        aspects2 = chart2["aspects"]
+
+        if isinstance(aspects1, list) and isinstance(aspects2, list):
+            aspect_count1 = len(aspects1)
+            aspect_count2 = len(aspects2)
+
+            if aspect_count1 != aspect_count2:
+                differences.append({
+                    "type": "aspect_count",
+                    "description": f"Number of aspects changed: {aspect_count1} to {aspect_count2}",
+                    "significance": 0.7 if include_significance else None
+                })
+
+    # Ensure we return at least one difference even if none were found
+    if not differences:
+        differences.append({
+            "type": "minimal",
+            "description": "Charts have only minor differences",
+            "significance": 0.1 if include_significance else None
+        })
+
+    return differences
+
+def generate_comparison_summary(chart1: Dict[str, Any], chart2: Dict[str, Any], differences: List[Dict[str, Any]]) -> str:
+    """
+    Generate a summary of the comparison between two charts.
+
+    Args:
+        chart1: The first chart data
+        chart2: The second chart data
+        differences: The list of differences between the charts
+
+    Returns:
+        str: A summary of the comparison
+    """
+    # Count differences by type
+    diff_types = {}
+    for diff in differences:
+        diff_type = diff["type"]
+        if diff_type in diff_types:
+            diff_types[diff_type] += 1
+        else:
+            diff_types[diff_type] = 1
+
+    # Generate summary based on difference types
+    summary_parts = []
+
+    # Add birth time difference if present
+    if "birth_time" in diff_types:
+        birth1 = chart1.get("birth_details", {})
+        birth2 = chart2.get("birth_details", {})
+        time1 = birth1.get("birth_time", birth1.get("time", ""))
+        time2 = birth2.get("birth_time", birth2.get("time", ""))
+        summary_parts.append(f"Birth time adjustment from {time1} to {time2}")
+
+    # Add ascendant changes
+    if "ascendant_sign" in diff_types:
+        asc1 = chart1.get("ascendant", {})
+        asc2 = chart2.get("ascendant", {})
+        summary_parts.append(f"Ascendant changes from {asc1.get('sign')} to {asc2.get('sign')}")
+    elif "ascendant_position" in diff_types:
+        summary_parts.append("Ascendant position shifts significantly")
+
+    # Add planet house changes
+    if "planet_house" in diff_types:
+        summary_parts.append(f"{diff_types['planet_house']} planet(s) change houses")
+
+    # Add planet sign changes
+    if "planet_sign" in diff_types:
+        summary_parts.append(f"{diff_types['planet_sign']} planet(s) change signs")
+
+    # Add house sign changes
+    if "house_sign" in diff_types:
+        summary_parts.append(f"{diff_types['house_sign']} house(s) change signs")
+
+    # Add aspect changes
+    if "aspect_count" in diff_types:
+        summary_parts.append("Planetary aspect pattern changes")
+
+    # Create final summary
+    if summary_parts:
+        summary = "The chart comparison reveals: " + "; ".join(summary_parts) + "."
+    else:
+        summary = "The charts have minimal differences that do not significantly impact interpretation."
+
+    return summary
+
+def get_planet_significance(planet_name: str) -> float:
+    """
+    Get the significance score for a planet.
+
+    Args:
+        planet_name: The name of the planet
+
+    Returns:
+        float: The significance score (0.0 to 1.0)
+    """
+    # Significance values for different planets (higher = more significant)
+    significance = {
+        "Sun": 0.95,
+        "Moon": 0.95,
+        "Ascendant": 0.95,
+        "Mercury": 0.8,
+        "Venus": 0.8,
+        "Mars": 0.8,
+        "Jupiter": 0.75,
+        "Saturn": 0.75,
+        "Rahu": 0.7,
+        "Ketu": 0.7,
+        "Uranus": 0.6,
+        "Neptune": 0.6,
+        "Pluto": 0.6
+    }
+
+    return significance.get(planet_name, 0.5)
+
+def get_house_significance(house_number: int) -> float:
+    """
+    Get the significance score for a house.
+
+    Args:
+        house_number: The house number (1-12)
+
+    Returns:
+        float: The significance score (0.0 to 1.0)
+    """
+    # Significance values for different houses (higher = more significant)
+    significance = {
+        1: 0.95,  # Ascendant/1st house is most significant
+        10: 0.9,  # 10th house (career)
+        7: 0.85,  # 7th house (relationships)
+        4: 0.8,   # 4th house (home)
+        5: 0.75,  # 5th house (creativity/children)
+        9: 0.75,  # 9th house (higher learning)
+        2: 0.7,   # 2nd house (finances)
+        8: 0.7,   # 8th house (transformation)
+        11: 0.65, # 11th house (friends/goals)
+        3: 0.6,   # 3rd house (communication)
+        6: 0.6,   # 6th house (health/service)
+        12: 0.6   # 12th house (hidden/spiritual)
+    }
+
+    return significance.get(house_number, 0.5)

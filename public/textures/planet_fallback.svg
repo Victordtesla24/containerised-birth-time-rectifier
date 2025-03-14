@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <circle cx="128" cy="128" r="120" fill="#444455" />
+  <circle cx="128" cy="128" r="116" fill="#666677" />
+  <ellipse cx="128" cy="128" rx="110" ry="110" fill="#888899" />
+  <ellipse cx="128" cy="128" rx="90" ry="90" fill="#9999AA" />
+  <text x="128" y="135" font-family="Arial" font-size="24" text-anchor="middle" fill="white">PLANET</text>
+</svg>

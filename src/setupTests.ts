@@ -1,5 +1,5 @@
 // Mock window.scrollTo
-window.scrollTo = jest.fn(); 
+window.scrollTo = jest.fn();
 
 // jest-dom adds custom jest matchers for asserting on DOM nodes.
 // allows you to do things like:
@@ -8,7 +8,7 @@ window.scrollTo = jest.fn();
 import '@testing-library/jest-dom';
 
 // Import MSW server
-import { server } from './mocks/server';
+import { server } from './src/mocks/server';
 
 // Establish API mocking before all tests
 beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
@@ -18,4 +18,4 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
 afterEach(() => server.resetHandlers());
 
 // Clean up after the tests are finished.
-afterAll(() => server.close()); 
+afterAll(() => server.close());

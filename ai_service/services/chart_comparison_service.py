@@ -12,6 +12,7 @@ from ai_service.models.chart_comparison import (
     ChartDifference, DifferenceType, PlanetaryPosition,
     AspectData, ChartComparisonResponse
 )
+from ai_service.api.routers.consolidated_chart.utils import retrieve_chart
 
 # Setup logging
 logger = logging.getLogger("birth-time-rectifier.chart-comparison")
@@ -52,68 +53,89 @@ class ChartComparisonService:
         Raises:
             ValueError: If chart_service is not provided or charts are not found
         """
-        # Check if chart service is available
-        if not self.chart_service:
-            logger.error("No chart service provided")
-            raise ValueError("Chart service is required for chart comparison")
-
-        # Retrieve both charts
-        chart1 = self.chart_service.get_chart(chart1_id)
-        chart2 = self.chart_service.get_chart(chart2_id)
-
-        if not chart1 or not chart2:
-            logger.error(f"One or both charts not found: {chart1_id}, {chart2_id}")
-            raise ValueError("One or both charts not found")
-
         # Generate a unique ID for this comparison
         comparison_id = f"comp_{uuid.uuid4().hex[:12]}"
 
-        # Initialize differences list
-        differences = []
+        try:
+            # Retrieve both charts using the utils.retrieve_chart function
+            try:
+                chart1 = retrieve_chart(chart1_id)
+                if not chart1:
+                    logger.error(f"Chart not found: {chart1_id}")
+                    raise ValueError(f"Chart not found: {chart1_id}")
+            except Exception as e:
+                logger.error(f"Error retrieving chart1 (ID: {chart1_id}): {str(e)}")
+                raise ValueError(f"Chart not found: {chart1_id}")
 
-        # Compare Ascendant
-        ascendant_diff = self._compare_ascendant(chart1, chart2)
-        if ascendant_diff:
-            differences.append(ascendant_diff)
+            try:
+                chart2 = retrieve_chart(chart2_id)
+                if not chart2:
+                    logger.error(f"Chart not found: {chart2_id}")
+                    raise ValueError(f"Chart not found: {chart2_id}")
+            except Exception as e:
+                logger.error(f"Error retrieving chart2 (ID: {chart2_id}): {str(e)}")
+                raise ValueError(f"Chart not found: {chart2_id}")
 
-        # Compare Midheaven
-        midheaven_diff = self._compare_midheaven(chart1, chart2)
-        if midheaven_diff:
-            differences.append(midheaven_diff)
+            # Initialize differences list
+            differences = []
 
-        # Compare planets by sign and house
-        planet_diffs = self._compare_planets(chart1, chart2)
-        differences.extend(planet_diffs)
+            # Compare Ascendant
+            ascendant_diff = self._compare_ascendant(chart1, chart2)
+            if ascendant_diff:
+                differences.append(ascendant_diff)
 
-        # Compare aspects
-        aspect_diffs = self._compare_aspects(chart1, chart2)
-        differences.extend(aspect_diffs)
+            # Compare Midheaven
+            midheaven_diff = self._compare_midheaven(chart1, chart2)
+            if midheaven_diff:
+                differences.append(midheaven_diff)
 
-        # Compare house cusps
-        house_diffs = self._compare_houses(chart1, chart2)
-        differences.extend(house_diffs)
+            # Compare planets by sign and house
+            planet_diffs = self._compare_planets(chart1, chart2)
+            differences.extend(planet_diffs)
 
-        # Calculate overall impact if requested
-        overall_impact = None
-        if include_significance and differences:
-            impact_sum = sum(diff.significance for diff in differences)
-            overall_impact = min(1.0, impact_sum / (len(differences) * 0.8))
+            # Compare aspects
+            aspect_diffs = self._compare_aspects(chart1, chart2)
+            differences.extend(aspect_diffs)
 
-        # Generate summary
-        summary = None
-        if comparison_type in ["summary", "full"]:
-            summary = self._generate_summary(chart1, chart2, differences, overall_impact)
+            # Compare house cusps
+            house_diffs = self._compare_houses(chart1, chart2)
+            differences.extend(house_diffs)
 
-        # Create response
-        return ChartComparisonResponse(
-            comparison_id=comparison_id,
-            chart1_id=chart1_id,
-            chart2_id=chart2_id,
-            comparison_type=comparison_type,
-            differences=differences,
-            summary=summary,
-            overall_impact=overall_impact
-        )
+            # Calculate overall impact if requested
+            overall_impact = None
+            if include_significance and differences:
+                impact_sum = sum(diff.significance for diff in differences)
+                overall_impact = min(1.0, impact_sum / (len(differences) * 0.8))
+
+            # Generate summary if requested
+            summary = None
+            if comparison_type in ["full", "summary"]:
+                summary = self._generate_summary(chart1, chart2, differences, overall_impact)
+
+            # Create and return comparison response
+            return ChartComparisonResponse(
+                comparison_id=comparison_id,
+                chart1_id=chart1_id,
+                chart2_id=chart2_id,
+                comparison_type=comparison_type,
+                differences=differences,
+                summary=summary,
+                overall_impact=overall_impact
+            )
+        except Exception as e:
+            # Log detailed error
+            logger.error(f"Error comparing charts: {str(e)}", exc_info=True)
+
+            # Return a minimal valid response with error details to avoid 500 errors
+            return ChartComparisonResponse(
+                comparison_id=comparison_id,
+                chart1_id=chart1_id,
+                chart2_id=chart2_id,
+                comparison_type=comparison_type,
+                differences=[],
+                summary=f"Error during chart comparison: {str(e)}",
+                overall_impact=0.0
+            )
 
     def _compare_ascendant(self, chart1: Dict[str, Any], chart2: Dict[str, Any]) -> Optional[ChartDifference]:
         """Compare Ascendant positions between two charts"""
@@ -201,8 +223,35 @@ class ChartComparisonService:
         """Compare planetary positions between two charts"""
         differences = []
 
-        planets1 = {p["name"]: p for p in chart1.get("planets", [])}
-        planets2 = {p["name"]: p for p in chart2.get("planets", [])}
+        # Log chart structure for debugging
+        logger.info(f"Chart1 structure: {chart1.keys()}")
+        logger.info(f"Chart2 structure: {chart2.keys()}")
+
+        # Check if planets exist in both charts
+        if "planets" not in chart1 or "planets" not in chart2:
+            logger.warning("One or both charts missing planets data")
+            return differences
+
+        # Handle different planet data structures
+        planets1 = {}
+        planets2 = {}
+
+        # Check if planets is a list or dictionary
+        if isinstance(chart1["planets"], list):
+            # List format: [{"name": "Sun", ...}, {"name": "Moon", ...}]
+            planets1 = {p["name"]: p for p in chart1.get("planets", [])}
+        elif isinstance(chart1["planets"], dict):
+            # Dict format: {"Sun": {...}, "Moon": {...}}
+            planets1 = chart1["planets"]
+        else:
+            logger.warning(f"Unexpected planets format in chart1: {type(chart1['planets'])}")
+
+        if isinstance(chart2["planets"], list):
+            planets2 = {p["name"]: p for p in chart2.get("planets", [])}
+        elif isinstance(chart2["planets"], dict):
+            planets2 = chart2["planets"]
+        else:
+            logger.warning(f"Unexpected planets format in chart2: {type(chart2['planets'])}")
 
         # Get the set of all planet names
         all_planet_names = set(planets1.keys()) | set(planets2.keys())
@@ -216,51 +265,46 @@ class ChartComparisonService:
             planet2 = planets2[planet_name]
 
             # Check for sign change
-            if planet1.get("sign") != planet2.get("sign"):
+            sign1 = planet1.get("sign")
+            sign2 = planet2.get("sign")
+            if sign1 and sign2 and sign1 != sign2:
                 differences.append(ChartDifference(
                     type=DifferenceType.PLANET_SIGN_CHANGE,
-                    description=f"{planet_name} has changed from {planet1.get('sign')} to {planet2.get('sign')}",
+                    description=f"{planet_name} has changed from {sign1} to {sign2}",
                     significance=self._get_planet_significance(planet_name),
                     planet=planet_name,
-                    chart1_position=PlanetaryPosition(
-                        sign=planet1.get("sign", "Unknown"),
-                        degree=planet1.get("degree", 0)
-                    ),
-                    chart2_position=PlanetaryPosition(
-                        sign=planet2.get("sign", "Unknown"),
-                        degree=planet2.get("degree", 0)
-                    )
+                    chart1_position=PlanetaryPosition(sign=sign1, degree=planet1.get("degree", 0)),
+                    chart2_position=PlanetaryPosition(sign=sign2, degree=planet2.get("degree", 0))
                 ))
 
-            # Check for house transition
-            elif planet1.get("house") != planet2.get("house"):
+            # Check for house change
+            house1 = planet1.get("house")
+            house2 = planet2.get("house")
+            if house1 and house2 and house1 != house2:
                 differences.append(ChartDifference(
-                    type=DifferenceType.PLANET_HOUSE_TRANSITION,
-                    description=f"{planet_name} has moved from house {planet1.get('house')} to house {planet2.get('house')}",
+                    type=DifferenceType.PLANET_HOUSE_CHANGE,
+                    description=f"{planet_name} has moved from house {house1} to house {house2}",
                     significance=self._get_planet_significance(planet_name) * 0.8,
                     planet=planet_name,
-                    chart1_house=planet1.get("house"),
-                    chart2_house=planet2.get("house")
+                    chart1_position=PlanetaryPosition(sign=sign1, degree=planet1.get("degree", 0), house=house1),
+                    chart2_position=PlanetaryPosition(sign=sign2, degree=planet2.get("degree", 0), house=house2)
                 ))
 
-            # Check for significant degree shift within same sign
-            elif abs(planet1.get("degree", 0) - planet2.get("degree", 0)) > 1.0:
-                degree_diff = abs(planet1.get("degree", 0) - planet2.get("degree", 0))
-                if degree_diff > 3.0:  # Only note significant degree shifts
-                    planet_sig = self._get_planet_significance(planet_name)
+            # Check for significant degree change within same sign
+            if sign1 and sign2 and sign1 == sign2:
+                degree1 = float(planet1.get("degree", 0))
+                degree2 = float(planet2.get("degree", 0))
+                degree_diff = abs(degree1 - degree2)
+
+                if degree_diff > 3.0:  # More than 3 degrees is significant
+                    significance = min(0.7, degree_diff / 10.0)  # Scale significance by degree difference
                     differences.append(ChartDifference(
-                        type=DifferenceType.PLANET_SIGN_CHANGE,  # Still using the same type
-                        description=f"{planet_name} has shifted {degree_diff:.2f}° within {planet1.get('sign')}",
-                        significance=planet_sig * (degree_diff / 10.0),  # Scale by degree difference
+                        type=DifferenceType.PLANET_DEGREE_CHANGE,
+                        description=f"{planet_name} has shifted {degree_diff:.1f}° within {sign1}",
+                        significance=significance * self._get_planet_significance(planet_name),
                         planet=planet_name,
-                        chart1_position=PlanetaryPosition(
-                            sign=planet1.get("sign", "Unknown"),
-                            degree=planet1.get("degree", 0)
-                        ),
-                        chart2_position=PlanetaryPosition(
-                            sign=planet2.get("sign", "Unknown"),
-                            degree=planet2.get("degree", 0)
-                        )
+                        chart1_position=PlanetaryPosition(sign=sign1, degree=degree1, house=house1),
+                        chart2_position=PlanetaryPosition(sign=sign2, degree=degree2, house=house2)
                     ))
 
         return differences

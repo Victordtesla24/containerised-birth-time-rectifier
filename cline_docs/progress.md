@@ -157,3 +157,68 @@
 | Test Coverage | 75% | 85%+ | Needs Improvement |
 | API Documentation Completeness | 70% | 95%+ | In Progress |
 | Security Compliance | 60% | 100% | At Risk |
+
+# Birth Time Rectifier - Progress Status
+
+## Current Status
+
+We are at the initial stage of implementing the Birth Time Rectifier application. The main focus is on making the tests pass, particularly the test_consolidated_api_flow.py test, which verifies the end-to-end functionality of the application.
+
+## What Works
+
+- Basic project structure exists
+- Chart visualizer module has some implementation
+- Some API endpoints are already defined
+- Frontend skeleton is in place
+- Docker configuration is available for development
+
+## What Needs Work
+
+### Backend (AI Service)
+
+- [ ] Session initialization endpoint
+- [ ] Birth details validation endpoint
+- [ ] Chart generation functionality
+- [ ] OpenAI verification integration
+- [ ] Questionnaire generation and processing
+- [ ] Birth time rectification algorithm
+- [ ] Chart export functionality
+
+### API Gateway
+
+- [ ] Proper routing configuration
+- [ ] Session management middleware
+- [ ] Error handling middleware
+- [ ] Path rewriting for backward compatibility
+
+### Frontend
+
+- [ ] Birth details entry form
+- [ ] Chart visualization components
+- [ ] Questionnaire interface
+- [ ] Results display with rectified time
+- [ ] Export functionality
+
+## Next Tasks
+
+1. Fix the session initialization endpoint
+2. Implement the birth details validation endpoint
+3. Complete the chart generation functionality
+4. Integrate with OpenAI for verification
+5. Implement the questionnaire generation and processing
+6. Create the birth time rectification algorithm
+7. Add chart export functionality
+
+## Blockers
+
+None identified yet, as we are just starting the implementation.
+
+## Testing Status
+
+- [ ] Unit tests for core functionality
+- [ ] Integration tests for API endpoints
+- [ ] End-to-end tests for complete user flows
+
+## Deployment Status
+
+Not yet deployed, as we are still in the development phase.

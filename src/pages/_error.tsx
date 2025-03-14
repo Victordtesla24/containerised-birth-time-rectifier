@@ -1,11 +1,11 @@
-import { NextPage } from 'next';
+import React from 'react';
 import Head from 'next/head';
 
 interface ErrorProps {
   statusCode?: number;
 }
 
-const Error: NextPage<ErrorProps> = ({ statusCode }) => {
+const Error = ({ statusCode }: ErrorProps) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <Head>
@@ -31,9 +31,9 @@ const Error: NextPage<ErrorProps> = ({ statusCode }) => {
   );
 };
 
-Error.getInitialProps = ({ res, err }) => {
+Error.getInitialProps = ({ res, err }: { res?: { statusCode: number }, err?: { statusCode: number } }) => {
   const statusCode = res ? res.statusCode : err ? err.statusCode : 404;
   return { statusCode };
 };
 
-export default Error; 
+export default Error;

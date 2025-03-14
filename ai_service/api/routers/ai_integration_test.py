@@ -10,7 +10,7 @@ import logging
 import asyncio
 
 # Import services
-from ..services.openai_service import OpenAIService
+from ..services.openai import OpenAIService
 from ...models.unified_model import UnifiedRectificationModel
 
 # Configure logging
@@ -58,14 +58,14 @@ class RectificationRequest(BaseModel):
     chart_data: Optional[Dict[str, Any]] = Field(None, description="Optional chart data")
 
 @router.post("/test_model_routing", response_model=Dict[str, Any])
-async def test_model_routing(data: Dict[str, Any]):
+async def test_model_routing(data: ModelRoutingRequest):
     """
     Test endpoint for model routing logic.
 
     Allows testing different task types to verify the model routing logic.
 
     Args:
-        data: Dict containing:
+        data: ModelRoutingRequest containing:
             - task_type: Type of task ("rectification", "explanation", or other)
             - prompt: Test prompt to send to the model
 
@@ -78,24 +78,18 @@ async def test_model_routing(data: Dict[str, Any]):
             detail="OpenAI service not available"
         )
 
-    # Get parameters with defaults
-    task_type = data.get("task_type", "explanation")
-    prompt = data.get("prompt", "This is a test prompt.")
-    temperature = data.get("temperature", 0.7)
-    max_tokens = data.get("max_tokens", 100)
-
     try:
         # Generate completion with the specified task type
         response = await openai_service.generate_completion(
-            prompt=prompt,
-            task_type=task_type,
-            max_tokens=max_tokens,
-            temperature=temperature
+            prompt=data.prompt,
+            task_type=data.task_type,
+            max_tokens=data.max_tokens,
+            temperature=data.temperature
         )
 
         # Return the result
         return {
-            "task_type": task_type,
+            "task_type": data.task_type,
             "model_used": response["model_used"],
             "result": response["content"],
             "token_usage": response["tokens"],
@@ -110,14 +104,14 @@ async def test_model_routing(data: Dict[str, Any]):
         )
 
 @router.post("/test_explanation", response_model=Dict[str, Any])
-async def test_explanation_generation(data: Dict[str, Any]):
+async def test_explanation_generation(data: ExplanationRequest):
     """
     Test endpoint to generate an astrological explanation using OpenAI.
 
     This demonstrates the integration between the OpenAI service and the rectification model.
 
     Args:
-        data: Dict containing:
+        data: ExplanationRequest containing:
             - adjustment_minutes: Birth time adjustment in minutes
             - reliability: Reliability rating
             - questionnaire_data: Optional questionnaire data
@@ -131,25 +125,20 @@ async def test_explanation_generation(data: Dict[str, Any]):
             detail="Rectification model not available"
         )
 
-    # Get parameters with defaults
-    adjustment_minutes = data.get("adjustment_minutes", 15)
-    reliability = data.get("reliability", "medium")
-    questionnaire_data = data.get("questionnaire_data", {"responses": []})
-
     try:
         # Generate explanation using the rectification model
         explanation = await rectification_model._generate_explanation(
-            adjustment_minutes=adjustment_minutes,
-            reliability=reliability,
-            questionnaire_data=questionnaire_data
+            adjustment_minutes=data.adjustment_minutes,
+            reliability=data.reliability,
+            questionnaire_data=data.questionnaire_data
         )
 
         # Return the result
         return {
             "explanation": explanation,
             "parameters": {
-                "adjustment_minutes": adjustment_minutes,
-                "reliability": reliability
+                "adjustment_minutes": data.adjustment_minutes,
+                "reliability": data.reliability
             }
         }
     except Exception as e:
@@ -160,7 +149,7 @@ async def test_explanation_generation(data: Dict[str, Any]):
         )
 
 @router.post("/test_rectification", response_model=Dict[str, Any])
-async def test_rectification(data: Dict[str, Any]):
+async def test_rectification(data: RectificationRequest):
     """
     Test endpoint for birth time rectification.
 
@@ -168,7 +157,7 @@ async def test_rectification(data: Dict[str, Any]):
     if the OpenAI service is available.
 
     Args:
-        data: Dict containing:
+        data: RectificationRequest containing:
             - birth_details: Birth details
             - questionnaire_data: Questionnaire responses
             - chart_data: Optional chart data
@@ -182,12 +171,7 @@ async def test_rectification(data: Dict[str, Any]):
             detail="Rectification model not available"
         )
 
-    # Get parameters
-    birth_details = data.get("birth_details", {})
-    questionnaire_data = data.get("questionnaire_data", {"responses": []})
-    chart_data = data.get("chart_data")
-
-    if not birth_details:
+    if not data.birth_details:
         raise HTTPException(
             status_code=400,
             detail="Birth details are required"
@@ -196,9 +180,9 @@ async def test_rectification(data: Dict[str, Any]):
     try:
         # Perform rectification
         results = await rectification_model.rectify_birth_time(
-            birth_details=birth_details,
-            questionnaire_data=questionnaire_data,
-            original_chart=chart_data
+            birth_details=data.birth_details,
+            questionnaire_data=data.questionnaire_data,
+            original_chart=data.chart_data
         )
 
         # Return the results

@@ -1,5 +1,60 @@
 # Birth Time Rectifier - Product Context
 
+## Overview
+The Birth Time Rectifier is a comprehensive web application designed to accurately determine a person's birth time using AI and astrological principles. This solves a significant issue in astrological chart creation where the exact birth time may be unknown or uncertain.
+
+## Core Problems Solved
+
+1. **Uncertain Birth Time**
+   - Many individuals don't have their exact birth time recorded or documented
+   - Even recorded birth times can be inaccurate by several minutes
+   - Traditional methods rely on memory or manual rectification techniques
+
+2. **Chart Accuracy Requirements**
+   - Vedic astrological charts require precision to within minutes for accurate readings
+   - Small changes in birth time can significantly alter house positions and interpretations
+   - Standard astrological software lacks intelligent rectification capabilities
+
+3. **Technical Knowledge Barriers**
+   - Traditional rectification requires extensive astrological expertise
+   - Manual methods can be time-consuming and inconsistent
+   - Lack of standardized verification methods for birth time accuracy
+
+## Solutions Provided
+
+1. **AI-Powered Rectification**
+   - Uses machine learning algorithms to analyze life events and chart correlations
+   - Processes user responses to dynamically generated questionnaires
+   - Produces rectified birth times with confidence scores
+
+2. **Chart Verification**
+   - Implements OpenAI verification against Indian Vedic standards
+   - Applies multiple techniques including Tattva, Nadi, and KP methods
+   - Provides confidence scoring for verification results
+
+3. **Visualization & Interpretation**
+   - Traditional 2D North Indian Vedic chart with proper house divisions
+   - Detailed planetary positions table with signs, degrees, and houses
+   - Interactive 3D visualization with rotation animation effects
+   - Color-coding for planetary relationships (friendly/enemy houses)
+
+4. **User-Friendly Interface**
+   - Streamlined data entry for birth details
+   - Progressive questionnaire with adaptive selection
+   - Confidence progress tracking
+   - Export functionality for final results
+
+## Target Users
+
+1. **Astrologers** who need accurate birth charts for their clients
+2. **Individuals** seeking precise astrological readings
+3. **Astrological researchers** studying time-based correlations
+4. **Spiritual practitioners** using birth charts for various practices
+
+## Value Proposition
+
+The Birth Time Rectifier combines traditional astrological wisdom with modern AI technology to provide accurate birth time determination, enhancing the precision and reliability of astrological chart readings. This saves users hours of manual rectification work and provides confidence in the accuracy of their astrological interpretations.
+
 ## Project Purpose
 
 The Birth Time Rectifier is an astrological application designed to help users determine their accurate birth time when it is unknown or uncertain. Accurate birth time is critical for creating precise astrological charts, as even small differences in birth time can significantly affect chart interpretations, especially for house placements, the Ascendant, and other time-sensitive chart elements.

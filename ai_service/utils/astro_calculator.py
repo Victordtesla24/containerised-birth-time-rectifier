@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 import math
 import os
 import pytz
-import swisseph as swe
+from ai_service.utils import swisseph as swe
 
 # Define fallback functions for planet calculations
 def calculate_planet_position(jd_ut, planet_id, flags=0):

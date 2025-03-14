@@ -1,0 +1,186 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      target: ${TARGET_ENV:-development}
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-frontend
+    volumes:
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      - ./next.config.js:/app/next.config.js
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tailwind.config.js:/app/tailwind.config.js
+      - ./postcss.config.js:/app/postcss.config.js
+      - ./jest.config.js:/app/jest.config.js
+      - ./jest.setup.js:/app/jest.setup.js
+      - ./.eslintrc.json:/app/.eslintrc.json
+      - node_modules_cache:/app/node_modules
+      - next_cache:/app/.next
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - NEXT_PUBLIC_API_URL=http://ai_service:8000
+      - NEXT_PUBLIC_API_SERVICE_URL=http://ai_service:8000
+      - NEXT_TELEMETRY_DISABLED=1
+      - PORT=3000
+      - API_URL=http://ai_service:8000
+      - API_SERVICE_URL=http://ai_service:8000
+      - DOCKER_ENV=true
+    ports:
+      - "3000:3000"
+    command: npm run ${NPM_COMMAND:-dev}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const http = require('http'); const options = { hostname: 'localhost', port: 3000, path: '/api/health', method: 'GET' }; const req = http.request(options, (res) => { if (res.statusCode === 200) { process.exit(0); } else { process.exit(1); } }); req.on('error', () => { process.exit(1); }); req.end();\""]
+      interval: ${HEALTH_CHECK_INTERVAL:-15s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-10s}
+      retries: ${HEALTH_CHECK_RETRIES:-3}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
+    depends_on:
+      ai_service:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  ai_service:
+    build:
+      context: .
+      dockerfile: docker/ai_service.Dockerfile
+      target: ${TARGET_ENV:-development}
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-ai
+    volumes:
+      - ./ai_service:/app/ai_service
+      - ./requirements.txt:/app/requirements.txt
+      - ./setup.py:/app/setup.py
+      - ai_service_venv:/app/.venv
+      - ephemeris_data:/app/ephemeris
+      # Add cache volume for OpenAI service
+      - openai_cache:/app/cache
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=${APP_ENV:-development}
+      - APP_ENV=${APP_ENV:-development}
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - SWISSEPH_PATH=/app/ephemeris
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_KEY_DEV=${OPENAI_API_KEY_DEV:-}
+      # Enhanced OpenAI service configuration
+      - API_TIMEOUT=${API_TIMEOUT:-60}
+      - CACHE_EXPIRY=${CACHE_EXPIRY:-3600}
+      - CACHE_DIR=/app/cache
+      - GPU_MEMORY_FRACTION=0.7
+      - MODEL_CACHE_SIZE=${MODEL_CACHE_SIZE:-100}
+      - OPENAI_MODEL_RECTIFICATION=${OPENAI_MODEL_RECTIFICATION:-o1-preview}
+      - OPENAI_MODEL_EXPLANATION=${OPENAI_MODEL_EXPLANATION:-gpt-4-turbo}
+      - OPENAI_MODEL_AUXILIARY=${OPENAI_MODEL_AUXILIARY:-gpt-4o-mini}
+      - ENABLE_MODEL_PRELOADING=true
+      - REQUEST_RETRY_ATTEMPTS=3
+      - REQUEST_RETRY_BACKOFF=2
+      - TIMEZONE_API_KEY=${TIMEZONE_API_KEY:-Tz7kGn1Kf0aQb2cE3pYz8j6X}
+    ports:
+      - "8000:8000"
+    command: /app/.venv/bin/python -m uvicorn ai_service.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: ${HEALTH_CHECK_INTERVAL:-15s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
+      retries: ${HEALTH_CHECK_RETRIES:-10}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
+      - ./docker/redis/log:/var/log/redis
+    command: ${REDIS_COMMAND:-redis-server /usr/local/etc/redis/redis.conf}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Test runner service - only activated with profile "test"
+  test-runner:
+    image: mcr.microsoft.com/playwright:v1.40.0-jammy
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner
+    profiles:
+      - test
+    volumes:
+      - .:/app
+      - ./.tmp/playwright-cache:/ms-playwright
+      - /tmp:/tmp
+    working_dir: /app
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://frontend:3000
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - DEBUG=pw:browser*,pw:install,pw:api,pw:protocol
+      - TEST_URL=http://frontend:3000
+      - DOCKER_ENV=true
+      - SHM_SIZE=4g
+    shm_size: 4g
+    networks:
+      - default
+    restart: "no"
+    depends_on:
+      ai_service:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      set -e
+      echo 'Setting up Playwright environment...'
+      npm ci
+      npx playwright install --with-deps chromium
+      echo 'Checking browser installations:'
+      find /ms-playwright -type f -name 'chrome*' -o -name 'headless*'
+      echo 'Running application flow test...'
+      DEBUG=pw:browser*,pw:api,pw:protocol npx playwright test ${TEST_FLAGS:---verbose -g 'complete astrological chart application flow'}
+    mem_limit: 4g
+
+volumes:
+  redis_data:
+    driver: local
+  ai_service_venv:
+    driver: local
+  ephemeris_data:
+    driver: local
+  openai_cache:
+    driver: local
+  playwright-browsers:
+    driver: local
+  node_modules_cache:
+    driver: local
+  next_cache:
+    driver: local
+
+# Note: Environment variables with default values are already defined inline
+# in each service's healthcheck section using ${VAR:-default} syntax

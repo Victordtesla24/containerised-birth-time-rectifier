@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import * as d3 from 'd3';
+import * as React from 'react';
+import d3 from '../utils/d3Shim';
 import PropTypes from 'prop-types';
 
 /**

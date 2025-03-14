@@ -1,143 +1,93 @@
-# Technical Context
+# Birth Time Rectifier - Technical Context
 
-## Technology Stack
-
-### Backend
-- **Framework**: FastAPI (Python 3.9+)
-- **API Design**: RESTful API with standardized response formats
-- **Computational Engine**: Custom Python astrological calculation library
-- **AI/ML**: TensorFlow/PyTorch for rectification algorithms
-- **Database**: PostgreSQL for persistent storage
-- **Authentication**: JWT-based authentication system
-- **Deployment**: Docker containers with Kubernetes orchestration
-- **Testing**: Pytest for unit and integration tests
+## Technologies Used
 
 ### Frontend
-- **Framework**: React with TypeScript
-- **State Management**: Redux or Context API
-- **UI Components**: Material-UI or Chakra UI
-- **Chart Visualization**: D3.js for interactive astrological charts
-- **API Communication**: Axios for REST API requests
-- **Real-time Updates**: WebSocket for progress monitoring (to be implemented)
+- **Framework**: Next.js with React
+- **State Management**: React Context API
+- **Styling**: CSS Modules and Tailwind CSS
+- **Visualization**: Three.js for 3D chart visualization
+- **API Client**: Axios for API requests
 - **Testing**: Jest and React Testing Library
 
-### DevOps & Infrastructure
-- **CI/CD**: GitHub Actions
-- **Containerization**: Docker
-- **Orchestration**: Kubernetes
-- **Monitoring**: Prometheus with Grafana dashboards
-- **Logging**: ELK Stack (Elasticsearch, Logstash, Kibana)
-- **Cloud Provider**: AWS/Azure/GCP
+### API Gateway
+- **Framework**: FastAPI
+- **Middleware**: Custom middleware for session management and error handling
+- **Routing**: FastAPI router for API endpoint routing
+- **Documentation**: OpenAPI/Swagger
+
+### Backend Services
+- **Framework**: FastAPI
+- **Authentication**: JWT-based authentication
+- **Session Management**: Redis for session storage
+- **AI Integration**: OpenAI API for verification and rectification
+- **Astronomical Calculations**: Custom ephemeris engine
+- **Testing**: pytest for unit and integration tests
+
+### Data Storage
+- **Session Storage**: Redis
+- **Persistent Storage**: File-based storage for chart data
+- **Export Format**: PDF for chart exports
 
 ## Development Setup
 
-### Local Development Environment
-- Docker Compose for local service orchestration
-- Python virtual environments for backend development
-- Node.js environment for frontend development
-- PostgreSQL database (containerized)
-- Git for version control with GitHub Flow branching strategy
-- ESLint/Prettier for code formatting
-- Pre-commit hooks for code quality
+### Local Development
+- Docker Compose for local development environment
+- Hot reloading for frontend and backend
+- Environment variables for configuration
+- Logging for debugging
 
-### Testing Environment
-- Isolated testing containers
-- Mock database for test data
-- Test coverage reporting
-- End-to-end testing with Cypress
-- Performance testing with Locust
+### Testing
+- Unit tests for core functionality
+- Integration tests for API endpoints
+- End-to-end tests for complete user flows
 
-### Staging/Production Environment
-- Kubernetes cluster for container orchestration
-- Separate database instances for staging/production
-- CDN for static assets
-- Load balancing for high availability
-- Automated backups and disaster recovery
-- Horizontal scaling capabilities
-
-## API Architecture
-
-The application implements a dual-registration pattern for API endpoints:
-
-1. **Primary Endpoints** - Registered with `/api/` prefix:
-   - Chart-related endpoints: `/api/chart/...`
-   - Other services: `/api/geocode`, `/api/health`, etc.
-
-2. **Alternative Endpoints** - Registered without `/api/` prefix:
-   - Chart-related endpoints: `/chart/...`
-   - Other direct endpoints: `/geocode`, `/health`, etc.
-
-This architecture ensures backward compatibility with existing clients while following modern API design principles.
+### Deployment
+- Containerized deployment with Docker
+- Kubernetes for orchestration
+- CI/CD pipeline for automated testing and deployment
 
 ## Technical Constraints
 
-### Performance Requirements
-- **API Response Time**: < 500ms for standard operations
-- **Chart Generation**: < 2 seconds
-- **Rectification Process**: < 30 seconds for completion
-- **Concurrent Users**: Support for 1000+ simultaneous users
-- **Availability**: 99.9% uptime SLA
+### Performance
+- Response time under 500ms for API requests
+- Efficient chart calculation algorithms
+- Optimized 3D visualization for web browsers
 
-### Security Requirements
-- HTTPS/TLS encryption for all communications
-- Secure authentication with JWT tokens
-- Input validation to prevent injection attacks
-- Rate limiting to prevent abuse
-- GDPR compliance for user data
-- Regular security audits
+### Security
+- Secure session management
+- Input validation for all user inputs
+- Rate limiting for API endpoints
+- Data encryption for sensitive information
 
-### Scalability Considerations
-- Stateless API design for horizontal scaling
-- Database connection pooling
-- Caching strategy for frequently accessed data
-- Asynchronous processing for long-running tasks
-- Microservice architecture for independent scaling
+### Compatibility
+- Cross-browser compatibility (Chrome, Firefox, Safari, Edge)
+- Mobile-responsive design
+- Accessibility compliance
 
-### Technical Debt and Known Issues
-- **API Router Issue**: The `/api` prefix routing is not working correctly, requiring dual-registration
-- **Session Management**: Not fully implemented
-- **Authentication**: Basic implementation needed
-- **Chart Comparison**: Incomplete implementation
-- **Interpretation Service**: Documentation and implementation incomplete
-- **Real-time Updates**: WebSocket integration missing for progress tracking
+### Scalability
+- Horizontal scaling for backend services
+- Load balancing for API requests
+- Caching for improved performance
 
-## Integration Points
+## Development Workflow
 
-### External Services
-- **Geocoding API**: Integration with third-party geocoding services for location data
-- **Time Zone Database**: External service for accurate timezone calculations
-- **Ephemeris Data**: Astronomical calculations based on Swiss Ephemeris
-- **Email Service**: For user notifications and account management
-- **Payment Gateway**: For premium features (future integration)
+1. **Feature Development**
+   - Feature branches from main branch
+   - Pull request for code review
+   - Automated tests on pull request
+   - Code review by at least one team member
+   - Merge to main branch after approval
 
-### Internal Service Communication
-- REST API for synchronous operations
-- Message queues for asynchronous processing
-- WebSockets for real-time updates (planned)
-- Event-driven architecture for decoupled services
+2. **Release Process**
+   - Version tagging for releases
+   - Release notes generation
+   - Automated deployment to staging
+   - Manual testing on staging
+   - Promotion to production
 
-## Development Roadmap
-
-### Phase 1: Critical Infrastructure
-- Fix API Router issue
-- Implement Session Management
-- Add Authentication/Authorization
-
-### Phase 2: Feature Completion
-- Complete Chart Comparison Service
-- Standardize Error Handling
-- Add WebSocket Support
-
-### Phase 3: Service Enhancements
-- Improve Documentation
-- Enhance Questionnaire Flow
-- Implement Interpretation Service
-
-## Monitoring and Observability
-
-- API health checks and endpoint monitoring
-- Error rate tracking and alerting
-- Performance metrics collection
-- User behavior analytics
-- Resource utilization monitoring
-- Log aggregation and analysis
+3. **Monitoring and Maintenance**
+   - Error logging and monitoring
+   - Performance monitoring
+   - User feedback collection
+   - Regular security updates

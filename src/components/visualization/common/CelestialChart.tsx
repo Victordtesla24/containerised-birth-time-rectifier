@@ -24,6 +24,20 @@ interface CelestialChartProps {
   birthDate: string;
 }
 
+// Convert string intensity to number
+const getGlowIntensityValue = (intensity: string): number => {
+  switch (intensity) {
+    case 'high':
+      return 0.8;
+    case 'medium':
+      return 0.5;
+    case 'low':
+      return 0.3;
+    default:
+      return 0.5;
+  }
+};
+
 const CelestialChart: React.FC<CelestialChartProps> = ({
   planetPositions,
   birthTime,
@@ -167,7 +181,7 @@ const CelestialChart: React.FC<CelestialChartProps> = ({
                      planet.planet.toLowerCase() === 'moon' ? 'moon' : 'planet'}
                 rotate={planet.planet.toLowerCase() === 'sun'}
                 glow={planet.planet.toLowerCase() === 'moon' || planet.planet.toLowerCase() === 'sun'}
-                glowIntensity={planet.planet.toLowerCase() === 'sun' ? 'high' : 'medium'}
+                glowIntensity={getGlowIntensityValue(planet.planet.toLowerCase() === 'sun' ? 'high' : 'medium')}
                 glowColor={getPlanetGlowColor(planet.planet)}
                 fallbackColor={getPlanetFallbackColor(planet.planet)}
               >

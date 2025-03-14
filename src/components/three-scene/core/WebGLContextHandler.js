@@ -1,139 +1,93 @@
+import { useEffect, useRef } from 'react';
+import { useThree } from '@react-three/fiber';
+
 /**
- * WebGLContextHandler
- * Manages WebGL context loss and restoration events
+ * Component that handles WebGL context loss and restoration gracefully.
+ * Attaches event listeners to the WebGL canvas to detect context problems
+ * and provides recovery mechanisms.
  */
-class WebGLContextHandler {
-  constructor(renderer) {
-    this.renderer = renderer;
-    this.canvas = renderer.domElement;
-    this.eventListeners = {};
-    this.contextLost = false;
+export function WebGLContextHandler() {
+  const { gl, invalidate } = useThree();
+  const errorMessageRef = useRef(null);
 
-    this.initialize();
-  }
+  useEffect(() => {
+    if (!gl || !gl.domElement) return;
 
-  initialize() {
-    // Listen for context lost and restored events
-    this.canvas.addEventListener('webglcontextlost', this.handleContextLost.bind(this), false);
-    this.canvas.addEventListener('webglcontextrestored', this.handleContextRestored.bind(this), false);
-  }
+    // Handler for WebGL context loss
+    const handleContextLost = (event) => {
+      event.preventDefault(); // Allows for context restoration
+      console.warn('WebGL context lost. Trying to recover...');
 
-  /**
-   * Handle WebGL context loss event
-   * @param {Event} event - The context lost event
-   */
-  handleContextLost(event) {
-    // Prevent default to allow for context restoration
-    event.preventDefault();
+      // Create a user-visible error message
+      if (!errorMessageRef.current && typeof document !== 'undefined') {
+        const errorDiv = document.createElement('div');
+        errorDiv.style.position = 'fixed';
+        errorDiv.style.top = '50%';
+        errorDiv.style.left = '50%';
+        errorDiv.style.transform = 'translate(-50%, -50%)';
+        errorDiv.style.background = 'rgba(0, 0, 0, 0.8)';
+        errorDiv.style.color = 'white';
+        errorDiv.style.padding = '20px';
+        errorDiv.style.borderRadius = '8px';
+        errorDiv.style.textAlign = 'center';
+        errorDiv.style.zIndex = '1000';
 
-    this.contextLost = true;
+        errorDiv.innerHTML = `
+          <h3 style="color: #ef4444; margin-bottom: 10px;">Graphics Error</h3>
+          <p>WebGL context was lost. Please wait while we try to recover.</p>
+        `;
 
-    console.warn('WebGL context lost');
-
-    // Notify all listeners
-    this.emit('contextLost', event);
-  }
-
-  /**
-   * Handle WebGL context restoration event
-   * @param {Event} event - The context restored event
-   */
-  handleContextRestored(event) {
-    this.contextLost = false;
-
-    console.info('WebGL context restored');
-
-    // Recreate renderer capabilities and state
-    // Note: Three.js handles most of this internally
-    if (this.renderer) {
-      this.renderer.info.reset();
-    }
-
-    // Notify all listeners
-    this.emit('contextRestored', event);
-  }
-
-  /**
-   * Attempt to manually restore the context
-   * This is not guaranteed to work and depends on browser implementation
-   */
-  manualRestore() {
-    if (!this.contextLost) return;
-
-    // Some browsers allow extensions to restore context
-    try {
-      // Try to get WebGL lose_context extension
-      const gl = this.renderer.getContext();
-      const ext = gl && gl.getExtension('WEBGL_lose_context');
-
-      if (ext) {
-        console.info('Attempting manual WebGL context restoration');
-        ext.restoreContext();
-        return true;
+        document.body.appendChild(errorDiv);
+        errorMessageRef.current = errorDiv;
       }
-    } catch (error) {
-      console.error('Failed manual context restore:', error);
-    }
 
-    return false;
-  }
-
-  /**
-   * Register an event listener for a specific event
-   * @param {string} event - The event to listen for ('contextLost' or 'contextRestored')
-   * @param {Function} callback - The callback function to execute
-   */
-  on(event, callback) {
-    if (!this.eventListeners[event]) {
-      this.eventListeners[event] = [];
-    }
-
-    this.eventListeners[event].push(callback);
-  }
-
-  /**
-   * Remove an event listener for a specific event
-   * @param {string} event - The event type
-   * @param {Function} callback - The callback function to remove
-   */
-  off(event, callback) {
-    if (!this.eventListeners[event]) return;
-
-    this.eventListeners[event] = this.eventListeners[event].filter(
-      listener => listener !== callback
-    );
-  }
-
-  /**
-   * Emit an event to all registered listeners
-   * @param {string} event - The event type to emit
-   * @param {*} data - Data to pass to event listeners
-   */
-  emit(event, data) {
-    if (!this.eventListeners[event]) return;
-
-    this.eventListeners[event].forEach(callback => {
+      // Try to reduce quality settings if available
       try {
-        callback(data);
-      } catch (error) {
-        console.error(`Error in ${event} listener:`, error);
+        if (typeof window !== 'undefined' && window.__reduceQuality) {
+          window.__reduceQuality();
+        }
+      } catch (e) {
+        console.error('Error reducing quality:', e);
       }
-    });
-  }
+    };
 
-  /**
-   * Clean up event listeners and references
-   */
-  dispose() {
-    if (this.canvas) {
-      this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
-      this.canvas.removeEventListener('webglcontextrestored', this.handleContextRestored);
-    }
+    // Handler for WebGL context restoration
+    const handleContextRestored = () => {
+      console.log('WebGL context restored. Resuming rendering.');
 
-    this.eventListeners = {};
-    this.renderer = null;
-    this.canvas = null;
-  }
+      // Remove error message if it exists
+      if (errorMessageRef.current && typeof document !== 'undefined') {
+        document.body.removeChild(errorMessageRef.current);
+        errorMessageRef.current = null;
+      }
+
+      // Force a re-render of the scene
+      invalidate();
+    };
+
+    // Add event listeners
+    gl.domElement.addEventListener('webglcontextlost', handleContextLost);
+    gl.domElement.addEventListener('webglcontextrestored', handleContextRestored);
+
+    // Clean up event listeners on unmount
+    return () => {
+      gl.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      gl.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
+
+      // Remove any error message if component unmounts
+      if (errorMessageRef.current && typeof document !== 'undefined') {
+        try {
+          document.body.removeChild(errorMessageRef.current);
+        } catch (e) {
+          console.warn('Error removing WebGL error message:', e);
+        }
+        errorMessageRef.current = null;
+      }
+    };
+  }, [gl, invalidate]);
+
+  // This component doesn't render anything itself
+  return null;
 }
 
 export default WebGLContextHandler;

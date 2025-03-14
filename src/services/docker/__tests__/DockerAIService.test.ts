@@ -1,16 +1,27 @@
 import { DockerAIService } from '../DockerAIService';
 import { ContainerMetrics } from '../types';
 
+// Ensure the DockerAIService class is properly loaded
+jest.mock('../DockerAIService', () => {
+  // Return the actual implementation but make sure we're exporting the class
+  const actual = jest.requireActual('../DockerAIService');
+  return {
+    ...actual,
+    // Make sure DockerAIService is properly exported
+    DockerAIService: actual.DockerAIService
+  };
+});
+
 describe('DockerAIService', () => {
   let dockerAIService: DockerAIService;
 
   beforeEach(() => {
     // Reset environment variables
     delete process.env.DOCKER_AI_AGENT_ENABLED;
-    
+
     // Reset singleton instance
     DockerAIService.resetInstance();
-    
+
     // Create new instance
     dockerAIService = DockerAIService.getInstance();
   });
@@ -81,7 +92,7 @@ describe('DockerAIService', () => {
       dockerAIService.setEnabled(true);
 
       const metrics = await dockerAIService.collectMetrics();
-      
+
       expect(metrics).toHaveProperty('cpuUsage');
       expect(metrics).toHaveProperty('gpuUsage');
       expect(metrics).toHaveProperty('memoryUsage');
@@ -116,7 +127,7 @@ describe('DockerAIService', () => {
 
       const error = new Error('Test error');
       const message = dockerAIService.handleContainerFailure(error);
-      
+
       expect(message).toContain('Container failure detected');
       expect(message).toContain('Test error');
     });
@@ -147,4 +158,4 @@ describe('DockerAIService', () => {
       await metricsPromise;
     }, 10000); // Increase timeout to 10 seconds
   });
-}); 
+});

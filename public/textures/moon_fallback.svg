@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <circle cx="128" cy="128" r="120" fill="#CCCCCC" />
+  <circle cx="128" cy="128" r="116" fill="#DDDDDD" />
+  <circle cx="128" cy="128" r="110" fill="#EEEEEE" />
+  <!-- Moon craters -->
+  <circle cx="90" cy="100" r="18" fill="#BBBBBB" />
+  <circle cx="160" cy="90" r="12" fill="#BBBBBB" />
+  <circle cx="110" cy="170" r="20" fill="#BBBBBB" />
+  <circle cx="180" cy="150" r="15" fill="#BBBBBB" />
+  <circle cx="70" cy="150" r="10" fill="#BBBBBB" />
+  <text x="128" y="135" font-family="Arial" font-size="24" text-anchor="middle" fill="#999999">MOON</text>
+</svg>

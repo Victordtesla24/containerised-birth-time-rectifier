@@ -52,7 +52,23 @@ class ReverseGeocodeResponse(BaseModel):
 # Define API keys and endpoints
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 TIMEZONE_API_URL = "http://api.timezonedb.com/v2.1/get-time-zone"
-TIMEZONE_API_KEY = os.getenv("TIMEZONE_API_KEY", "")
+
+# Get API key from environment with a mock fallback for tests
+TIMEZONE_API_KEY = os.getenv("TIMEZONE_API_KEY", "Tz7kGn1Kf0aQb2cE3pYz8j6X")
+# Ensure the API key is stripped of any spaces or comments
+TIMEZONE_API_KEY = TIMEZONE_API_KEY.split("#")[0].strip()
+
+# Use a valid API key for testing when the default one has issues
+if TIMEZONE_API_KEY == "Tz7kGn1Kf0aQb2cE3pYz8j6X":
+    # This is a placeholder/mock key - for tests we'll use a more reliable approach
+    logger.info("Using approximate timezone calculation instead of TimeZoneDB API for testing")
+    TIMEZONE_API_KEY = ""  # Empty string will trigger the approximate calculation
+
+# Log timezone API key status for debugging
+if not TIMEZONE_API_KEY:
+    logger.warning("TIMEZONE_API_KEY not set. Using UTC as fallback.")
+else:
+    logger.info(f"Using TimeZoneDB API key (starts with: {TIMEZONE_API_KEY[:3]}...)")
 
 # Mock geocoding data for tests
 mock_locations = {
@@ -87,6 +103,24 @@ mock_locations = {
         "timezone": "Asia/Tokyo"
     }
 }
+
+# Simple in-memory cache for geocoding and timezone results
+# Limit the size to prevent memory issues
+geocode_cache = {}
+MAX_CACHE_SIZE = 200  # Limit cache to 200 entries
+
+# Timezone cache (already defined elsewhere in the file)
+timezone_cache = {}
+
+# Cache management function
+def manage_cache_size(cache_dict, max_size=MAX_CACHE_SIZE):
+    """Remove oldest entries if cache exceeds maximum size"""
+    if len(cache_dict) > max_size:
+        # Remove oldest 20% of entries when limit is reached
+        items_to_remove = int(max_size * 0.2)
+        for _ in range(items_to_remove):
+            if cache_dict:
+                cache_dict.pop(next(iter(cache_dict)))
 
 @router.post("", response_model=Dict[str, Any])
 async def geocode_location(geocode_data: GeocodeRequest):
@@ -155,7 +189,8 @@ async def geocode_location(geocode_data: GeocodeRequest):
         logger.error(f"Error in geocoding: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/", response_model=GeocodeResponse)  # Root endpoint for direct access via /geocode?query=...
+@router.get("", response_model=GeocodeResponse)  # Root endpoint for direct access via /geocode?query=...
+@router.get("/", response_model=GeocodeResponse)  # Root endpoint with trailing slash
 @router.get("/geocode", response_model=GeocodeResponse)
 @router.get("/geocoding/geocode", response_model=GeocodeResponse)  # Additional path for legacy compatibility
 async def geocode_get(query: str = Query("New York", description="Location to geocode")):
@@ -164,9 +199,17 @@ async def geocode_get(query: str = Query("New York", description="Location to ge
 
     Uses Nominatim for geocoding and TimeZoneDB for timezone lookup.
     """
+    # Normalize query for cache lookup
+    normalized_query = query.lower().strip()
+
+    # Check cache first
+    if normalized_query in geocode_cache:
+        logger.info(f"Geocode cache hit for: {normalized_query}")
+        return geocode_cache[normalized_query]
+
     try:
         # Geocode the location using Nominatim
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:  # Add explicit timeout
             nominatim_params = {
                 "q": query,
                 "format": "json",
@@ -174,16 +217,19 @@ async def geocode_get(query: str = Query("New York", description="Location to ge
                 "addressdetails": 1
             }
 
+            logger.info(f"Querying Nominatim for location: {query}")
             response = await client.get(NOMINATIM_URL, params=nominatim_params, headers={
                 "User-Agent": "BirthTimeRectifier/1.0"
             })
 
             if response.status_code != 200:
+                logger.warning(f"Nominatim API returned status code {response.status_code}")
                 raise HTTPException(status_code=response.status_code, detail="Error during geocoding")
 
             geocode_results = response.json()
 
             if not geocode_results:
+                logger.warning(f"No results found for location: {query}")
                 raise HTTPException(status_code=404, detail=f"Location not found: {query}")
 
             result = geocode_results[0]
@@ -193,17 +239,25 @@ async def geocode_get(query: str = Query("New York", description="Location to ge
             # Get timezone for the coordinates
             timezone = await get_timezone(latitude, longitude)
 
-            return GeocodeResponse(
+            # Prepare response
+            geocode_response = GeocodeResponse(
                 latitude=latitude,
                 longitude=longitude,
                 timezone=timezone
             )
 
-    except HTTPException:
-        raise
+            # Cache the result
+            geocode_cache[normalized_query] = geocode_response
+            manage_cache_size(geocode_cache)
+
+            return geocode_response
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout while geocoding location: {query}")
+        raise HTTPException(status_code=504, detail="Geocoding request timed out")
     except Exception as e:
-        logger.error(f"Error during geocoding: {e}")
-        raise HTTPException(status_code=500, detail=f"Error during geocoding: {str(e)}")
+        logger.error(f"Error geocoding location '{query}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Geocoding error: {str(e)}")
 
 @router.get("/reverse", response_model=ReverseGeocodeResponse)
 async def reverse_geocode(
@@ -326,9 +380,6 @@ async def reverse_geocode(
 
     return ReverseGeocodeResponse(result=ReverseGeocodeResult(**generic_result))
 
-# Timezone cache to reduce API calls
-timezone_cache = {}
-
 async def get_timezone(latitude: float, longitude: float) -> str:
     """
     Get timezone for coordinates using TimeZoneDB API.
@@ -348,14 +399,14 @@ async def get_timezone(latitude: float, longitude: float) -> str:
 
     try:
         # Use local approximation if no API key is available
-        if not TIMEZONE_API_KEY:
-            logger.warning("TIMEZONE_API_KEY not set. Using approximate timezone lookup.")
+        if TIMEZONE_API_KEY is None or TIMEZONE_API_KEY == "":
+            # Don't log warning here since we already logged at startup
             timezone = approximate_timezone_from_coordinates(latitude, longitude)
             timezone_cache[cache_key] = timezone
             return timezone
 
         # Use TimeZoneDB API with timeout to prevent hanging
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:  # Increased timeout for reliability
             timezone_params = {
                 "key": TIMEZONE_API_KEY,
                 "format": "json",
@@ -364,35 +415,89 @@ async def get_timezone(latitude: float, longitude: float) -> str:
                 "lng": longitude
             }
 
-            response = await client.get(TIMEZONE_API_URL, params=timezone_params)
+            try:
+                response = await client.get(TIMEZONE_API_URL, params=timezone_params)
 
-            if response.status_code != 200:
-                logger.warning(f"TimeZoneDB API error: {response.status_code}. Using approximate timezone.")
+                # Handle HTTP errors
+                if response.status_code != 200:
+                    error_message = f"TimeZoneDB API error: {response.status_code}"
+
+                    # Provide more detailed error messages for common HTTP errors
+                    if response.status_code == 400:
+                        error_message += ". Bad request - check API key and parameters format."
+                    elif response.status_code == 401:
+                        error_message += ". Unauthorized - API key may be invalid or expired."
+                    elif response.status_code == 403:
+                        error_message += ". Forbidden - check API key permissions."
+                    elif response.status_code == 429:
+                        error_message += ". Rate limit exceeded."
+                    elif response.status_code >= 500:
+                        error_message += ". TimeZoneDB server error."
+
+                    logger.warning(f"{error_message} Using approximate timezone.")
+                    timezone = approximate_timezone_from_coordinates(latitude, longitude)
+                    timezone_cache[cache_key] = timezone
+                    return timezone
+
+                # Parse JSON response
+                try:
+                    timezone_result = response.json()
+                except Exception as e:
+                    logger.warning(f"Error parsing TimeZoneDB JSON response: {e}. Using approximate timezone.")
+                    timezone = approximate_timezone_from_coordinates(latitude, longitude)
+                    timezone_cache[cache_key] = timezone
+                    return timezone
+
+                # Check API response status
+                if timezone_result.get("status") != "OK":
+                    error_msg = timezone_result.get("message", "Unknown error")
+                    logger.warning(f"TimeZoneDB API error: {error_msg}. Using approximate timezone.")
+                    timezone = approximate_timezone_from_coordinates(latitude, longitude)
+                    timezone_cache[cache_key] = timezone
+                    return timezone
+
+                # Validate response contains the expected data
+                if "zoneName" not in timezone_result:
+                    logger.warning("TimeZoneDB API response missing zoneName. Using approximate timezone.")
+                    timezone = approximate_timezone_from_coordinates(latitude, longitude)
+                    timezone_cache[cache_key] = timezone
+                    return timezone
+
+                # Store successful result in cache
+                timezone = timezone_result["zoneName"]
+                timezone_cache[cache_key] = timezone
+                logger.info(f"Successfully retrieved timezone: {timezone} for coordinates: {latitude}, {longitude}")
+                return timezone
+
+            # Handle all httpx-related connection exceptions
+            except Exception as conn_error:
+                # Check if it's a timeout or request error
+                if isinstance(conn_error, httpx.RequestError):
+                    if "timeout" in str(conn_error).lower():
+                        logger.warning("TimeZoneDB API request timed out. Using approximate timezone.")
+                    else:
+                        logger.warning(f"TimeZoneDB API request error: {conn_error}. Using approximate timezone.")
+                else:
+                    logger.warning(f"TimeZoneDB API connection error: {conn_error}. Using approximate timezone.")
+
                 timezone = approximate_timezone_from_coordinates(latitude, longitude)
                 timezone_cache[cache_key] = timezone
                 return timezone
-
-            timezone_result = response.json()
-
-            if timezone_result["status"] != "OK":
-                logger.warning(f"TimeZoneDB API error: {timezone_result.get('message', 'Unknown error')}. Using approximate timezone.")
-                timezone = approximate_timezone_from_coordinates(latitude, longitude)
-                timezone_cache[cache_key] = timezone
-                return timezone
-
-            # Store successful result in cache
-            timezone = timezone_result["zoneName"]
-            timezone_cache[cache_key] = timezone
-            return timezone
 
     except Exception as e:
         logger.error(f"Error getting timezone: {e}")
+        # Include exception details in log for debugging
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
         # Try approximate method as fallback
         try:
             timezone = approximate_timezone_from_coordinates(latitude, longitude)
             timezone_cache[cache_key] = timezone
+            logger.info(f"Using approximate timezone: {timezone} for coordinates: {latitude}, {longitude}")
             return timezone
-        except Exception:
+        except Exception as approx_error:
+            logger.error(f"Error in approximate timezone calculation: {approx_error}. Using UTC.")
             return "UTC"  # Ultimate fallback to UTC
 
 def approximate_timezone_from_coordinates(latitude: float, longitude: float) -> str:

@@ -80,6 +80,107 @@ class MockOpenAIService:
             "finish_reason": "stop"
         }
 
+    async def generate_questions(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate mock questions for birth time rectification based on context.
+
+        Args:
+            context: Dictionary containing birth details, previous answers, etc.
+
+        Returns:
+            Dictionary with generated questions and metadata
+        """
+        logger.debug("Mock generating questions for birth time rectification")
+
+        # Extract context information for more realistic mock responses
+        question_count = context.get("question_count", 0)
+        previous_answers = context.get("previous_answers", {})
+
+        # Calculate mock confidence score based on number of previous answers
+        confidence_score = 0.2 + (question_count * 0.1)
+        confidence_score = min(confidence_score, 0.95)
+
+        # Generate different questions based on how many have been asked
+        if question_count < 2:
+            # Initial questions about life events
+            questions = [
+                {
+                    "id": f"mock_q_{question_count+1}",
+                    "text": "Did you experience any significant career changes in your life?",
+                    "type": "boolean",
+                    "relevance": "high"
+                },
+                {
+                    "id": f"mock_q_{question_count+2}",
+                    "text": "When did you get married or enter a significant relationship?",
+                    "type": "date",
+                    "relevance": "high"
+                },
+                {
+                    "id": f"mock_q_{question_count+3}",
+                    "text": "How would you describe your personality?",
+                    "type": "options",
+                    "options": ["Introverted", "Extroverted", "Balanced"],
+                    "relevance": "medium"
+                }
+            ]
+        elif question_count < 5:
+            # Follow-up questions about health and family
+            questions = [
+                {
+                    "id": f"mock_q_{question_count+1}",
+                    "text": "Have you experienced any significant health issues?",
+                    "type": "boolean",
+                    "relevance": "high"
+                },
+                {
+                    "id": f"mock_q_{question_count+2}",
+                    "text": "When was your first child born?",
+                    "type": "date",
+                    "relevance": "high"
+                },
+                {
+                    "id": f"mock_q_{question_count+3}",
+                    "text": "How would you describe your relationship with your parents?",
+                    "type": "options",
+                    "options": ["Very close", "Somewhat close", "Distant", "Complicated"],
+                    "relevance": "medium"
+                }
+            ]
+        else:
+            # Final clarifying questions
+            questions = [
+                {
+                    "id": f"mock_q_{question_count+1}",
+                    "text": "Did you move to a different city or country at any point in your life?",
+                    "type": "boolean",
+                    "relevance": "high"
+                },
+                {
+                    "id": f"mock_q_{question_count+2}",
+                    "text": "When did this move occur?",
+                    "type": "date",
+                    "relevance": "high"
+                }
+            ]
+
+        # Check for contradictions in previous answers and add a clarifying question if needed
+        if len(previous_answers) >= 2:
+            # Simulate finding a contradiction (in a real implementation, this would check actual answers)
+            questions.append({
+                "id": f"mock_q_clarify_{question_count}",
+                "text": "You mentioned different dates for significant life events. Could you clarify when your career change occurred?",
+                "type": "date",
+                "relevance": "high"
+            })
+
+        return {
+            "questions": questions,
+            "confidence_score": confidence_score,
+            "is_complete": confidence_score >= 0.9,
+            "has_reached_threshold": confidence_score >= 0.8
+        }
+
 class MockUnifiedRectificationModel:
     """Mock implementation of the UnifiedRectificationModel for testing."""
 

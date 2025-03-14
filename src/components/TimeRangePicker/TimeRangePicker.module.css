@@ -1,0 +1,46 @@
+.container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeInputGroup {
+  flex: 1;
+}
+
+.label {
+  display: block;
+  font-size: 14px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.timeInput {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 16px;
+  background-color: #f8fafc;
+  color: #1e293b;
+  transition: all 0.2s ease;
+}
+
+.timeInput:focus {
+  outline: none;
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  background-color: #fff;
+}
+
+.timeInput:disabled {
+  background-color: #f1f5f9;
+  cursor: not-allowed;
+}
+
+.separator {
+  font-size: 16px;
+  color: #64748b;
+  padding: 0 4px;
+  margin-top: 24px;
+}

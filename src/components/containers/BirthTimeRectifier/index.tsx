@@ -5,6 +5,27 @@ import BirthChart from '@/components/charts/BirthChart';
 import { ChartData, PlanetPosition } from '@/types';
 import { DockerAIService } from '@/services/docker/DockerAIService';
 
+// Define the types that we need locally
+interface BirthTimeCalculationInput {
+  date: string;
+  time: string;
+  place: string;
+  coordinates: {
+    latitude: number;
+    longitude: number;
+  };
+  timezone: string;
+  name: string;
+}
+
+interface ExtendedDockerAIService extends DockerAIService {
+  calculateBirthTime(input: BirthTimeCalculationInput): Promise<{
+    rectifiedTime: string;
+    confidence: number;
+    explanation: string;
+  }>;
+}
+
 interface BirthTimeRectifierProps {
   onSubmit?: (data: Record<string, any>) => Promise<void>;
   onBirthTimeCalculated?: (data: Record<string, any>) => void;
@@ -31,7 +52,7 @@ const BirthTimeRectifier: React.FC<BirthTimeRectifierProps> = ({
 
       // Get the AI service and calculate birth time
       const aiService = DockerAIService.getInstance();
-      const result = await aiService.calculateBirthTime({
+      const result = await (aiService as unknown as ExtendedDockerAIService).calculateBirthTime({
         date: data.date,
         time: data.time,
         place: data.place,

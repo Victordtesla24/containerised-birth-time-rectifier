@@ -26,6 +26,13 @@ jest.mock('three', () => {
   };
 });
 
+// Mock Docker AI Service
+jest.mock('@/services/docker/DockerAIService', () => ({
+  DockerAIService: {
+    getInstance: jest.fn()
+  }
+}));
+
 // Simple mock for DockerAIService
 const mockDockerAIService = {
   on: jest.fn().mockReturnThis(),
@@ -38,12 +45,8 @@ const mockDockerAIService = {
   executeSwissEphemeris: jest.fn().mockResolvedValue({})
 };
 
-// Mock Docker AI Service
-jest.mock('@/services/docker/DockerAIService', () => ({
-  DockerAIService: {
-    getInstance: jest.fn().mockReturnValue(mockDockerAIService)
-  }
-}));
+// Update the mock implementation
+(DockerAIService.getInstance as jest.Mock).mockReturnValue(mockDockerAIService);
 
 describe('ProgressiveLoader', () => {
   let testLoader: ProgressiveLoader;
@@ -53,7 +56,7 @@ describe('ProgressiveLoader', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Setup console mock
     mockLogger = {
       log: jest.fn(),
@@ -99,9 +102,9 @@ describe('ProgressiveLoader', () => {
         mipmap: false,
         anisotropy: 1
       };
-      
+
       const texture = await testLoader.loadCelestialTexture('/test.jpg', customQuality);
-      
+
       expect(texture.generateMipmaps).toBe(false);
       expect(texture.anisotropy).toBe(1);
     });
@@ -124,12 +127,12 @@ describe('ProgressiveLoader', () => {
       });
 
       const texture = await testLoader.loadCelestialTexture('/error-texture.jpg');
-      
+
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Texture loading failed:',
         expect.any(Error)
       );
-      
+
       // Should return a texture even after error (fallback)
       expect(texture).toBeInstanceOf(THREE.Texture);
     });
@@ -137,10 +140,10 @@ describe('ProgressiveLoader', () => {
     it('should clean up resources on dispose', () => {
       // Add a texture to the cache
       testLoader.loadCelestialTexture('/test.jpg');
-      
+
       // Dispose resources
       testLoader.dispose();
-      
+
       // Since Docker AI is disabled in our tests, we should not check if removeListener was called
       // This test just verifies that dispose() can be called without errors
     });

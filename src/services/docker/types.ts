@@ -1,3 +1,5 @@
+// Types for Docker AI Service
+
 export interface ContainerMetrics {
   cpuUsage: number;
   gpuUsage: number;
@@ -6,7 +8,25 @@ export interface ContainerMetrics {
 }
 
 export interface OptimizationSuggestion {
-  type: 'cpu' | 'memory' | 'gpu';
+  type: string;
   message: string;
-  priority: 'high' | 'medium' | 'low';
-} 
+  priority: 'low' | 'medium' | 'high';
+}
+
+export interface BirthTimeCalculationInput {
+  date: string;
+  time: string;
+  place: string;
+  coordinates: {
+    latitude: number;
+    longitude: number;
+  };
+  timezone: string;
+  name: string;
+}
+
+export interface BirthTimeCalculationResult {
+  rectifiedTime: string;
+  confidence: number;
+  explanation: string;
+}

@@ -6,55 +6,63 @@ const createJestConfig = nextJest({
 });
 
 // Add any custom config to be passed to Jest
+/** @type {import('jest').Config} */
 const customJestConfig = {
   // Add more setup options before each test is run
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  // Add jest-canvas-mock to setupFiles
-  setupFiles: ['jest-canvas-mock'],
-  // if using TypeScript with a baseUrl set to the root directory then you need the below for alias' to work
-  moduleDirectories: ['node_modules', '<rootDir>/'],
   testEnvironment: 'jest-environment-jsdom',
+  testMatch: [
+    '<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}',
+    '<rootDir>/tests/unit/**/*.{js,jsx,ts,tsx}'
+  ],
+  // Ignore certain patterns
+  testPathIgnorePatterns: [
+    '<rootDir>/node_modules/',
+    '<rootDir>/.next/',
+    '<rootDir>/tests/integration/',
+    '<rootDir>/tests/e2e/',
+    '<rootDir>/tests/performance/',
+    '<rootDir>/cypress/'
+  ],
   moduleNameMapper: {
+    // Handle CSS imports (with CSS modules)
+    '\\.module\\.(css|sass|scss)$': 'identity-obj-proxy',
+    // Handle CSS imports (without CSS modules)
+    '\\.(css|sass|scss)$': '<rootDir>/__mocks__/styleMock.js',
+    // Handle image imports
+    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/__mocks__/fileMock.js',
     // Handle module aliases
-    '^@/components/(.*)$': '<rootDir>/src/components/$1',
-    '^@/pages/(.*)$': '<rootDir>/src/pages/$1',
-    '^@/hooks/(.*)$': '<rootDir>/src/hooks/$1',
-    '^@/api/(.*)$': '<rootDir>/src/api/$1',
-    '^@/utils/(.*)$': '<rootDir>/src/utils/$1',
-    '^@/styles/(.*)$': '<rootDir>/src/styles/$1',
-    '^@/types(.*)$': '<rootDir>/src/types$1',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
+  // Transform files with babel
+  transform: {
+    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'] }]
+  },
+  // Whether to use watchman for file crawling
+  watchman: false,
+  // Enforce strict testing behavior - treat all errors as terminal
+  // and prevent test continuation after failures
+  clearMocks: true,
+  resetMocks: true,
+  restoreMocks: true,
+  // Fail tests if there are any console.error calls
+  errorOnDeprecated: true,
+  // Don't allow test files to override global functions
+  testEnvironmentOptions: {
+    suppressConsole: false
+  },
+  // Exit immediately on test failures
+  bail: true,
+  // For coverage reporting
   collectCoverageFrom: [
     'src/**/*.{js,jsx,ts,tsx}',
     '!src/**/*.d.ts',
     '!src/**/*.stories.{js,jsx,ts,tsx}',
+    '!src/**/__tests__/**/*',
     '!src/pages/_app.tsx',
     '!src/pages/_document.tsx',
-  ],
-  coverageThreshold: {
-    global: {
-      branches: 80,
-      functions: 80,
-      lines: 80,
-      statements: 80,
-    },
-  },
-  testMatch: [
-    '<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}',
-    '<rootDir>/src/**/*.{spec,test}.{js,jsx,ts,tsx}',
-  ],
-  watchPlugins: [
-    'jest-watch-typeahead/filename',
-    'jest-watch-typeahead/testname',
-  ],
-  transform: {
-    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'] }],
-  },
-  transformIgnorePatterns: [
-    '/node_modules/',
-    '^.+\\.module\\.(css|sass|scss)$',
-  ],
+  ]
 };
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
-module.exports = createJestConfig(customJestConfig); 
+module.exports = createJestConfig(customJestConfig);

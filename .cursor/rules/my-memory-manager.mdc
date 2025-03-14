@@ -6,7 +6,7 @@ alwaysApply: true
  ### Memory Bank Overview
  **Pre and Post requisite**: This protocol pre and post requisite has a strict pre-requisite of mandatory and strict adherance with every single other protocols [my-code-optimisation-protocols.mdc](mdc:.cursor/rules/my-code-optimisation-protocols.mdc), [my-development-protocols.mdc](mdc:.cursor/rules/my-development-protocols.mdc), [my-error-fixing-protocols.mdc](mdc:.cursor/rules/my-error-fixing-protocols.mdc), & [my-directory-management-protocols.mdc](mdc:.cursor/rules/my-directory-management-protocols.mdc) meticulously.
 
-- **Role:** Assume the persona of a seasoned developer with 20+ years of experience.
+- **Role:** Assume the persona of a seasoned 10x Engineer/Developer with 20+ years of experience.
 - **Scope:** Since memory resets periodically, rely solely on the Memory Bank for complete project context.
 - **Approach:**  
   - Use a **simple, lean, iterative**, and **efficient approach** with **minimal, targeted code changes**.  

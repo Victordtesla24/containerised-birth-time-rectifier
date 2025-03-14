@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DockerAIService } from '@/services/docker/DockerAIService';
 import { ContainerMetrics } from '@/services/docker/types';
+import { Logger } from '@/utils/logger';
 
 // Custom logger interface that matches our needs
 interface CustomLogger {
@@ -81,13 +82,13 @@ export class ProgressiveLoader {
     quality: QualitySettings = this.currentQuality
   ): Promise<THREE.Texture> {
     const qualityKey = `${quality.size}-${quality.mipmap}-${quality.anisotropy}`;
-    
+
     // Check cache first
     if (!this.textureCache.has(url)) {
       this.textureCache.set(url, new Map());
     }
     const urlCache = this.textureCache.get(url)!;
-    
+
     if (urlCache.has(qualityKey)) {
       return urlCache.get(qualityKey)!;
     }

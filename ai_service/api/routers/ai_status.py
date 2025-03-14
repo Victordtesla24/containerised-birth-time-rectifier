@@ -15,7 +15,7 @@ router = APIRouter(tags=["AI Status"])
 
 # Import OpenAI service
 try:
-    from ai_service.api.services.openai_service import OpenAIService
+    from ai_service.api.services.openai import OpenAIService
 except ImportError as e:
     logger.error(f"Failed to import OpenAI service: {e}")
     OpenAIService = None

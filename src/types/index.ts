@@ -106,7 +106,7 @@ export interface BirthDetails {
 export interface DynamicQuestion {
   id: string;
   text: string;
-  type: 'yes_no' | 'multiple_choice' | 'date' | 'text';
+  type: 'yes_no' | 'multiple_choice' | 'date' | 'text' | 'boolean';
   options?: (string | QuestionOption)[];
   weight: number;
 }
@@ -124,6 +124,7 @@ export interface QuestionnaireResponse {
   answers: QuestionAnswer[];
   confidenceScore: number;
   sessionId?: string;
+  chartId?: string;
 }
 
 // A single significant life event

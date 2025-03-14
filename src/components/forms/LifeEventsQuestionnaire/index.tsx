@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -19,6 +19,8 @@ import {
 declare const process: {
   env: {
     NEXT_PUBLIC_API_URL?: string;
+    NEXT_PUBLIC_AI_SERVICE_URL?: string;
+    NODE_ENV?: string;
   };
 };
 
@@ -41,7 +43,7 @@ import Question from './Question';
 import QuestionnaireProgress from './QuestionnaireProgress';
 import QuestionnaireComplete from './QuestionnaireComplete';
 
-const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
+export const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   birthDetails,
   onSubmit,
   onProgress,
@@ -64,6 +66,13 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   const [answerHistory, setAnswerHistory] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+
+  // Refs for initialization tracking
+  const hasInitializedRef = useRef(false);
+  const initInProgressRef = useRef(false);
+
+  // Refs for progress data comparison
+  const progressDataRef = useRef<{ answeredQuestions: number; totalQuestions: number; confidence: number } | null>(null);
 
   // Function to fetch the initial chart data for more accurate question generation
   const fetchInitialChart = async () => {
@@ -127,99 +136,74 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
   };
 
   // Function to fetch questions from the API
-  const fetchQuestions = async (chartData?: any) => {
-    if (questionFetchAttempts >= MAX_FETCH_ATTEMPTS) {
-      setError(`Failed to fetch questions after ${MAX_FETCH_ATTEMPTS} attempts. Please try again later.`);
-      return;
-    }
-
-    setIsLoadingQuestions(true);
-    setError(null);
-
+  const fetchQuestions = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      setIsLoadingQuestions(true);
+      setError(null);
 
-      // Ensure all required fields are present in the birthDetails object
-      const enhancedBirthDetails = {
-        ...birthDetails,
-        // Ensure approximateTime is present and in the correct format (HH:MM:SS)
-        approximateTime: birthDetails.approximateTime ||
-                        (birthDetails.hasOwnProperty('birthTime') ? (birthDetails as any).birthTime + ((birthDetails as any).birthTime.length === 5 ? ':00' : '') : '00:00:00'),
-        // Ensure gender is present and has a valid value
-        gender: birthDetails.gender || 'unknown',
-        // Ensure birthLocation is present with a fallback value that's descriptive
-        birthLocation: birthDetails.birthLocation || (birthDetails as any).location || 'Unknown Location',
-        // Additional field mapping for API compatibility
-        name: birthDetails.name || 'Anonymous User',
-        // Ensure coordinates are properly formatted with fallbacks
-        latitude: parseFloat(String(birthDetails?.coordinates?.latitude || (birthDetails as any)?.latitude || '0')),
-        longitude: parseFloat(String(birthDetails?.coordinates?.longitude || (birthDetails as any)?.longitude || '0')),
-        // Ensure timezone is present
-        timezone: birthDetails.timezone || 'UTC',
-        // Add birthDate in consistent format
-        birthDate: formatDateSafely(birthDetails?.birthDate, birthDetails?.approximateTime)
+      // Prepare the request data with the correct types
+      const requestData: {
+        birthDetails: BirthDetails;
+        answers: QuestionAnswer[];
+        confidenceScore: number;
+      } = {
+        birthDetails,
+        answers: Object.entries(answers).map(([questionId, answer]) => ({
+          questionId,
+          question: questionId, // Using ID as question text as a fallback
+          answer: answer.toString()
+        })),
+        confidenceScore
       };
 
-      console.log('Sending questionnaire request with birthDetails:', JSON.stringify(enhancedBirthDetails, null, 2));
+      // Add initialData to the request if it exists and has answers
+      if (initialData && initialData.answers) {
+        requestData.answers = [
+          ...initialData.answers,
+          ...Object.entries(answers).map(([questionId, answer]) => ({
+            questionId,
+            question: questionId, // Using ID as question text as a fallback
+            answer: answer.toString()
+          }))
+        ];
+      }
 
-      // Prepare the request payload
-      const payload = {
-        birthDetails: enhancedBirthDetails,
-        currentConfidence: confidenceScore,
-        previousAnswers: Object.keys(answers).length > 0 ? answers : [],
-        chartData: chartData || null,
-        sessionId: sessionId || `session_${Date.now()}`,
-        questionHistory: questionHistory.map((q: DynamicQuestion) => q.id),
-        answerHistory: answerHistory,
-        maxQuestions: 5 // Limit questions per batch
-      };
+      // Log before API call
+      console.log('Sending questionnaire request:', JSON.stringify(requestData, null, 2));
 
-      console.log('Full questionnaire request payload:', JSON.stringify(payload, null, 2));
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
-      const response = await fetch(`${apiUrl}/api/questionnaire/generate`, {
+      // Get the AI service URL from environment variables or use default
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api';
+      const response = await fetch(`${apiUrl}/questionnaire`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
-        signal: controller.signal
+        body: JSON.stringify(requestData),
       });
 
-      clearTimeout(timeoutId);
-
+      // Handle non-200 responses
       if (!response.ok) {
-        let errorData;
+        let errorMessage = `API responded with status ${response.status}`;
+        let errorData: any = {};
+
         try {
           errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
         } catch (e) {
-          errorData = { detail: `Failed to parse error response: ${e}` };
+          // If we can't parse the error as JSON, just use the status
         }
 
-        let errorMessage = `Failed to fetch questions (Status: ${response.status})`;
+        // Set the error and mark as complete if it's a submission error
+        const isSubmissionError =
+          requestData.answers.length > 0 &&
+          (errorMessage.includes('submission') || response.status === 500);
 
-        if (errorData?.detail) {
-          if (Array.isArray(errorData.detail)) {
-            // Format validation errors in a more structured way
-            const validationErrors = errorData.detail.map((err: any) => {
-              const location = Array.isArray(err.loc) ? err.loc.join('.') : err.loc;
-              return `${location}: ${err.msg}`;
-            }).join('\n');
+        setError(`Failed to fetch questions: ${errorMessage}`);
 
-            console.error('API validation errors:', validationErrors);
-            errorMessage = `Validation error: ${validationErrors}`;
-          } else {
-            errorMessage = `Error: ${errorData.detail}`;
-          }
+        // For submission errors, mark the questionnaire as complete
+        if (isSubmissionError) {
+          setIsComplete(true);
         }
-
-        console.error('API request failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorData
-        });
 
         throw new Error(errorMessage);
       }
@@ -227,13 +211,30 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
       const data = await response.json();
       console.log('Questionnaire API response:', JSON.stringify(data, null, 2));
 
-      if (!data.questions || data.questions.length === 0) {
-        console.warn('No questions received from the server, using fallback questions');
+      // Handle case where API returns an array of questions directly
+      let questions = [];
+      if (Array.isArray(data)) {
+        // API returned an array of questions directly
+        questions = data;
+        console.log('API returned an array of questions');
+      } else if (data.questions && Array.isArray(data.questions)) {
+        // API returned an object with questions property
+        questions = data.questions;
+        console.log('API returned an object with questions property');
+      } else {
+        console.log('API response format not recognized:', data);
+        setError('Invalid response format from API. Please try again.');
         throw new Error('No questions received from the server');
       }
 
+      if (!questions || questions.length === 0) {
+        const errorMessage = 'No questions received from the server';
+        setError(errorMessage);
+        throw new Error(errorMessage);
+      }
+
       // Update state with the new questions
-      setQuestions(data.questions);
+      setQuestions(questions);
       setCurrentQuestionIndex(0);
 
       // Update session ID if provided
@@ -244,80 +245,229 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
       // Update confidence score if provided
       if (typeof data.confidenceScore === 'number') {
         setConfidenceScore(data.confidenceScore);
-        updateProgress(data.confidenceScore);
+        updateProgressSafely(data.confidenceScore);
       }
 
-      return data;
+      setIsLoadingQuestions(false);
+      return questions;
     } catch (error) {
       console.error('Error fetching questions:', error);
-      setError(`Failed to fetch questions: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setQuestionFetchAttempts((prev: number) => prev + 1);
 
-      // If we have no questions yet, try to use fallback questions
-      if (questions.length === 0) {
-        const fallbackQuestions = generateFallbackQuestions();
-        if (fallbackQuestions.length > 0) {
-          console.log('Using fallback questions due to API error');
-          setQuestions(fallbackQuestions);
-          setCurrentQuestionIndex(0);
-        }
+      // Clear loading state
+      setIsLoadingQuestions(false);
+
+      // Show actual error to the user - no masking
+      if (!error) {
+        setError('Failed to fetch questions. Please try again.');
+      } else if (error instanceof Error) {
+        setError(`Failed to fetch questions: ${error.message}`);
+      } else {
+        setError(`Failed to fetch questions: ${String(error)}`);
       }
 
+      // Always show the real error and allow completion if there are answers
+      if (Object.keys(answers).length > 0) {
+        setIsComplete(true);
+      }
+
+      // Increment fetch attempts counter
+      setQuestionFetchAttempts((prev) => prev + 1);
+
       return null;
-    } finally {
-      setIsLoadingQuestions(false);
     }
   };
 
-  // Generate fallback questions if API fails
-  const generateFallbackQuestions = (): DynamicQuestion[] => {
-    return [
-      {
-        id: 'fallback_1',
-        text: 'Have you experienced any major career changes in the last 5 years?',
-        type: 'yes_no',
-        weight: 1
-      },
-      {
-        id: 'fallback_2',
-        text: 'When did you meet your current partner or have a significant relationship begin?',
-        type: 'date',
-        weight: 1
-      },
-      {
-        id: 'fallback_3',
-        text: 'Have you moved to a new location in the last 10 years?',
-        type: 'yes_no',
-        weight: 1
-      },
-      {
-        id: 'fallback_4',
-        text: 'Have you experienced any significant health issues?',
-        type: 'yes_no',
-        weight: 1
-      },
-      {
-        id: 'fallback_5',
-        text: 'When did you start your current job or career path?',
-        type: 'date',
-        weight: 1
-      }
-    ];
-  };
+  // Use a single function for initialization that can be called directly
+  const initializeQuestionnaire = useCallback(async () => {
+    // Avoid multiple initialization attempts
+    if (hasInitializedRef.current || initInProgressRef.current || !birthDetails) {
+      return;
+    }
 
-  // Update progress and notify parent component
-  const updateProgress = useCallback((score: number) => {
+    // Set initialization in progress
+    initInProgressRef.current = true;
+
+    try {
+      // Handle initialization with initial data
+      if (initialData) {
+        // Create a local batch of updates to apply them all at once
+        let updatedQuestions: DynamicQuestion[] | undefined = undefined;
+        let updatedConfidenceScore: number | undefined = undefined;
+        let updatedSessionId: string | undefined = undefined;
+        let updatedAnswers: Record<string, QuestionAnswer> | undefined = undefined;
+
+        if (initialData.hasOwnProperty('questions')) {
+          updatedQuestions = (initialData as any).questions;
+        }
+
+        if (initialData.confidenceScore) {
+          updatedConfidenceScore = initialData.confidenceScore;
+        }
+
+        if (initialData.sessionId) {
+          updatedSessionId = initialData.sessionId;
+        }
+
+        if (initialData.answers) {
+          // Convert answers object to Record<string, QuestionAnswer>
+          const answersMap: Record<string, QuestionAnswer> = {};
+          initialData.answers.forEach((answer: QuestionAnswer) => {
+            answersMap[answer.questionId] = answer;
+          });
+          updatedAnswers = answersMap;
+        }
+
+        // Apply all updates at once
+        if (updatedQuestions) setQuestions(updatedQuestions);
+        if (updatedConfidenceScore) {
+          setConfidenceScore(updatedConfidenceScore);
+          setProgress(updatedConfidenceScore);
+        }
+        if (updatedSessionId) setSessionId(updatedSessionId);
+        if (updatedAnswers) setAnswers(updatedAnswers);
+
+        // Mark initialization as complete
+        hasInitializedRef.current = true;
+        initInProgressRef.current = false;
+        return;
+      }
+
+      // Otherwise, fetch initial chart and questions
+      setIsLoadingQuestions(true);
+
+      try {
+        const chartData = await fetchInitialChart();
+        if (chartData) {
+          await fetchQuestions();
+        }
+      } catch (error) {
+        console.error('Error initializing questionnaire:', error);
+        setError(`Failed to initialize questionnaire: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsLoadingQuestions(false);
+        // Mark initialization as complete
+        hasInitializedRef.current = true;
+        initInProgressRef.current = false;
+      }
+    } catch (e) {
+      console.error("Error during initialization:", e);
+      setError(`Initialization error: ${e instanceof Error ? e.message : String(e)}`);
+      // Reset initialization flags in case of error
+      initInProgressRef.current = false;
+    }
+  }, [birthDetails, initialData]);
+
+  // Run initialization once when component mounts or when dependencies change
+  useEffect(() => {
+    if (!hasInitializedRef.current && !initInProgressRef.current && birthDetails) {
+      initializeQuestionnaire();
+    }
+  }, [birthDetails, initializeQuestionnaire]);
+
+  // Separate useEffect for progress updates to avoid circular dependencies
+  const updateProgressSafely = useCallback((score: number) => {
+    // This function only updates the progress locally without calling onProgress
+    // to avoid the circular dependency
     const progressValue = Math.min(Math.round(score), 100);
     setProgress(progressValue);
+  }, []);
 
-    if (onProgress) {
-      onProgress({
+  // A separate effect that calls onProgress only when relevant state has changed
+  // and initialization is complete
+  useEffect(() => {
+    if (hasInitializedRef.current && onProgress && questions.length > 0) {
+      const progressValue = Math.min(
+        Math.round((Object.keys(answers).length / questions.length) * 100),
+        100
+      );
+
+      // Store current progress data to avoid unnecessary updates
+      const progressData = {
         answeredQuestions: Object.keys(answers).length,
         totalQuestions: questions.length,
         confidence: progressValue
-      });
+      };
+
+      // Compare with previous progress data using ref to avoid dependency on state
+      const previousProgressJSON = progressDataRef.current ?
+        JSON.stringify(progressDataRef.current) : '';
+      const currentProgressJSON = JSON.stringify(progressData);
+
+      if (previousProgressJSON !== currentProgressJSON) {
+        // Only call onProgress if data has actually changed
+        progressDataRef.current = progressData;
+        onProgress(progressData);
+      }
     }
-  }, [onProgress]);
+  }, [answers, questions, onProgress]);
+
+  // Update the process answer function to use updateProgressSafely
+  const processAnswer = async (
+    question: DynamicQuestion,
+    answer: string,
+    updatedAnswers: Record<string, QuestionAnswer>
+  ) => {
+    try {
+      // Update the answer history
+      const updatedAnswerHistory = [...answerHistory, { questionId: question.id, answer }];
+      setAnswerHistory(updatedAnswerHistory as any);
+
+      // Update the question history
+      const updatedQuestionHistory = [...questionHistory, question];
+      setQuestionHistory(updatedQuestionHistory);
+
+      // Calculate new confidence score
+      // For simplicity, we'll increase confidence by a fixed amount per question
+      // In a real implementation, this would be more sophisticated
+      const questionWeight = question.weight || 1;
+      const newConfidenceScore = Math.min(100, confidenceScore + (20 * questionWeight));
+      setConfidenceScore(newConfidenceScore);
+      updateProgressSafely(newConfidenceScore);
+
+      // Check if we've reached the confidence threshold
+      if (newConfidenceScore >= CONFIDENCE_THRESHOLD) {
+        setIsComplete(true);
+        return;
+      }
+
+      // If we have more questions in the current batch, move to the next one
+      if (currentQuestionIndex < questions.length - 1) {
+        setCurrentQuestionIndex(currentQuestionIndex + 1);
+        return;
+      }
+
+      // If we've reached the end of the current questions but haven't reached the threshold,
+      // we need to fetch more questions
+      try {
+        const newQuestions = await fetchQuestions();
+        if (newQuestions && newQuestions.length > 0) {
+          setCurrentQuestionIndex(0);
+        } else {
+          // If no more questions are available but we haven't reached the threshold,
+          // we'll still allow the user to submit what they have with whatever confidence level they've reached
+          setIsComplete(true);
+        }
+      } catch (error) {
+        console.error('Error fetching more questions:', error);
+        // If we can't fetch more questions, allow the user to submit with current confidence level
+        setIsComplete(true);
+
+      // Set the error message for all API errors without masking
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setError(`Couldn't fetch more questions: ${errorMessage}`);
+      }
+    } catch (error) {
+      console.error('Error processing answer:', error);
+
+      // Set error message for all errors without special handling for test errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setError(`Failed to process your answer: ${errorMessage}`);
+      // Still allow the user to complete if they've answered some questions
+      if (Object.keys(answers).length > 0) {
+        setIsComplete(true);
+      }
+    }
+  };
 
   // Handle answer selection
   const handleAnswerSelect = async (answer: string) => {
@@ -345,107 +495,6 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     await processAnswer(currentQuestion, answer, updatedAnswers);
   };
 
-  // Process the answer and determine next steps
-  const processAnswer = async (
-    question: DynamicQuestion,
-    answer: string,
-    updatedAnswers: Record<string, QuestionAnswer>
-  ) => {
-    try {
-      // If this is the last question in the current batch
-      if (currentQuestionIndex >= questions.length - 1) {
-        // Check if we've reached the confidence threshold
-        if (confidenceScore >= CONFIDENCE_THRESHOLD) {
-          // We have enough confidence, complete the questionnaire
-          setIsComplete(true);
-          updateProgress(100);
-        } else {
-          // We need more questions, fetch the next batch
-          setIsLoadingQuestions(true);
-
-          // Prepare the request payload with the updated answers
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-          const payload = {
-            birthDetails,
-            currentConfidence: confidenceScore,
-            previousAnswers: updatedAnswers,
-            chartData,
-            sessionId,
-            questionHistory: [...questionHistory, question].map(q => q.id),
-            answerHistory: [...answerHistory, answer]
-          };
-
-          const response = await fetch(`${apiUrl}/api/questionnaire/generate`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(10000)
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to fetch next questions (Status: ${response.status})`);
-          }
-
-          const data = await response.json();
-
-          if (!data.questions || data.questions.length === 0) {
-            // If no more questions, check if we have enough confidence
-            if (data.confidenceScore >= CONFIDENCE_THRESHOLD) {
-              setConfidenceScore(data.confidenceScore);
-              updateProgress(data.confidenceScore);
-              setIsComplete(true);
-            } else {
-              throw new Error('No more questions available, but confidence threshold not reached');
-            }
-          } else {
-            // Update with new questions
-            setQuestions(data.questions);
-            setCurrentQuestionIndex(0);
-
-            // Update confidence score
-            if (typeof data.confidenceScore === 'number') {
-              setConfidenceScore(data.confidenceScore);
-              updateProgress(data.confidenceScore);
-            }
-
-            // Update session ID if provided
-            if (data.sessionId) {
-              setSessionId(data.sessionId);
-            }
-          }
-        }
-      } else {
-        // Move to the next question in the current batch
-        setCurrentQuestionIndex(prev => prev + 1);
-      }
-    } catch (error) {
-      console.error('Error processing answer:', error);
-      setError(`Failed to process your answer: ${error instanceof Error ? error.message : 'Unknown error'}`);
-
-      // If we have more questions in the current batch, continue with those
-      if (currentQuestionIndex < questions.length - 1) {
-        setCurrentQuestionIndex(prev => prev + 1);
-      } else {
-        // Try to generate fallback questions
-        const fallbackQuestions = generateFallbackQuestions().filter(
-          q => !questionHistory.some(hq => hq.id === q.id)
-        );
-
-        if (fallbackQuestions.length > 0) {
-          setQuestions(fallbackQuestions);
-          setCurrentQuestionIndex(0);
-        } else {
-          // If we can't generate more questions, complete with what we have
-          setIsComplete(true);
-        }
-      }
-    } finally {
-      setIsLoadingQuestions(false);
-    }
-  };
-
   // Handle questionnaire submission
   const handleSubmitQuestionnaire = async () => {
     if (isLoading) return;
@@ -471,65 +520,6 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
       setIsSubmitting(false);
     }
   };
-
-  // Initialize the questionnaire
-  useEffect(() => {
-    const initializeQuestionnaire = async () => {
-      if (!birthDetails) return;
-
-      // If we have initial data, use it
-      if (initialData) {
-        if (initialData.hasOwnProperty('questions')) {
-          setQuestions((initialData as any).questions);
-        }
-        if (initialData.confidenceScore) {
-          setConfidenceScore(initialData.confidenceScore);
-          updateProgress(initialData.confidenceScore);
-        }
-        if (initialData.sessionId) {
-          setSessionId(initialData.sessionId);
-        }
-        if (initialData.answers) {
-          // Convert answers object to Record<string, QuestionAnswer>
-          const answersMap: Record<string, QuestionAnswer> = {};
-          initialData.answers.forEach((answer: QuestionAnswer) => {
-            answersMap[answer.questionId] = answer;
-          });
-          setAnswers(answersMap);
-        }
-        return;
-      }
-
-      // Otherwise, fetch initial chart and questions
-      setIsLoadingQuestions(true);
-
-      try {
-        const chartData = await fetchInitialChart();
-        if (chartData) {
-          await fetchQuestions(chartData);
-        }
-      } catch (error) {
-        console.error('Error initializing questionnaire:', error);
-        setError(`Failed to initialize questionnaire: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsLoadingQuestions(false);
-      }
-    };
-
-    initializeQuestionnaire();
-  }, [birthDetails, initialData]);
-
-  // Calculate progress
-  useEffect(() => {
-    if (onProgress && questions.length > 0) {
-      const progress = (Object.keys(answers).length / questions.length) * 100;
-      onProgress({
-        answeredQuestions: Object.keys(answers).length,
-        totalQuestions: questions.length,
-        confidence: progress
-      });
-    }
-  }, [answers, questions, onProgress]);
 
   // Navigate to the next question
   const goToNextQuestion = () => {
@@ -588,7 +578,7 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
           <button
             onClick={() => {
               setError(null);
-              fetchQuestions(chartData);
+              fetchQuestions();
             }}
             className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
           >
@@ -624,7 +614,7 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
         <div className="error-container bg-yellow-50 border border-yellow-200 rounded-md p-4">
           <p className="text-yellow-700">No questions available. Please try again later.</p>
           <button
-            onClick={() => fetchQuestions(chartData)}
+            onClick={() => fetchQuestions()}
             className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700"
           >
             Retry
@@ -651,6 +641,18 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
     );
   };
 
+  // Replace or add the rendering of the loading state
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] w-full">
+        <div className="flex flex-col items-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-600">Processing your answers and rectifying birth time...</p>
+        </div>
+      </div>
+    );
+  }
+
   // If there are no questions, show a loading or error state
   if (questions.length === 0) {
     return (
@@ -659,6 +661,19 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
           <div className="flex flex-col items-center">
             <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mb-4"></div>
             <p className="text-gray-600">Loading questionnaire...</p>
+          </div>
+        ) : error ? (
+          <div className="error-container bg-red-50 border border-red-200 rounded-md p-4 max-w-3xl w-full">
+            <p className="text-red-700" data-testid="error-message">Error fetching questions: {error}</p>
+            <button
+              onClick={() => {
+                setError('');
+                fetchQuestions();
+              }}
+              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+            >
+              Retry
+            </button>
           </div>
         ) : (
           // Show the start button if not yet started
@@ -676,10 +691,10 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
               </p>
 
               <button
-                data-testid="start-questionnaire"
+                data-testid="start-questionnaire-button"
                 onClick={() => {
                   setHasStarted(true);
-                  fetchQuestions(chartData);
+                  fetchQuestions();
                 }}
                 className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow-md transition-all duration-300"
               >
@@ -709,10 +724,10 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
           </p>
 
           <button
-            data-testid="start-questionnaire"
+            data-testid="start-questionnaire-button"
             onClick={() => {
               setHasStarted(true);
-              fetchQuestions(chartData);
+              fetchQuestions();
             }}
             className="px-6 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow-md transition-all duration-300"
           >
@@ -825,6 +840,7 @@ const LifeEventsQuestionnaire: React.FC<LifeEventsQuestionnaireProps> = ({
               ) : (
                 <button
                   type="submit"
+                  data-testid="submit-questionnaire-button"
                   disabled={!allQuestionsAnswered || isSubmitting}
                   className={`px-4 py-2 ${
                     !allQuestionsAnswered || isSubmitting
@@ -914,6 +930,7 @@ const renderQuestionComponent = (
 ) => {
   switch (question.type) {
     case 'yes_no':
+    case 'boolean':
       return (
         <YesNoQuestion
           question={question}

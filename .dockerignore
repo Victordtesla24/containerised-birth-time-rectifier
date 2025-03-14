@@ -4,8 +4,10 @@
 .gitattributes
 
 # Development environments
-.env
-.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .venv
 venv
 env
@@ -48,16 +50,12 @@ out
 docs
 *.md
 !README.md
+!DOCKER_README.md
 
 # Test files
-tests
-test
-__tests__
 coverage
 
 # Docker
-Dockerfile*
-docker-compose*
 .docker
 
 # Logs
@@ -80,7 +78,3 @@ pids
 
 # Misc
 .DS_Store
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local

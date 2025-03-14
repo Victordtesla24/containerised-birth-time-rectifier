@@ -1,72 +1,93 @@
 """
-Legacy support middleware for the Birth Time Rectifier API.
-Provides backward compatibility with older API paths.
+Legacy path support middleware for backward compatibility.
+
+This module provides middleware to maintain backward compatibility with old API paths.
 """
 
-import logging
 from fastapi import Request
+import re
+from starlette.middleware.base import BaseHTTPMiddleware
+import logging
 
-from ai_service.core.config import settings
+# Configure logging
+logger = logging.getLogger(__name__)
 
-# Setup logging
-logger = logging.getLogger("birth-time-rectifier.legacy-support")
-
-async def legacy_path_middleware(request: Request, call_next):
+class PathRewriterMiddleware(BaseHTTPMiddleware):
     """
-    Middleware to handle legacy paths without the /api prefix.
-
-    This middleware provides backward compatibility by:
-    1. Identifying paths that don't have the configured API_PREFIX
-    2. Rewriting them to use the current API_PREFIX if they match an expected API pattern
-    3. Passing the modified request through to the next middleware
-
-    Args:
-        request: The incoming request
-        call_next: The next middleware in the chain
-
-    Returns:
-        Response from downstream middlewares
+    Middleware to rewrite legacy API paths to standardized v1 API paths.
+    This allows backward compatibility without duplicate router registration.
     """
-    # Original path
-    original_path = request.url.path
 
-    # Current API prefix (e.g., /api/v1)
-    api_prefix = settings.API_PREFIX
+    def __init__(self, app, add_deprecation_warnings: bool = True):
+        """
+        Initialize the path rewriter middleware.
 
-    # If the path already starts with the API prefix, no modification needed
-    if original_path.startswith(api_prefix):
+        Args:
+            app: The FastAPI application
+            add_deprecation_warnings: Whether to add deprecation warnings in response headers
+        """
+        super().__init__(app)
+        self.add_deprecation_warnings = add_deprecation_warnings
+
+        # Define path mapping rules - from legacy paths to standardized v1 paths
+        self.path_mappings = [
+            # Root level legacy routes
+            (r"^/health$", "/api/v1/health"),
+            (r"^/geocode$", "/api/v1/geocode"),
+            (r"^/chart/(.*)$", r"/api/v1/chart/\1"),
+            (r"^/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
+            (r"^/questionnaire$", "/api/v1/questionnaire"),
+            (r"^/export/(.*)$", r"/api/v1/export/\1"),
+
+            # Unversioned /api/ routes
+            (r"^/api/health$", "/api/v1/health"),
+            (r"^/api/geocode$", "/api/v1/geocode"),
+            (r"^/api/chart/(.*)$", r"/api/v1/chart/\1"),
+            (r"^/api/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
+            (r"^/api/questionnaire$", "/api/v1/questionnaire"),
+            (r"^/api/export/(.*)$", r"/api/v1/export/\1"),
+        ]
+
+    async def dispatch(self, request: Request, call_next):
+        """
+        Dispatch method for the middleware.
+
+        Args:
+            request: The incoming request
+            call_next: The next middleware/handler in the chain
+
+        Returns:
+            Response from the next middleware/handler
+        """
+        # Save original path for logging
+        original_path = request.url.path
+
+        # Apply path rewriting
+        for pattern, replacement in self.path_mappings:
+            if re.match(pattern, original_path):
+                # Rewrite the path
+                rewritten_path = re.sub(pattern, replacement, original_path)
+
+                # Update the request's scope with the new path
+                request.scope["path"] = rewritten_path
+
+                # Log the path rewriting
+                logger.debug(f"Rewrote path: {original_path} -> {rewritten_path}")
+
+                # Process the request with next middleware
+                response = await call_next(request)
+
+                # Add deprecation warning if enabled
+                if self.add_deprecation_warnings:
+                    response.headers["X-Deprecation-Warning"] = (
+                        f"The path '{original_path}' is deprecated. "
+                        f"Please use '{rewritten_path}' instead."
+                    )
+
+                return response
+
+        # If no rewriting occurred, just pass the request through
         return await call_next(request)
 
-    # List of recognized API endpoints that should be prefixed
-    # These are the endpoints that were previously available without the /api prefix
-    recognized_patterns = [
-        "/health",
-        "/chart",
-        "/charts",
-        "/geocode",
-        "/questionnaire",
-        "/rectify",
-        "/session",
-        "/ai"
-    ]
-
-    # Check if the path starts with any of the recognized patterns
-    for pattern in recognized_patterns:
-        if original_path.startswith(pattern):
-            # Rewrite the path to include the API prefix
-            new_path = f"{api_prefix}{original_path}"
-
-            # Log the rewrite
-            logger.debug(f"Rewriting legacy path: {original_path} -> {new_path}")
-
-            # Create modified request scope with new path
-            request.scope["path"] = new_path
-
-            # Update raw path (needed for some frameworks)
-            if "raw_path" in request.scope:
-                request.scope["raw_path"] = new_path.encode("utf-8")
-
-            break
-
-    # Continue to the next middleware
-    return await call_next(request)
+# Export the middleware for use in FastAPI app
+legacy_path_middleware = PathRewriterMiddleware

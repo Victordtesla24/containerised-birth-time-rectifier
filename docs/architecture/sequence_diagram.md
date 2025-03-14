@@ -1,127 +1,554 @@
 # Sequence Diagram Implementation Guide
 
-## Sequence Diagram
+## Complete Application Sequence Flow
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant FE as Frontend
-    participant API as API Layer
-    participant BE as Backend Services
-    participant DB as Database
-
-    %% Initial Flow - Session Initialization
-    Note over User,DB: ❌ Missing: Session Management
-    User->>FE: Visit application
-    FE->>API: Should call: GET /api/session/init
-    API--xFE: Missing endpoint implementation
-    Note over FE,API: No session management<br/>currently implemented
-
-    %% Birth Details Entry and Validation
-    User->>FE: Enter birth location
-    FE->>API: POST /api/geocode<br/>{query: "New York, USA"}
-    API->>BE: Process location request
-    BE->>DB: Query location database
-    DB-->>BE: Return coordinates
-    BE-->>API: Location data
-    API-->>FE: {results: [{id: "loc_123", name: "New York City", country: "United States", latitude: 40.7128, longitude: -74.0060, timezone: "America/New_York"}]}
-
-    User->>FE: Enter birth date and time
-    FE->>API: POST /api/chart/validate<br/>{birth_date: "1990-01-15", birth_time: "14:30:00", latitude: 40.7128, longitude: -74.0060, timezone: "America/New_York"}
-    API->>BE: Validate birth details
-    BE-->>API: Validation result
-    API-->>FE: {valid: true, errors: []}
-
-    %% Chart Generation
-    User->>FE: Request chart generation
-    FE->>API: POST /api/chart/generate<br/>{birth_date: "1990-01-15", birth_time: "14:30:00", latitude: 40.7128, longitude: -74.0060, timezone: "America/New_York", options: {house_system: "placidus"}}
-    API->>BE: Calculate astrological chart
-    BE->>DB: Store chart data
-    DB-->>BE: Return chart ID
-    BE-->>API: Chart data
-    API-->>FE: {chart_id: "chrt_123456", ascendant: {sign: "Virgo", degree: 15.32}, planets: [...], houses: [...]}
-
-    %% Chart Visualization
-    FE->>API: GET /api/chart/chrt_123456
-    API->>BE: Retrieve chart
-    BE->>DB: Query chart data
-    DB-->>BE: Chart details
-    BE-->>API: Complete chart data
-    API-->>FE: {chart_id: "chrt_123456", ascendant: {sign: "Virgo", degree: 15.32}, planets: [...], houses: [...], aspects: [...]}
-
-    %% Questionnaire
-    User->>FE: Navigate to questionnaire
-    FE->>API: GET /api/questionnaire
-    API->>BE: Generate questionnaire
-    BE-->>API: Questionnaire data
-    API-->>FE: {questions: [{id: "q_001", text: "Have you experienced any major career changes?", type: "yes_no"}]}
-
-    User->>FE: Answer question (Yes)
-    FE->>API: POST /api/questionnaire/q_001/answer<br/>{question_id: "q_001", answer: "yes"}
-    API->>BE: Process answer
-    BE->>DB: Store answer
-    BE-->>API: Next question
-    API-->>FE: {status: "accepted", next_question_url: "/api/questionnaire/q_002"}
-
-    User->>FE: Answer question (Date)
-    FE->>API: POST /api/questionnaire/q_002/answer<br/>{question_id: "q_002", answer: {date: "2018-03-15", additional_notes: "Career change"}}
-    API->>BE: Process answer
-    BE->>DB: Store answer
-    BE-->>API: Next question
-    API-->>FE: {status: "accepted", next_question_url: "/api/questionnaire/q_003"}
-
-    User->>FE: Complete questionnaire
-    FE->>API: POST /api/questionnaire/complete<br/>{rectification_id: "rect_123456"}
-    API->>BE: Finalize questionnaire
-    BE-->>API: Completion status
-    API-->>FE: {status: "processing", estimated_completion_time: "2023-06-15T13:30:00Z"}
-
-    %% Birth Time Rectification
-    FE->>API: POST /api/chart/rectify<br/>{chart_id: "chrt_123456", answers: [...], birth_time_range: {min_hours: 13, min_minutes: 0, max_hours: 16, max_minutes: 0}}
-    API->>BE: Perform birth time rectification
-    BE->>DB: Process answers and chart data
-    Note over BE: AI analysis runs to<br/>determine optimal birth time
-    DB-->>BE: Return analysis results
-    BE-->>API: Rectification result
-    API-->>FE: {rectification_id: "rect_123456", confidence_score: 87.5, original_birth_time: "14:30:00", rectified_birth_time: "15:12:00", rectified_chart_id: "chrt_234567"}
-
-    %% Chart Comparison
-    Note over User,DB: ❌ Incomplete Implementation: Chart Comparison
-    FE->>API: GET /api/chart/compare?chart1_id=chrt_123456&chart2_id=chrt_234567
-    API->>BE: Compare charts
-    BE->>DB: Retrieve both charts
-    DB-->>BE: Charts data
-    BE-->>API: Comparison data
-    API-->>FE: {differences: [{type: "ascendant_shift", chart1_position: {sign: "Virgo", degree: 15.32}, chart2_position: {sign: "Virgo", degree: 18.75}}, ...]}
-
-    %% Interpretation
-    Note over User,DB: ❌ Incomplete Implementation: Interpretation Service
-    FE->>API: GET /api/interpretation?chart_id=chrt_234567
-    API->>BE: Generate interpretation
-    BE->>DB: Retrieve chart data
-    DB-->>BE: Chart details
-    BE-->>API: Personalized insights
-    API-->>FE: {insights: [...]}
-
-    %% Export Chart
-    User->>FE: Request chart export
-    FE->>API: POST /api/chart/export<br/>{chart_id: "chrt_234567", format: "pdf", include_interpretation: true}
-    API->>BE: Generate export
-    BE->>DB: Retrieve chart data
-    DB-->>BE: Chart details
-    BE-->>API: Export data
-    API-->>FE: {export_id: "exp_123456", status: "processing", download_url: "/api/export/exp_123456/download"}
-
-    FE->>API: GET /api/export/exp_123456/download
-    API->>BE: Retrieve export
-    BE-->>API: Export file
-    API-->>FE: Binary file data (PDF)
-    FE-->>User: Display downloadable chart
+```
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+| User           | --> | Frontend       | --> | API Layer      | --> | Backend        | --> | OpenAI        |
+|                |     |                |     |                |     | Services       |     | Service       |
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |                      |
+        |                     |                      |                     |                      |
+        v                     v                      v                     v                      v
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+| Page Visit     | --> | Session Init   | --> | GET /api/      | --> | Create Session |     | Model         |
+| Initial Load   |     | API Request    |     | session/init   |     | In Redis       |     | Selection     |
+|                |     |                |     | ✅ Implemented |     |                |     |                |
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |                      |
+        v                     v                      v                     v                      v
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+| Location Entry | --> | Geocode Request| --> | POST /api/     | --> | Location DB    |     | Vedic          |
+| Birth City     |     | API Call       |     | geocode        |     | Coordinates    |     | Standards      |
+|                |     |                |     |                |     | Timezone       |     | Verification   |
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |                      |
+        v                     v                      v                     v                      v
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+| Birth Details  | --> | Validate Data  | --> | POST /api/     | --> | Format Check   |     | Birth Time     |
+| Date & Time    |     | Form Submit    |     | chart/validate |     | Date/Time      |     | Rectification  |
+| Input          |     |                |     |                |     | Verification   |     | Analysis       |
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |                      |
+        v                     v                      v                     v                      v
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+| Generate Chart | --> | Submit Form    | --> | POST /api/     | --> | Calculate      | --> | Verify Chart   |
+| Request        |     | API Call       |     | chart/generate |     | Initial Chart  |     | Against Vedic  |
+|                |     | {verify: true} |     |                |     |                |     | Standards      |
++----------------+     +----------------+     +----------------+     +----------------+     +----------------+
+                                                                                                    |
+                                                                                                    v
+                                                                     +----------------+     +----------------+
+                                                                     | Store in DB    | <-- | Apply          |
+                                                                     | Return Chart   |     | Corrections    |
+                                                                     |                |     | if needed      |
+                                                                     +----------------+     +----------------+
+        |                     |                      |                     |
+        v                     v                      v                     v
++----------------+     +----------------+     +----------------+     +----------------+
+| View Chart     | --> | Render Chart   | --> | GET /api/chart | --> | Query DB       |
+| Visualization  |     | API Call       |     | /{chart_id}    |     | Return Chart   |
+|                |     |                |     | ✅ Fixed: 500  |     | Data           |
++----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |
+        v                     v                      v                     v
++----------------+     +----------------+     +----------------+     +----------------+
+| Answer         | --> | Submit Answers | --> | POST /api/     | --> | Process        |
+| Questionnaire  |     | Series of Calls|     | questionnaire/ |     | Answers        |
+| Questions      |     |                |     | ✅ Fixed: 500  |     | Store in DB    |
++----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |
+        v                     v                      v                     v
++----------------+     +----------------+     +----------------+     +----------------+
+| Birth Time     | --> | Request        | --> | POST /api/     | --> | AI Analysis    |
+| Rectification  |     | Rectification  |     | chart/rectify  |     | Algorithm      |
+| Process        |     |                |     |                |     | Calculate Time |
++----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |
+        v                     v                      v                     v
++----------------+     +----------------+     +----------------+     +----------------+
+| Comparison     | --> | Compare Charts | --> | GET /api/chart | --> | Analyze        |
+| & Interpretation|    | GET Insight    |     | /compare       |     | Differences    |
+| ❌ Incomplete  |     | ❌ Incomplete  |     | ❌ Incomplete  |     | ❌ Incomplete  |
++----------------+     +----------------+     +----------------+     +----------------+
+        |                     |                      |                     |
+        v                     v                      v                     v
++----------------+     +----------------+     +----------------+     +----------------+
+| Export Chart   | --> | Request Export | --> | POST /api/     | --> | Generate PDF   |
+| & Download     |     | & Download     |     | chart/export   |     | Download File  |
+|                |     |                |     | ✅ Fixed: 500  |     |                |
++----------------+     +----------------+     +----------------+     +----------------+
 ```
 
-## Sequence Overview
+## Enhanced Error Handling Sequence
 
-The sequence diagram illustrates the complete flow of the Birth Time Rectifier application, from initial session creation through birth time rectification. It highlights several missing or incomplete components that need to be implemented.
+```
+Frontend            Unified API Client       Next.js API Gateway      Python Backend
+    |                      |                         |                      |
+    | Request              |                         |                      |
+    |--------------------->|                         |                      |
+    |                      | Add Headers &           |                      |
+    |                      | Prepare Request         |                      |
+    |                      |------------------------>|                      |
+    |                      |                         | Forward Request      |
+    |                      |                         |--------------------->|
+    |                      |                         |                      | Process
+    |                      |                         |                      |------+
+    |                      |                         |                      |      |
+    |                      |                         |                      |<-----+
+    |                      |                         |                      |
+    |                      |                         |                      | Error Occurs!
+    |                      |                         |                      |------+
+    |                      |                         |                      |      |
+    |                      |                         |                      |<-----+
+    |                      |                         | Error Response (500) |
+    |                      |                         |<---------------------|
+    |                      |                         |                      |
+    |                      |                         | Format Error &       |
+    |                      |                         | Add Metadata         |
+    |                      |                         |------+               |
+    |                      |                         |      |               |
+    |                      |                         |<-----+               |
+    |                      | Standardized Error      |                      |
+    |                      |<------------------------|                      |
+    |                      |                         |                      |
+    |                      | Retry Logic             |                      |
+    |                      |------+                  |                      |
+    |                      |      | (Try alternate   |                      |
+    |                      |<-----+ endpoint)        |                      |
+    |                      |                         |                      |
+    |                      | Retry Request           |                      |
+    |                      |------------------------>|                      |
+    |                      |                         | Forward to           |
+    |                      |                         | Alternative Endpoint |
+    |                      |                         |--------------------->|
+    |                      |                         |                      | Process
+    |                      |                         |                      |------+
+    |                      |                         |                      |      |
+    |                      |                         |                      |<-----+
+    |                      |                         | Success Response     |
+    |                      |                         |<---------------------|
+    |                      | Formatted Response      |                      |
+    |                      |<------------------------|                      |
+    | Rendered Result      |                         |                      |
+    |<---------------------|                         |                      |
+    |                      |                         |                      |
+```
+
+## Consolidated API Questionnaire Flow
+
+```
+User          Frontend            Unified API Client       Next.js Gateway          Python Backend
+ |                |                       |                      |                        |
+ | Start Quest.   |                       |                      |                        |
+ |--------------->|                       |                      |                        |
+ |                | Get Initial Question  |                      |                        |
+ |                |---------------------->|                      |                        |
+ |                |                       | Request              |                        |
+ |                |                       |--------------------->|                        |
+ |                |                       |                      | Forward                |
+ |                |                       |                      |----------------------->|
+ |                |                       |                      |                        | Generate Q
+ |                |                       |                      |                        |----------+
+ |                |                       |                      |                        |          |
+ |                |                       |                      |                        |<---------+
+ |                |                       |                      | Response               |
+ |                |                       |                      |<-----------------------|
+ |                |                       | Formatted Response   |                        |
+ |                |                       |<---------------------|                        |
+ |                | Display Question      |                      |                        |
+ |                |<----------------------|                      |                        |
+ | Answer Question|                       |                      |                        |
+ |--------------->|                       |                      |                        |
+ |                | Submit Answer         |                      |                        |
+ |                |---------------------->|                      |                        |
+ |                |                       | Cache Answer Locally |                        |
+ |                |                       |------------+         |                        |
+ |                |                       |            |         |                        |
+ |                |                       |<-----------+         |                        |
+ |                |                       | POST Answer          |                        |
+ |                |                       |--------------------->|                        |
+ |                |                       |                      | Forward                |
+ |                |                       |                      |----------------------->|
+ |                |                       |                      |                        | Process
+ |                |                       |                      |                        |----------+
+ |                |                       |                      |                        |          |
+ |                |                       |                      |                        |<---------+
+ |                |                       |                      | Next Question          |
+ |                |                       |                      |<-----------------------|
+ |                |                       | Format & Return      |                        |
+ |                |                       |<---------------------|                        |
+ |                | Display Next Question |                      |                        |
+ |                |<----------------------|                      |                        |
+ |                |                       |                      |                        |
+```
+
+## Original Sequence Diagram - Full Implementation
+
+```
+User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Visit App      |                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | GET /session/init |                  |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Create Session   |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   |                  | Store Session     |                   |
+ |                |                   |                  |-------------------------------------->|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |     Session ID    |                   |
+ |                |                   |                  |<--------------------------------------|
+ |                |                   |   Session Data   |                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                |    Session Token  |                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Enter Location |                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | POST /geocode     |                  |                   |                   |
+ |                | {query: "NYC"}    |                  |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Process Location |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   |                  | Query Location DB |                   |
+ |                |                   |                  |-------------------------------------->|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |    Coordinates    |                   |
+ |                |                   |                  |<--------------------------------------|
+ |                |                   | Location Data    |                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                | {results: [{...}]}|                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Enter Date/Time|                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | POST /chart/validate                 |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Validate Details |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   | Validation Result|                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                | {valid: true}     |                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Request Chart  |                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | POST /chart/generate                 |                   |                   |
+ |                | {verify_with_openai: true}           |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Calculate Chart  |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   |                  | Initial Chart     |                   |
+ |                |                   |                  | Calculation       |                   |
+ |                |                   |                  |-------------------|                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  | Verify Chart      |                   |
+ |                |                   |                  |------------------>|                   |
+ |                |                   |                  |                   | Multi-technique   |
+ |                |                   |                  |                   | Vedic Analysis    |
+ |                |                   |                  |                   |-------------------|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   | Verification      |
+ |                |                   |                  |                   | Result            |
+ |                |                   |                  |<------------------|                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  | Apply Corrections |                   |
+ |                |                   |                  | (if needed)       |                   |
+ |                |                   |                  |-------------------|                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  | Store Chart       |                   |
+ |                |                   |                  |-------------------------------------->|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |     Chart ID      |                   |
+ |                |                   |                  |<--------------------------------------|
+ |                |                   |   Verified       |                   |                   |
+ |                |                   |   Chart Data     |                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                | {chart_id: "...", |                  |                   |                   |
+ |                |  verification: {  |                  |                   |                   |
+ |                |    confidence: 87,|                  |                   |                   |
+ |                |    verified: true,|                  |                   |                   |
+ |                |  }}               |                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |
+ |                | GET /chart/{id}   |                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Retrieve Chart   |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Query Chart Data  |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |                  |   Chart Details   |
+ |                |                   |                  |<------------------|
+ |                |                   | Complete Data    |                   |
+ |                |                   |<-----------------|                   |
+ |                | Chart with Aspects|                  |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ | To Questionnaire                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | GET /questionnaire|                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Generate Questions                   |
+ |                |                   |----------------->|                   |
+ |                |                   | Question Data    |                   |
+ |                |                   |<-----------------|                   |
+ |                | {questions: [...]}|                  |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ | Answer: Yes    |                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | POST /questionnaire/{id}/answer      |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Process Answer   |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Store Answer      |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   | Next Question    |                   |
+ |                |                   |<-----------------|                   |
+ |                | {next_question}   |                  |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ | Complete Quest.|                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | POST /questionnaire/complete         |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Finalize Quest.  |                   |
+ |                |                   |----------------->|                   |
+ |                |                   | Completion Status|                   |
+ |                |                   |<-----------------|                   |
+ |                | {status: "processing"}               |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ |                | POST /chart/rectify                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Rectify Process  |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Process Data      |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |     AI Analysis  |                   |
+ |                |                   |     Determines   |                   |
+ |                |                   |    Birth Time    |                   |
+ |                |                   |                  |                   |
+ |                |                   |                  | Analysis Results  |
+ |                |                   |                  |<------------------|
+ |                |                   | Rectification    |                   |
+ |                |                   |<-----------------|                   |
+ |                | {rectified_time: "15:12:00", confidence: 87.5%}          |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ |                | GET /chart/compare?chart1=X&chart2=Y |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Compare Charts   |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Retrieve Charts   |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |                  | Charts Data       |
+ |                |                   |                  |<------------------|
+ |                |                   | Comparison Data  |                   |
+ |                |                   |<-----------------|                   |
+ |                | {differences: [...]}                 |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ | Request Export |                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | POST /chart/export|                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Generate Export  |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Get Chart Data    |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |                  | Chart Details     |
+ |                |                   |                  |<------------------|
+ |                |                   | Export Data      |                   |
+ |                |                   |<-----------------|                   |
+ |                | {download_url: "/api/export/..."}    |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ |                | GET /export/{id}/download            |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Retrieve File    |                   |
+ |                |                   |----------------->|                   |
+ |                |                   | PDF File         |                   |
+ |                |                   |<-----------------|                   |
+ |                | Binary PDF Data   |                  |                   |
+ |                |<------------------|                  |                   |
+ | View Result    |                   |                  |                   |
+ |<---------------|                   |                  |                   |
+ |                |                   |                  |                   |
+```
+
+## Simplified Sequence Diagram - User Testing Iteration 2
+
+```
+User          Frontend            Mock Services
+ |                |                     |
+ | Visit App      |                     |
+ |--------------->|                     |
+ |                |     Create Mock     |
+ |                |     Session Locally |
+ |                |-------------------->|
+ |                |                     |
+ | Enter Location |                     |
+ |--------------->|                     |
+ |                | Validate Format     |
+ |                | Locally             |
+ |                |-------------------->|
+ |                |                     |
+ |                | Mock Geocode Request|
+ |                |-------------------->|
+ |                |                     |
+ |                | Mock Location Data  |
+ |                |<--------------------|
+ |                |                     |
+ | Enter Date/Time|                     |
+ |--------------->|                     |
+ |                | Validate Date/Time  |
+ |                | Locally             |
+ |                |-------------------->|
+ |                | Show Validation     |
+ |                | Status              |
+ |                |-------------------->|
+ |                |                     |
+ | Submit Form    |                     |
+ |--------------->|                     |
+ |                | Validate All Fields |
+ |                | Locally             |
+ |                |-------------------->|
+ |                |                     |
+ |                | Generate Chart ID   |
+ |                | Using Timestamp     |
+ |                |-------------------->|
+ |                |                     |
+ |                | Navigate to Chart   |
+ |                | Display Page        |
+ |                |-------------------->|
+ |                |                     |
+ |                | Mock Chart Request  |
+ |                |-------------------->|
+ |                |                     |
+ |                | Mock Chart Data     |
+ |                |<--------------------|
+ |                |                     |
+ |                | Render Visualization|
+ |                |-------------------->|
+ |                |                     |
+ |                | Show Results        |
+ |                |-------------------->|
+ |                |                     |
+ | View Results   |                     |
+ |<---------------|                     |
+ |                |                     |
+ | Export Chart   |                     |
+ |--------------->|                     |
+ |                | "Feature Coming     |
+ |                |  Soon" Message      |
+ |<---------------|                     |
+ |                |                     |
+```
+
+## Vedic Chart Verification Flow - OpenAI Integration
+
+```
+User          Frontend            API Gateway          Chart Calculator    OpenAI Service
+ |                |                   |                      |                     |
+ |                |                   |                      |                     |
+ | Submit Birth   |                   |                      |                     |
+ | Details        |                   |                      |                     |
+ |--------------->|                   |                      |                     |
+ |                | POST /api/chart/generate                 |                     |
+ |                | {verify_with_openai: true}               |                     |
+ |                |------------------>|                      |                     |
+ |                |                   | Calculate Initial    |                     |
+ |                |                   | Chart                |                     |
+ |                |                   |--------------------->|                     |
+ |                |                   |                      |                     |
+ |                |                   |                      | Initial Chart Data  |
+ |                |                   |<---------------------|                     |
+ |                |                   |                      |                     |
+ |                |                   | Verify Chart         |                     |
+ |                |                   | Against Indian       |                     |
+ |                |                   | Vedic Standards      |                     |
+ |                |                   |--------------------->|                     |
+ |                |                   |                      | Verification        |
+ |                |                   |                      | Request             |
+ |                |                   |                      |-------------------->|
+ |                |                   |                      |                     |
+ |                |                   |                      |                     | Multi-technique
+ |                |                   |                      |                     | Vedic Analysis
+ |                |                   |                      |                     |----------------
+ |                |                   |                      |                     |
+ |                |                   |                      | Verification        |
+ |                |                   |                      | Result              |
+ |                |                   |                      |<--------------------|
+ |                |                   |                      |                     |
+ |                |                   |                      | Apply               |
+ |                |                   |                      | Corrections         |
+ |                |                   |                      | (if needed)         |
+ |                |                   |                      |----------------     |
+ |                |                   |                      |                     |
+ |                |                   | Verified/Corrected   |                     |
+ |                |                   | Chart Data           |                     |
+ |                |                   |<---------------------|                     |
+ |                | {chart_id: "...",                        |                     |
+ |                |  verification: {  |                      |                     |
+ |                |    verified: true,|                      |                     |
+ |                |    confidence: 87,|                      |                     |
+ |                |    corrections_applied: true|            |                     |
+ |                |  }}               |                      |                     |
+ |                |<------------------|                      |                     |
+ |                |                   |                      |                     |
+ | Display Chart  |                   |                      |                     |
+ |<---------------|                   |                      |                     |
+ |                |                   |                      |                     |
+```
+
+## Sequence Overview and Component Interactions
+
+The sequence diagrams illustrate the complete flow of the Birth Time Rectifier application, showing both:
+
+1. **Full Implementation** - The intended end-to-end flow with backend integration
+2. **Simplified Flow** - The current implementation with mock services for testing
+3. **Vedic Chart Verification Flow** - The specific OpenAI integration for chart verification
+
+### Key Integration Points for OpenAI Verification
+
+1. **Chart Calculator to OpenAI Service**:
+   - After initial chart calculation, the Chart Calculator sends chart data to OpenAI Service
+   - OpenAI validates the chart against Indian Vedic Astrological standards
+   - Corrections are applied if needed and verification metadata is added to the chart
+
+2. **Verification Data Structure**:
+   - `verified`: Boolean indicating successful verification
+   - `confidence_score`: Numeric score (0-100) indicating confidence level
+   - `corrections_applied`: Boolean indicating whether corrections were applied
+   - `message`: Human-readable message explaining verification results
+
+3. **API Parameters**:
+   - `verify_with_openai`: Boolean flag to control verification (defaults to true)
+   - Allows for bypassing verification in development/testing scenarios
+
+### Implementation Priorities
+
+Based on the simplified sequence, the implementation priorities are:
+
+1. **Client-Side Validation**: Robust validation for all form inputs with immediate feedback.
+
+2. **Mock Data Services**: Simple data providers that simulate API responses without dependencies.
+
+3. **Navigation Flow**: Ensure smooth transitions between form submission and results display.
+
+4. **Error Boundaries**: Add proper error handling at key points to prevent blank screens.
+
+5. **Fallback Content**: Provide graceful degradation when WebGL or other features fail.
+
+This approach allows for testing the core user journey without requiring the full backend implementation, addressing the critical issues identified in User Testing Iteration 1.
 
 ## Component Interaction Map
 
@@ -145,6 +572,12 @@ The sequence diagram involves the following components, with their responsibilit
 - **Chart Service**: Processes geocoding requests, validates birth details, generates charts
 - **Rectification Service**: Processes birth time rectification, sends progress updates
 - **Interpretation Service**: Generates chart interpretations and insights
+
+### OpenAI Service
+- Verifies charts against Indian Vedic Astrological standards
+- Applies corrections to chart data when necessary
+- Provides confidence scoring for verification
+- Generates explanation of verification results
 
 ### Database (DB)
 - Stores session data
@@ -207,22 +640,29 @@ To implement this sequence diagram correctly, follow these detailed steps:
    - Display validation errors to user
    - Enable chart generation only for valid details
 
-### 4. Chart Generation
+### 4. Chart Generation with OpenAI Verification
 
 1. **Enhance Chart Service**
    - Implement chart calculation logic in `ai_service/services/chart_service.py`
    - Add methods to calculate planetary positions, house cusps, and aspects
    - Create data models for chart components
 
-2. **Add Chart Generation Endpoint**
-   - Create `/api/chart/generate` endpoint in `ai_service/api/routers/chart.py`
-   - Accept birth details and options parameters
-   - Validate session and user authentication
-   - Return complete chart data
+2. **Implement OpenAI Verification**
+   - Create `EnhancedChartCalculator` class with verification capabilities
+   - Implement connection to OpenAI service
+   - Add correction application logic for chart data
+   - Add verification metadata to chart response
 
-3. **Frontend Chart Integration**
+3. **Add Chart Generation Endpoint**
+   - Create `/api/chart/generate` endpoint in `ai_service/api/routers/chart.py`
+   - Accept birth details and options parameters including `verify_with_openai`
+   - Validate session and user authentication
+   - Return complete chart data with verification information
+
+4. **Frontend Chart Integration**
    - Implement chart visualization component
    - Display planetary positions, houses, and aspects
+   - Add visual indicators for verified/corrected chart elements
    - Add interactive elements for chart exploration
 
 ### 5. Rectification Process
@@ -283,26 +723,27 @@ To implement this sequence diagram correctly, follow these detailed steps:
    - Show personalized interpretations for chart elements
    - Add expandable sections for detailed information
 
-## Testing the Sequence Flow
+## Testing Implementation
 
-When testing the sequence flow:
+Testing this sequence flow follows a systematic approach:
 
-1. **End-to-End Testing**
-   - Create tests that follow the exact sequence in the diagram
-   - Verify each response matches the expected format
-   - Test error handling at each step
+1. **Unit Tests**
+   - Test individual components like OpenAI service, chart calculator
+   - Verify error handling and fallback mechanisms
+   - Test dynamic model selection based on task type
 
-2. **Component Testing**
-   - Test each service independently
-   - Verify correct behavior with valid and invalid inputs
-   - Test edge cases for each component
+2. **Integration Tests**
+   - Test chart generation with and without OpenAI verification
+   - Verify verification data structure in responses
+   - Test correction application logic
 
-3. **Integration Testing**
-   - Test interactions between components
-   - Verify data flows correctly between services
-   - Test authentication and session validation
+3. **End-to-End Tests**
+   - Test complete user flow from birth details to verification
+   - Test the sequence via Playwright tests in `vedic-verification-flow.spec.js`
+   - Use test script in `test_scripts/run-vedic-verification-test.sh`
 
-4. **Performance Testing**
-   - Measure response times for chart generation and rectification
-   - Test system under load to ensure stability
-   - Optimize bottlenecks in the sequence
+4. **Visualization Tests**
+   - Test rendering of verification indicators
+   - Test display of correction information in the UI
+
+This comprehensive testing approach ensures the OpenAI integration for Vedic chart verification works as expected throughout the application flow.

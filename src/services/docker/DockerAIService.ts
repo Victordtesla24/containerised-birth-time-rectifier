@@ -20,6 +20,9 @@ interface BirthTimeCalculationResult {
   explanation: string;
 }
 
+/**
+ * DockerAIService - Singleton service for Docker container optimization and monitoring
+ */
 export class DockerAIService extends EventEmitter {
   private static instance: DockerAIService | null = null;
   private metricsHistory: ContainerMetrics[] = [];
@@ -35,6 +38,9 @@ export class DockerAIService extends EventEmitter {
     }
   }
 
+  /**
+   * Get the singleton instance of DockerAIService
+   */
   public static getInstance(): DockerAIService {
     if (!DockerAIService.instance) {
       DockerAIService.instance = new DockerAIService();
@@ -42,6 +48,9 @@ export class DockerAIService extends EventEmitter {
     return DockerAIService.instance;
   }
 
+  /**
+   * Reset the singleton instance (for testing purposes)
+   */
   public static resetInstance(): void {
     if (DockerAIService.instance) {
       DockerAIService.instance.dispose();
@@ -51,7 +60,7 @@ export class DockerAIService extends EventEmitter {
 
   private initializeMetricsCollection(): void {
     if (!this.isEnabled) return;
-    
+
     this.metricsInterval = setInterval(async () => {
       try {
         const metrics = await this.collectMetrics();
@@ -149,20 +158,43 @@ export class DockerAIService extends EventEmitter {
   // Add the calculateBirthTime method
   public async calculateBirthTime(input: BirthTimeCalculationInput): Promise<BirthTimeCalculationResult> {
     if (!this.isEnabled) {
-      return {
-        rectifiedTime: input.time, // Return the input time if AI is disabled
-        confidence: 0,
-        explanation: 'Docker AI Agent is disabled'
-      };
+      throw new Error('Docker AI Agent is disabled - Cannot calculate birth time');
     }
 
     try {
-      // In a real implementation, this would call the AI service API
-      // For now, return a simple mock result
+      // Get the API URL from environment variables or use default
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+      // Call the real AI service API endpoint for birth time calculation
+      const response = await fetch(`${apiUrl}/api/chart/rectify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          birthDetails: {
+            birthDate: input.date,
+            birthTime: input.time,
+            birthCity: input.place,
+            latitude: input.coordinates.latitude,
+            longitude: input.coordinates.longitude,
+            timezone: input.timezone,
+            name: input.name
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`AI service responded with ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+
       return {
-        rectifiedTime: '14:30',
-        confidence: 0.85,
-        explanation: 'Birth time calculated based on planetary positions.'
+        rectifiedTime: data.suggestedTime || data.rectifiedTime,
+        confidence: data.confidence || 0,
+        explanation: data.explanation || 'Birth time calculated based on astrological analysis.'
       };
     } catch (error) {
       console.error('Error calculating birth time:', error);
@@ -171,4 +203,6 @@ export class DockerAIService extends EventEmitter {
   }
 }
 
-export default DockerAIService.getInstance(); 
+// Export the singleton instance as default
+const instance = DockerAIService.getInstance();
+export default instance;

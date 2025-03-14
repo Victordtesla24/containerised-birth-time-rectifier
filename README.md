@@ -214,3 +214,40 @@ For questions, support, or collaboration, please contact us at:
 - Email: contact@birthrectifier.example.com
 - Twitter: [@BirthRectifier](https://twitter.com/BirthRectifier)
 - Website: [https://birthrectifier.example.com](https://birthrectifier.example.com)
+
+## Visual Testing
+
+This project includes visual regression testing to ensure UI components maintain their appearance across changes.
+
+### Running Visual Tests
+
+To run the visual tests:
+
+```bash
+# Start the development server
+npm run dev
+
+# In a separate terminal, run the visual tests
+npm run test:visual
+```
+
+The first time you run the tests, they will create baseline snapshots in the `__image_snapshots__` directory. Subsequent runs will compare against these baselines.
+
+### Updating Visual Snapshots
+
+If you've made intentional UI changes, you'll need to update the baseline snapshots:
+
+```bash
+npm run test:update-visual
+```
+
+### How Visual Testing Works
+
+1. The tests use Puppeteer to launch a headless browser and navigate to components
+2. Screenshots are taken of the components in various states
+3. These screenshots are compared against baseline images using jest-image-snapshot
+4. If the difference exceeds the threshold, the test fails and generates diff images
+
+### Visual Test Files
+
+Visual tests are located in `src/__tests__` with the naming pattern `*.visual.test.jsx`.

@@ -1,266 +1,302 @@
 """
-Chart service for Birth Time Rectifier API.
-Handles astrological chart calculations and management.
+Chart Service
+
+This module provides services for chart generation, retrieval, and validation.
+It handles the business logic for astrological chart operations.
 """
 
 import logging
+import uuid
+from typing import Dict, List, Any, Optional
 from datetime import datetime
-from typing import Dict, Any, List, Optional
 
-from ai_service.utils.astro_calculator import AstroCalculator
+from ai_service.utils.constants import ZODIAC_SIGNS
+from ai_service.core.chart_calculator import (
+    calculate_houses, calculate_ketu_position, calculate_chart as calculate_basic_chart,
+    calculate_verified_chart, get_enhanced_chart_calculator
+)
 
-# Configure logging
+# Setup logging
 logger = logging.getLogger(__name__)
 
+# In-memory chart store - in production, should be replaced with a database
+chart_store = {}
+
 class ChartService:
-    """Service for chart calculations and management"""
+    """Service for chart operations including generation, validation, and retrieval"""
 
     def __init__(self):
-        self.astro_calculator = AstroCalculator()
-        self.chart_storage = {}  # Simple in-memory storage
+        """Initialize the chart service with access to chart storage"""
+        # For backward compatibility with code that uses chart_storage attribute
+        self.chart_storage = chart_store
 
-    def generate_chart(self,
-                      birth_date: str,
-                      birth_time: str,
-                      latitude: float,
-                      longitude: float,
-                      timezone: str,
-                      house_system: str = "placidus",
-                      ayanamsa: float = 23.6647,
-                      node_type: str = "true",
-                      zodiac_type: str = "sidereal") -> Dict[str, Any]:
+    @staticmethod
+    async def generate_chart(
+        birth_date: str,
+        birth_time: str,
+        latitude: float,
+        longitude: float,
+        timezone: str,
+        house_system: str = "P",
+        zodiac_type: str = "sidereal",
+        ayanamsa: float = 23.6647,
+        verify_with_openai: bool = True,
+        node_type: str = "true"
+    ) -> Dict[str, Any]:
         """
-        Generate a chart based on birth details
+        Generate a chart based on birth details with optional OpenAI verification
 
         Args:
             birth_date: Birth date in format YYYY-MM-DD
-            birth_time: Birth time in format HH:MM or HH:MM:SS
-            latitude: Birth latitude
-            longitude: Birth longitude
-            timezone: Timezone name (e.g. 'Asia/Kolkata')
-            house_system: House system to use
-            ayanamsa: Ayanamsa value for sidereal calculations
-            node_type: Type of nodes calculation ('true' or 'mean')
-            zodiac_type: Type of zodiac ('sidereal' or 'tropical')
+            birth_time: Birth time in format HH:MM:SS
+            latitude: Birth location latitude
+            longitude: Birth location longitude
+            timezone: Timezone string (e.g., "America/New_York")
+            house_system: House system to use (default "P" for Placidus)
+            zodiac_type: Zodiac type (default "sidereal" for Indian astrology)
+            ayanamsa: Ayanamsa value (default 23.6647 for Lahiri)
+            verify_with_openai: Whether to verify chart with OpenAI
+            node_type: Type of nodes to calculate (default "true")
 
         Returns:
             Dictionary containing chart data
         """
-        try:
-            # Parse the date and time
-            date_obj = datetime.strptime(birth_date, "%Y-%m-%d").date()
+        # Create birth datetime
+        birth_dt_str = f"{birth_date}T{birth_time}"
+        birth_dt = datetime.fromisoformat(birth_dt_str)
 
-            # Calculate the chart
-            chart_data = self.astro_calculator.calculate_chart(
-                date_obj,
-                birth_time,
-                latitude,
-                longitude,
-                timezone=timezone,
+        try:
+            # Generate chart with OpenAI verification if requested
+            if verify_with_openai:
+                logger.info(f"Generating verified chart for {birth_date} {birth_time}")
+                chart_data = await calculate_verified_chart(
+                    birth_date=birth_date,
+                    birth_time=birth_time,
+                    latitude=latitude,
+                    longitude=longitude,
+                    location="",  # Optional location name
+                    house_system=house_system,
+                    ayanamsa=int(ayanamsa),
+                    node_type=node_type
+                )
+                logger.info("Using OpenAI-verified chart")
+            else:
+                # Use basic calculation without verification
+                chart_data = calculate_basic_chart(
+                    birth_date=birth_dt.strftime("%Y-%m-%d"),
+                    birth_time=birth_dt.strftime("%H:%M:%S"),
+                    latitude=latitude,
+                    longitude=float(longitude),
+                    location="",  # Add location parameter
+                    house_system=house_system,
+                    ayanamsa=float(ayanamsa),
+                    node_type=node_type  # Add node_type parameter with default
+                )
+        except Exception as e:
+            # If verification fails, fall back to basic calculation
+            logger.warning(f"Chart calculation failed, using fallback: {e}")
+            chart_data = calculate_basic_chart(
+                birth_date=birth_dt.strftime("%Y-%m-%d"),
+                birth_time=birth_dt.strftime("%H:%M:%S"),
+                latitude=latitude,
+                longitude=float(longitude),
+                location="",  # Add location parameter
                 house_system=house_system,
-                ayanamsa=ayanamsa
+                ayanamsa=float(ayanamsa),
+                node_type=node_type  # Add node_type parameter with default
             )
 
-            # Generate a unique ID and store the chart
-            chart_id = f"chart_{len(self.chart_storage) + 1}"
-            self.chart_storage[chart_id] = chart_data
+        # Process and normalize chart data
+        chart_data = ChartService._process_chart_data(chart_data)
 
-            # Add chart ID to the data
-            chart_data["id"] = chart_id
+        # Generate a chart ID and store the chart
+        chart_id = str(uuid.uuid4())[:8]
+        chart_store[chart_id] = chart_data
 
-            return chart_data
+        return {
+            "chart_id": chart_id,
+            **chart_data
+        }
 
-        except Exception as e:
-            logger.error(f"Error generating chart: {e}")
-            raise
-
-    def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
+    @staticmethod
+    def get_chart(chart_id: str) -> Dict[str, Any]:
         """
         Retrieve a chart by ID
 
         Args:
-            chart_id: ID of the chart to retrieve
+            chart_id: The ID of the chart to retrieve
 
         Returns:
-            Chart data or None if not found
-        """
-        return self.chart_storage.get(chart_id)
+            Dictionary containing chart data
 
-    def compare_charts(self, chart1: Dict[str, Any], chart2: Dict[str, Any]) -> Dict[str, Any]:
+        Raises:
+            ValueError: If chart with ID not found
         """
-        Compare two charts and calculate differences
+        if chart_id not in chart_store:
+            raise ValueError(f"Chart not found: {chart_id}")
+
+        chart_data = chart_store[chart_id]
+        return {
+            "chart_id": chart_id,
+            **chart_data
+        }
+
+    def compare_charts(self, chart1_id: str, chart2_id: str, comparison_type: str = "differences", include_significance: bool = True) -> Dict:
+        """
+        Compare two charts and analyze their differences.
 
         Args:
-            chart1: First chart data
-            chart2: Second chart data
+            chart1_id: ID of the first chart
+            chart2_id: ID of the second chart
+            comparison_type: Type of comparison (differences, full, summary)
+            include_significance: Whether to include significance ratings
 
         Returns:
-            Dictionary with comparison results
+            Dictionary containing comparison results
         """
-        differences = {
-            "ascendant": self._compare_ascendants(chart1.get("ascendant", {}), chart2.get("ascendant", {})),
-            "planets": self._compare_planets(chart1.get("planets", []), chart2.get("planets", [])),
-            "houses": self._compare_houses(chart1.get("houses", []), chart2.get("houses", []))
+        # Verify both charts exist
+        if chart1_id not in chart_store:
+            raise ValueError(f"Chart not found: {chart1_id}")
+        if chart2_id not in chart_store:
+            raise ValueError(f"Chart not found: {chart2_id}")
+
+        # Get the charts from storage
+        chart1 = chart_store[chart1_id]
+        chart2 = chart_store[chart2_id]
+
+        # Compare ascendant changes
+        ascendant_change = {
+            "type": "ascendant_shift",
+            "chart1_position": {
+                "sign": chart1["ascendant"]["sign"],
+                "degree": chart1["ascendant"]["degree"]
+            },
+            "chart2_position": {
+                "sign": chart2["ascendant"]["sign"],
+                "degree": chart2["ascendant"]["degree"]
+            },
+            "significance": 85.0 if include_significance else None
         }
 
-        # Calculate overall difference percentage
-        total_diff = 0
-        count = 0
+        # Compare planets
+        planet_differences = []
+        for planet_name, planet1 in chart1["planets"].items():
+            # Find the same planet in chart2
+            if planet_name in chart2["planets"]:
+                planet2 = chart2["planets"][planet_name]
 
-        # Add ascendant difference
-        if isinstance(differences["ascendant"], dict) and "difference_degrees" in differences["ascendant"]:
-            total_diff += min(differences["ascendant"]["difference_degrees"], 30) / 30
-            count += 1
+                # Check if there are meaningful differences
+                sign_change = planet1["sign"] != planet2["sign"]
+                house_change = planet1.get("house", 0) != planet2.get("house", 0)
+                degree_diff = abs(planet1["degree"] - planet2["degree"]) > 1.0
 
-        # Add planet differences
-        for planet_diff in differences["planets"]:
-            if "difference_degrees" in planet_diff:
-                total_diff += min(planet_diff["difference_degrees"], 30) / 30
-                count += 1
+                if sign_change or house_change or degree_diff:
+                    diff_entry = {
+                        "type": "planet_shift",
+                        "planet": planet1["name"],
+                        "chart1_position": {
+                            "sign": planet1["sign"],
+                            "degree": planet1["degree"],
+                            "house": planet1.get("house", 0)
+                        },
+                        "chart2_position": {
+                            "sign": planet2["sign"],
+                            "degree": planet2["degree"],
+                            "house": planet2.get("house", 0)
+                        },
+                    }
 
-        # Add house differences
-        for house_diff in differences["houses"]:
-            if "difference_degrees" in house_diff:
-                total_diff += min(house_diff["difference_degrees"], 30) / 30
-                count += 1
+                    if include_significance:
+                        diff_entry["significance"] = 75.0 if sign_change else (65.0 if house_change else 40.0)
 
-        # Calculate average difference
-        if count > 0:
-            average_diff = total_diff / count
-            differences["overall_difference_percentage"] = round(average_diff * 100, 2)
-        else:
-            differences["overall_difference_percentage"] = 0
+                    planet_differences.append(diff_entry)
 
-        return differences
+        # Generate a unique comparison ID
+        comparison_id = f"comp_{uuid.uuid4().hex[:12]}"
 
-    def _compare_ascendants(self, asc1: Dict[str, Any], asc2: Dict[str, Any]) -> Dict[str, Any]:
-        """Compare ascendants between two charts"""
-        result = {
-            "original_sign": asc1.get("sign"),
-            "rectified_sign": asc2.get("sign"),
-            "sign_changed": asc1.get("sign") != asc2.get("sign")
+        # Create full response
+        differences = [ascendant_change] + planet_differences
+
+        response = {
+            "comparison_id": comparison_id,
+            "chart1_id": chart1_id,
+            "chart2_id": chart2_id,
+            "comparison_type": comparison_type,
+            "differences": differences,
         }
 
-        # Calculate degree difference if possible
-        if "degree" in asc1 and "degree" in asc2 and "sign" in asc1 and "sign" in asc2:
-            # Calculate total degrees (sign position * 30 + degree)
-            sign_index1 = self._get_sign_index(asc1["sign"])
-            sign_index2 = self._get_sign_index(asc2["sign"])
+        # Add summary for "full" or "summary" comparison types
+        if comparison_type.lower() == "full" or comparison_type.lower() == "summary":
+            # Count meaningful changes
+            signs_changed = sum(1 for d in differences if d["type"] == "planet_shift" and
+                               d["chart1_position"]["sign"] != d["chart2_position"]["sign"])
 
-            total_degrees1 = (sign_index1 * 30) + asc1["degree"]
-            total_degrees2 = (sign_index2 * 30) + asc2["degree"]
+            houses_changed = sum(1 for d in differences if d["type"] == "planet_shift" and
+                                 d["chart1_position"]["house"] != d["chart2_position"]["house"])
 
-            # Calculate smallest angle between the two positions
-            diff = abs(total_degrees1 - total_degrees2)
-            if diff > 180:
-                diff = 360 - diff
+            summary = f"The chart comparison reveals: "
 
-            result["difference_degrees"] = round(diff, 2)
-            result["significance"] = self._calculate_significance(diff)
+            # Extract birth time info
+            birth_time1 = chart1["birth_details"]["birth_time"]
+            birth_time2 = chart2["birth_details"]["birth_time"]
 
-        return result
+            summary += f"Birth time adjustment from {birth_time1} to {birth_time2}; "
 
-    def _compare_planets(self, planets1: List[Dict[str, Any]], planets2: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Compare planets between two charts"""
-        results = []
+            # Ascendant info
+            asc1_sign = chart1["ascendant"]["sign"]
+            asc2_sign = chart2["ascendant"]["sign"]
+            if asc1_sign != asc2_sign:
+                summary += f"Ascendant changes from {asc1_sign} to {asc2_sign}; "
 
-        # Create a map of planets by name for the second chart
-        planet_map2 = {p["name"]: p for p in planets2}
+            # Planet and house info
+            if houses_changed:
+                summary += f"{houses_changed} planet(s) change houses; "
+            if signs_changed:
+                summary += f"{signs_changed} planet(s) change signs; "
 
-        for planet1 in planets1:
-            name = planet1["name"]
-            if name in planet_map2:
-                planet2 = planet_map2[name]
+            # House sign changes
+            house_sign_changes = 0
+            if "houses" in chart1 and "houses" in chart2:
+                for i in range(min(len(chart1["houses"]), len(chart2["houses"]))):
+                    if chart1["houses"][i]["sign"] != chart2["houses"][i]["sign"]:
+                        house_sign_changes += 1
 
-                result = {
-                    "planet": name,
-                    "original_sign": planet1.get("sign"),
-                    "rectified_sign": planet2.get("sign"),
-                    "sign_changed": planet1.get("sign") != planet2.get("sign"),
-                    "original_house": planet1.get("house"),
-                    "rectified_house": planet2.get("house"),
-                    "house_changed": planet1.get("house") != planet2.get("house")
-                }
+            if house_sign_changes:
+                summary += f"{house_sign_changes} house(s) change signs."
 
-                # Calculate degree difference if possible
-                if "degree" in planet1 and "degree" in planet2 and "sign" in planet1 and "sign" in planet2:
-                    # Calculate total degrees
-                    sign_index1 = self._get_sign_index(planet1["sign"])
-                    sign_index2 = self._get_sign_index(planet2["sign"])
+            response["summary"] = summary.strip()
 
-                    total_degrees1 = (sign_index1 * 30) + planet1["degree"]
-                    total_degrees2 = (sign_index2 * 30) + planet2["degree"]
+        return response
 
-                    # Calculate smallest angle between the two positions
-                    diff = abs(total_degrees1 - total_degrees2)
-                    if diff > 180:
-                        diff = 360 - diff
+    @staticmethod
+    def _process_chart_data(chart_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process the generated chart data to ensure it's in the expected format.
 
-                    result["difference_degrees"] = round(diff, 2)
-                    result["significance"] = self._calculate_significance(diff)
+        Args:
+            chart_data: Raw chart data from calculation
 
-                results.append(result)
+        Returns:
+            Processed chart data with standardized structure
+        """
+        processed_data = {**chart_data}  # Create a copy of the original data
 
-        return results
+        # Ensure d1Chart field is present for compatibility with tests
+        if "d1Chart" not in processed_data:
+            # Extract the main chart as d1Chart
+            d1_chart = {
+                "ascendant": chart_data.get("ascendant", {}),
+                "planets": [],
+                "houses": chart_data.get("houses", []),
+                "aspects": chart_data.get("aspects", [])
+            }
 
-    def _compare_houses(self, houses1: List[Dict[str, Any]], houses2: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Compare houses between two charts"""
-        results = []
+            # Extract planets from the main data if they exist
+            planets = chart_data.get("planets", [])
+            if planets:
+                d1_chart["planets"] = planets
 
-        # Create a map of houses by number for the second chart
-        house_map2 = {h["number"]: h for h in houses2}
+            # Add d1Chart to the processed data
+            processed_data["d1Chart"] = d1_chart
 
-        for house1 in houses1:
-            number = house1["number"]
-            if number in house_map2:
-                house2 = house_map2[number]
-
-                result = {
-                    "house": number,
-                    "original_sign": house1.get("sign"),
-                    "rectified_sign": house2.get("sign"),
-                    "sign_changed": house1.get("sign") != house2.get("sign")
-                }
-
-                # Calculate degree difference if possible
-                if "degree" in house1 and "degree" in house2 and "sign" in house1 and "sign" in house2:
-                    # Calculate total degrees
-                    sign_index1 = self._get_sign_index(house1["sign"])
-                    sign_index2 = self._get_sign_index(house2["sign"])
-
-                    total_degrees1 = (sign_index1 * 30) + house1["degree"]
-                    total_degrees2 = (sign_index2 * 30) + house2["degree"]
-
-                    # Calculate smallest angle between the two positions
-                    diff = abs(total_degrees1 - total_degrees2)
-                    if diff > 180:
-                        diff = 360 - diff
-
-                    result["difference_degrees"] = round(diff, 2)
-                    result["significance"] = self._calculate_significance(diff)
-
-                results.append(result)
-
-        return results
-
-    def _get_sign_index(self, sign: str) -> int:
-        """Get the index of a zodiac sign (0-11)"""
-        signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-                 "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-        try:
-            return signs.index(sign)
-        except ValueError:
-            return 0  # Default to Aries if sign not found
-
-    def _calculate_significance(self, degrees: float) -> str:
-        """Calculate significance based on degree difference"""
-        if degrees < 1:
-            return "very high"
-        elif degrees < 3:
-            return "high"
-        elif degrees < 7:
-            return "moderate"
-        elif degrees < 15:
-            return "low"
-        else:
-            return "very low"
+        return processed_data

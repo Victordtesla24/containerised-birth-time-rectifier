@@ -1,4 +1,4 @@
-import { CelestialBackground as CanvasCelestialBackground } from '../canvas/CelestialBackground';
+import { CelestialBackground as CanvasCelestialBackground } from '@/components/visualization/canvas';
 
-// Re-export for backward compatibility
-export { CanvasCelestialBackground as CelestialBackground };
+// Re-export the canvas component with a specific name to avoid conflicts
+export { CanvasCelestialBackground };

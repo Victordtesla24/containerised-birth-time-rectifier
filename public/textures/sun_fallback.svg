@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <circle cx="128" cy="128" r="120" fill="#FFCC00" />
+  <circle cx="128" cy="128" r="110" fill="#FFDD33" />
+  <circle cx="128" cy="128" r="95" fill="#FFEE66" />
+  <!-- Sun rays -->
+  <g stroke="#FFAA00" stroke-width="8">
+    <line x1="30" y1="128" x2="55" y2="128" />
+    <line x1="226" y1="128" x2="201" y2="128" />
+    <line x1="128" y1="30" x2="128" y2="55" />
+    <line x1="128" y1="226" x2="128" y2="201" />
+    <!-- Diagonal rays -->
+    <line x1="59" y1="59" x2="77" y2="77" />
+    <line x1="197" y1="59" x2="179" y2="77" />
+    <line x1="59" y1="197" x2="77" y2="179" />
+    <line x1="197" y1="197" x2="179" y2="179" />
+  </g>
+  <text x="128" y="135" font-family="Arial" font-size="24" text-anchor="middle" fill="#CC6600">SUN</text>
+</svg>

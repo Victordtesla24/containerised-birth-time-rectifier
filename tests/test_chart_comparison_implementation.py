@@ -15,26 +15,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Base URL for API tests
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:9000"
 
 def generate_test_charts():
     """Generate two test charts to compare"""
+    # Using both conventions in different charts to test full compatibility
     chart1_data = {
-        "birth_date": "1990-01-15",
-        "birth_time": "14:30:00",
-        "latitude": 40.7128,
-        "longitude": -74.0060,
-        "timezone": "America/New_York",
-        "options": {"house_system": "placidus"}
+        "birth_details": {
+            "birth_date": "1990-01-15",
+            "birth_time": "14:30:00",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "timezone": "America/New_York"
+        },
+        "options": {"house_system": "W"}
     }
 
     chart2_data = {
-        "birth_date": "1990-01-15",
-        "birth_time": "15:30:00",  # One hour later
-        "latitude": 40.7128,
-        "longitude": -74.0060,
-        "timezone": "America/New_York",
-        "options": {"house_system": "placidus"}
+        "birth_details": {
+            "birth_date": "1990-01-15",
+            "birth_time": "15:30:00",  # One hour later
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "timezone": "America/New_York"
+        },
+        "options": {"house_system": "W"}
     }
 
     # Generate first chart

@@ -7,12 +7,16 @@ import logging
 from fastapi import Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, Callable, Awaitable
 
 # Setup logging
 logger = logging.getLogger("birth-time-rectifier.error-handling")
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+# Define ExceptionHandler type aliases for type checking
+RequestValidationExceptionHandler = Callable[[Request, RequestValidationError], Awaitable[JSONResponse]]
+HTTPExceptionHandler = Callable[[Request, HTTPException], Awaitable[JSONResponse]]
+
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """
     Handle validation errors from pydantic models.
     Returns a standardized error response with field-specific validation details.
@@ -57,7 +61,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
-async def http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """
     Handle HTTP exceptions.
     Returns a standardized error response for all HTTP exceptions.

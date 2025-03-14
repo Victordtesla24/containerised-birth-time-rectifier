@@ -1,0 +1,13 @@
+
+Planetary Position
+================================================================================
+Planets    | Asc        | Sun        | Moon       | Mars       | Mercury    | Jupiter    | Venus      | Saturn     | Rahu       | Ketu       |
+----------------------------------------------------------------------------------------------------------------------------------
+Degree     | --         | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° |
+Rashi      | --         | Aries      | Aries      | Aries      | Aries      | Aries      | Aries      | Aries      | Aries      | Aries      |
+Longitude  | --         | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° | 0.00° |
+Nakshatra  | --         |            |            |            |            |            |            |            |            |            |
+Pada       | --         |            |            |            |            |            |            |            |            |            |
+NakshaLord | --         | Unknown    | Unknown    | Unknown    | Unknown    | Unknown    | Unknown    | Unknown    | Unknown    | Unknown    |
+House      | --         | 1          | 12         | 9          | 1          | 5          | 2          | 2          | 8          | 2          |
+Relation   | --         | Friend     | Neutral    | Friend     | Neutral    | Neutral    | Enemy      | Enemy      | Neutral    | Friend     |

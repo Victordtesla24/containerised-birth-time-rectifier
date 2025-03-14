@@ -1,0 +1,25 @@
+# Ignore E2E tests for Jest runs
+tests/e2e/
+*.spec.js
+*.spec.ts
+*.spec.tsx
+
+# Development files
+.next/
+node_modules/
+coverage/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Playwright files
+playwright.config.js
+playwright-report/
+test-results/

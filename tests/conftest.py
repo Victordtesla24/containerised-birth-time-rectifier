@@ -13,6 +13,9 @@ from datetime import datetime
 # Add the root directory to the path so we can import from the ai_service module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Import the models directly to avoid circular imports
+from ai_service.models.chart import ChartRequestAlt
+
 # Import the FastAPI app
 from ai_service.main import app
 

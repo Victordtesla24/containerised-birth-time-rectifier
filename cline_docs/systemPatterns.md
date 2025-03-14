@@ -803,3 +803,116 @@ The core domain model revolves around astrological charts and birth time rectifi
 5. **GraphQL**: Consider adding GraphQL support for more flexible data querying.
 
 6. **Edge Caching**: Implement CDN and edge caching for improved global performance.
+
+# Birth Time Rectifier - System Architecture and Patterns
+
+## System Architecture
+
+The Birth Time Rectifier application follows a multi-layered architecture with the following components:
+
+1. **Frontend Layer (Next.js)**
+   - UI Components for user interaction
+   - API Client for backend communication
+   - State management for session persistence
+   - Chart visualization components
+
+2. **API Gateway Layer**
+   - Routes API requests to appropriate backend services
+   - Handles session management
+   - Provides error handling and logging
+   - Implements path rewriting for backward compatibility
+
+3. **Backend Services Layer (FastAPI)**
+   - Core business logic implementation
+   - AI model integration for birth time rectification
+   - Chart calculation and verification
+   - Questionnaire generation and processing
+
+4. **Data Storage Layer**
+   - Session data storage (Redis)
+   - Chart data persistence
+   - User data management
+
+## Key Technical Decisions
+
+### 1. Unified API Gateway Pattern
+- Centralized API Gateway handling all requests
+- Standardized API prefix `/api/v1/` for all endpoints
+- Middleware for session management, logging, and error handling
+- Consistent error response format
+
+### 2. Session Management
+- Session initialization through dedicated endpoint
+- Session token for authentication
+- Session data persistence in Redis
+- Middleware for automatic session validation
+
+### 3. Chart Generation
+- Ephemeris calculation engine for accurate planetary positions
+- Standardized chart data format
+- Support for multiple chart types (Lagna, Navamsa, etc.)
+- Verification against Vedic standards
+
+### 4. AI Integration
+- OpenAI verification for chart accuracy
+- AI-powered birth time rectification
+- Confidence scoring for rectification results
+- Adaptive questionnaire generation
+
+### 5. Visualization
+- 2D North Indian Vedic chart rendering
+- 3D interactive chart visualization
+- Responsive design for all device types
+- Color-coding for planetary relationships
+
+## Design Patterns
+
+1. **Factory Pattern**
+   - Used for chart generation with different chart types
+   - Implementation in chart generator services
+
+2. **Strategy Pattern**
+   - Used for different verification techniques (Tattva, Nadi, KP)
+   - Allows for pluggable verification strategies
+
+3. **Observer Pattern**
+   - Used for confidence scoring updates
+   - Notifies components of changes in rectification confidence
+
+4. **Repository Pattern**
+   - Used for data access abstraction
+   - Provides standard interface for different data sources
+
+5. **Middleware Pattern**
+   - Used for request processing in API Gateway
+   - Implements cross-cutting concerns like logging and authentication
+
+## Data Flow
+
+1. **User Input**
+   - Birth details entered via frontend form
+   - Data validated client-side
+   - Sent to backend via API Gateway
+
+2. **Chart Generation**
+   - Birth details processed by backend
+   - Planetary positions calculated
+   - Chart data generated and verified
+   - Chart visualization sent to frontend
+
+3. **Questionnaire Flow**
+   - Questions dynamically generated based on chart data
+   - User answers processed by backend
+   - Confidence score updated after each answer
+   - New questions selected based on previous answers
+
+4. **Rectification Process**
+   - AI analyzes questionnaire answers
+   - Birth time adjustments calculated
+   - Rectified chart generated
+   - Results displayed to user
+
+5. **Export Process**
+   - Chart data formatted for export
+   - PDF report generated with chart visualizations
+   - Download provided to user

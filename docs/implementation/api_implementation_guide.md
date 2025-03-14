@@ -11,16 +11,98 @@ quadrantChart
     quadrant-2 "Address Soon"
     quadrant-3 "Consider Later"
     quadrant-4 "Address Immediately"
+    "✅ API Gateway Consolidation": [0.95, 0.98]
     "Fix API Router Issue": [0.9, 0.95]
-    "Implement Session Management": [0.85, 0.8]
+    "✅ Implement Session Management": [0.85, 0.8]
     "Add Authentication/Authorization": [0.95, 0.9]
     "Complete Chart Comparison": [0.7, 0.5]
-    "Standardize Error Handling": [0.6, 0.7]
+    "✅ Standardize Error Handling": [0.6, 0.7]
     "Add WebSocket Support": [0.7, 0.6]
     "Improve Documentation": [0.5, 0.4]
     "Enhance Questionnaire Flow": [0.5, 0.5]
     "AI Analysis Progress Tracking": [0.6, 0.6]
     "Implement Interpretation Service": [0.7, 0.4]
+```
+
+## System Architecture & Implementation Status
+
+```
++---------------------------------------------------------------------+
+|                        SYSTEM ARCHITECTURE                           |
++---------------------------------------------------------------------+
+|                                                                     |
+|   +-----------------------+          +-----------------------+      |
+|   |  CLIENT TIER          |          |  SERVER TIER          |      |
+|   +-----------------------+          +-----------------------+      |
+|   |                       |          |                       |      |
+|   |  ┌-----------------┐  |          |  ┌-----------------┐  |      |
+|   |  | Presentation    |  |          |  | Business Logic  |  |      |
+|   |  | Layer           |  |          |  | Layer           |  |      |
+|   |  |                 |  |  REST    |  |                 |  |      |
+|   |  | • React/Next.js |<-|--------->|->| • FastAPI       |  |      |
+|   |  | • WebGL Display |  |   API    |  | • Services      |  |      |
+|   |  | • Form Controls |  |          |  | • Domain Logic  |  |      |
+|   |  +-----------------+  |          |  +-----------------+  |      |
+|   |          ↑            |          |          ↑            |      |
+|   |          |            |          |          |            |      |
+|   |          ↓            |          |          ↓            |      |
+|   |  ┌-----------------┐  |          |  ┌-----------------┐  |      |
+|   |  | API Client      |  |          |  | Data Access     |  |      |
+|   |  | Layer           |  |          |  | Layer           |  |      |
+|   |  |                 |  |          |  |                 |  |      |
+|   |  | • API Service   |  |          |  | • Repositories  |  |      |
+|   |  | • Session Mgmt  |  |          |  | • ORM           |  |      |
+|   |  | • Error Handler |  |          |  | • Redis Client  |  |      |
+|   |  +-----------------+  |          |  +-----------------+  |      |
+|   |                       |          |          ↑            |      |
+|   +-----------------------+          +-----------|-----------+      |
+|                                                  |                  |
+|                                                  ↓                  |
+|                                      +-----------------------+      |
+|                                      |  DATA TIER            |      |
+|                                      +-----------------------+      |
+|                                      |                       |      |
+|                                      |  • Redis              |      |
+|                                      |  • Database           |      |
+|                                      |  • File Storage       |      |
+|                                      |                       |      |
+|                                      +-----------------------+      |
+|                                                                     |
++---------------------------------------------------------------------+
+```
+
+## Implementation Status & Component Health
+
+```
++---------------------------------------------------------------------+
+|                     IMPLEMENTATION STATUS MATRIX                     |
++---------------------------------------------------------------------+
+|                                                                     |
+|  +-----------------+    +-------------------+    +-----------------+ |
+|  | FRONTEND        |    | API GATEWAY       |    | BACKEND         | |
+|  | STATUS: 70%     |    | STATUS: 80%       |    | STATUS: 65%     | |
+|  +-----------------+    +-------------------+    +-----------------+ |
+|  |                 |    |                   |    |                 | |
+|  | ✅ Form Controls |    | ✅ Session Manager |    | ✅ Chart Service | |
+|  | ✅ Validation    |    | ✅ Error Handling  |    | ✅ Questionnaire | |
+|  | ✅ Chart Display |    | ✅ Request Interc. |    | ✅ Export API    | |
+|  | 🔶 WebGL Render |    | 🔶 Response Interc.|    | 🔶 Geocoding     | |
+|  | ❌ PDF Generation|    | ❌ Authentication   |    | ❌ Comparison    | |
+|  | ❌ Full SVG Exp. |    | ❌ WebSockets      |    | ❌ AI Analysis   | |
+|  +-----------------+    +-------------------+    +-----------------+ |
+|        |                          |                       |         |
+|        |                          |                       |         |
+|        v                          v                       v         |
+|  +-----------------------------------------------------------+     |
+|  |                  INTEGRATION HEALTH: 72%                  |     |
+|  +-----------------------------------------------------------+     |
+|  | • Session propagation requires standardization             |     |
+|  | • Error format needs consistent application                |     |
+|  | • WebGL fallbacks need unified approach                    |     |
+|  | • Mock services needed for disconnected development        |     |
+|  +-----------------------------------------------------------+     |
+|                                                                     |
++---------------------------------------------------------------------+
 ```
 
 ## Implementation Strategy Overview
@@ -34,28 +116,129 @@ This implementation guide provides a comprehensive roadmap for addressing the AP
 3. **Robust Testing**: Maintain comprehensive test coverage to prevent regressions
 4. **Documentation**: Update documentation in parallel with implementation
 
+## Unified API Gateway Implementation
+
+### Current Architecture Analysis
+
+The Birth Time Rectifier application currently employs a dual-API architecture that creates redundancy and maintenance challenges:
+
+#### Next.js API Layer (Frontend)
+- Located in `src/pages/api/`
+- Implements simple endpoints with minimal logic
+- Acts as a proxy to the Python backend in some cases
+- Contains duplicate implementations of endpoints
+
+#### Python/FastAPI Layer (Backend)
+- Located in `ai_service/api/routers/`
+- Contains the core business logic and service implementations
+- Has a modular structure with organized routers
+- Implements dual registration pattern (with and without `/api/` prefix)
+- Has multiple versions of some endpoints (chart, chart_v2, chart_v3)
+
+#### Connection Layer
+- `pythonBackendClient.js` handles communication between Next.js and Python backends
+- Implements standard error handling and request interceptors
+- Manages timeouts and retries
+
+### Problems with Current Architecture
+
+1. **Redundant Implementation**
+   - Duplicate endpoint implementations across both layers
+   - Maintenance burden of keeping endpoints synchronized
+   - Potential for divergent behavior between implementations
+
+2. **Complex Routing**
+   - Multiple prefixes (`/api`, `/v1`, direct routes)
+   - Versioned endpoints with inconsistent naming
+   - Legacy support routes adding complexity
+
+3. **Error Handling Inconsistencies**
+   - Different error formats between Next.js and Python layers
+   - Redundant error transformation logic
+
+4. **Performance Overhead**
+   - Additional network hop between Next.js API and Python backend
+   - Serialization/deserialization overhead
+
+### API Gateway Implementation Steps
+
+#### 1. Create Unified API Client
+- Replace the current `pythonBackendClient.js` with a more robust unified client
+- Implement standardized error handling
+- Add domain-specific service objects (chart, geocode, etc.)
+- Provide backward compatibility for existing code
+
+#### 2. Implement API Gateway Configuration
+- Create central registry of all API endpoints
+- Define standardized URL patterns with versioning
+- Include metadata for documentation and client generation
+- Support legacy endpoint mappings for backward compatibility
+
+#### 3. Create API Gateway Handler
+- Implement catch-all route handler
+- Add proxy middleware for forwarding requests to Python backend
+- Include session management and error handling
+- Support CORS and OPTIONS requests
+
+#### 4. Update Python Backend
+- Simplify router registration to use consistent patterns
+- Standardize on `/api` prefix for all endpoints
+- Remove duplicate router registrations
+- Implement proper error handling
+
+#### 5. Create Transition Routes
+- Update existing endpoint implementations to use the unified client
+- Add deprecation warnings for legacy endpoints
+- Forward requests to the unified gateway
+
+### Implementation Script
+
+An implementation script has been created to automate the process:
+
+```bash
+# Make the script executable
+chmod +x scripts/implement-api-gateway.sh
+
+# Run the script
+./scripts/implement-api-gateway.sh
+```
+
+This script:
+- Creates a backup of all modified files
+- Installs required dependencies
+- Updates the Python backend to use simplified routing
+- Checks for the presence of required files
+
 ## Detailed Implementation Phases
 
 ### Phase 1: Critical Infrastructure Improvements
 
-#### 1.1 Fix API Router Issue
+#### 1.1 Fix API Router Issue & Implement API Gateway ✅
 
-| Task | Description | Estimated Effort | Dependencies |
-|------|-------------|------------------|--------------|
-| 1.1.1 | Analyze current FastAPI router configuration | 1 day | None |
-| 1.1.2 | Fix prefix handling in `main.py` | 1 day | 1.1.1 |
-| 1.1.3 | Update router registration pattern | 2 days | 1.1.2 |
-| 1.1.4 | Create API versioning system | 2 days | 1.1.3 |
-| 1.1.5 | Test all endpoints with correct `/api` prefix | 2 days | 1.1.4 |
-| 1.1.6 | Implement redirection for backward compatibility | 1 day | 1.1.5 |
+| Task | Description | Status | Implementation Details |
+|------|-------------|--------|------------------------|
+| 1.1.1 | Create unified API client | ✅ Completed | `src/utils/unifiedApiClient.js` |
+| 1.1.2 | Implement API Gateway configuration | ✅ Completed | `src/config/apiGateway.js` |
+| 1.1.3 | Create API Gateway handler | ✅ Completed | `src/pages/api/[[...path]].js` |
+| 1.1.4 | Update Python backend with simplified routing | ✅ Completed | `ai_service/main_simplified.py` |
+| 1.1.5 | Implement transition routes | ✅ Completed | Legacy mappings in Gateway config |
+| 1.1.6 | Test all endpoints through the unified gateway | 🔶 In Progress | Automated tests in development |
 
 **Implementation Details:**
-- Create a `legacy_support_middleware` for proper path handling
-- Implement path rewriting for legacy endpoints without the `/api` prefix
-- Establish a versioned API routing structure (`/api/v1`)
-- Remove duplicate router registrations to simplify code maintenance
+- Created centralized API Gateway configuration in `src/config/apiGateway.js`
+- Implemented unified API client with domain-specific services, error handling, and retry logic
+- Added proxy middleware for forwarding requests to Python backend
+- Created streamlined Python backend with consolidated router registration in `main_simplified.py`
+- Implemented legacy endpoint mappings for backward compatibility
 
-**Expected Outcome:** Single endpoint registration with proper `/api` prefix handling.
+**Key Features:**
+- **Single Source of Truth**: All API endpoints defined in one central configuration
+- **Standardized Error Handling**: Consistent error format across all endpoints
+- **Simplified Routing**: Clean, version-based URL patterns (`/api/v1/...`)
+- **Backend-Driven Logic**: Core business logic contained in Python services
+- **Automatic Session Management**: Transparent session handling across requests
+
+**Expected Outcome:** Streamlined API architecture with reduced duplication and consistent routing. ✅ Achieved
 
 #### 1.2 Implement Session Management
 
@@ -194,7 +377,8 @@ gantt
     title Implementation Timeline
     dateFormat  YYYY-MM-DD
     section Phase 1
-    Fix API Router Issue           :phase1_1, 2023-09-01, 9d
+    Implement API Gateway         :api_gateway, 2025-03-15, 10d
+    Fix API Router Issue           :phase1_1, after api_gateway, 9d
     Implement Session Management   :phase1_2, after phase1_1, 13d
     Add Authentication/Authorization :phase1_3, after phase1_2, 17d
     Phase 1 Complete               :milestone, after phase1_3, 0d
@@ -267,6 +451,6 @@ gantt
 
 ## Conclusion
 
-This implementation guide provides a comprehensive roadmap for enhancing the Birth Time Rectifier API. By following the phased approach and adhering to best practices, the implementation will address the identified gaps while ensuring backward compatibility and maintainability.
+This implementation guide provides a comprehensive roadmap for enhancing the Birth Time Rectifier API. The focus on implementing a unified API Gateway will address the identified duplication and inconsistency issues while ensuring backward compatibility and maintainability.
 
-The result will be a robust, scalable API that supports the full functionality of the Birth Time Rectifier application, from chart generation to birth time rectification, with proper session management, authentication, and real-time updates.
+The result will be a robust, scalable API architecture that supports the full functionality of the Birth Time Rectifier application, from chart generation to birth time rectification, with proper session management, authentication, and real-time updates.

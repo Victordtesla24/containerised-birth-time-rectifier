@@ -1,12 +1,17 @@
 """
 Questionnaire engine for Birth Time Rectifier API.
 Handles generation and processing of questions for birth time rectification.
+Uses OpenAI for verifying chart data against Indian Vedic Astrological standards.
 """
 
 import logging
 import uuid
 from typing import Dict, List, Any, Optional
 import random
+import asyncio
+
+# Import the enhanced chart calculator for verification
+from ..core.chart_calculator import calculate_verified_chart
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -24,7 +29,7 @@ class QuestionnaireEngine:
 
         # Initialize OpenAI service for dynamic question generation
         try:
-            from ..api.services.openai_service import OpenAIService
+            from ..api.services.openai import OpenAIService
             self.openai_service = OpenAIService()
             logger.info("OpenAI service initialized for questionnaire engine")
         except Exception as e:
@@ -497,6 +502,7 @@ class QuestionnaireEngine:
         """
         Analyze answers to determine birth time adjustment.
         Uses AI for enhanced analysis when available.
+        Verifies chart data against Indian Vedic Astrological standards.
 
         Args:
             chart_data: Original chart data
@@ -505,6 +511,36 @@ class QuestionnaireEngine:
         Returns:
             Analysis results including suggested birth time adjustment
         """
+        # First, verify the chart data against Indian Vedic Astrological standards
+        try:
+            birth_details = chart_data.get("birth_details", {})
+            verified_chart = chart_data
+
+            if "verification" not in chart_data and birth_details:
+                # Extract the necessary data for verification
+                birth_date = birth_details.get("date", "")
+                birth_time = birth_details.get("time", "")
+                latitude = birth_details.get("latitude", 0)
+                longitude = birth_details.get("longitude", 0)
+                location = birth_details.get("location", "")
+
+                if birth_date and birth_time and latitude and longitude:
+                    logger.info(f"Verifying chart data with OpenAI for birth time: {birth_time}")
+                    verified_chart = await calculate_verified_chart(
+                        birth_date=birth_date,
+                        birth_time=birth_time,
+                        latitude=latitude,
+                        longitude=longitude,
+                        location=location
+                    )
+                    logger.info("Chart verification completed")
+
+            # Use the verified chart for the analysis
+            chart_data = verified_chart
+        except Exception as e:
+            logger.error(f"Error verifying chart data: {e}")
+            # Continue with original chart if verification fails
+
         # Calculate confidence (with AI enhancement if available)
         confidence = await self.calculate_confidence(answers, chart_data)
 

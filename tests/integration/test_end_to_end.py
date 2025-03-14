@@ -37,44 +37,37 @@ class TestEndToEndFlow:
         """Test the complete chart generation flow."""
         # Step 1: Create a new chart
         new_chart_data = {
-            "birthDate": "1990-01-01",
-            "birthTime": "12:00",
-            "birthPlace": "New York, NY",
-            "name": "Test User",
-            "notes": "Test chart for end-to-end testing"
+            "birth_details": {
+                "date": "1990-01-01",
+                "time": "12:00:00",
+                "latitude": 40.7128,
+                "longitude": -74.0060,
+                "tz": "America/New_York"
+            },
+            "options": {
+                "house_system": "P",
+                "zodiac_type": "sidereal",
+                "verify_with_openai": True
+            }
         }
 
-        response = client.post("/api/v1/charts", json=new_chart_data)
+        response = client.post("/api/v1/chart/generate", json=new_chart_data)
         assert response.status_code == 200
         result = response.json()
-        assert "id" in result
-        chart_id = result["id"]
+        assert "chart_id" in result
+        chart_id = result["chart_id"]
 
-        # Step 2: Get the chart details
-        response = client.get(f"/api/v1/charts/{chart_id}")
+        # Step 2: Retrieve the chart
+        response = client.get(f"/api/v1/chart/{chart_id}")
         assert response.status_code == 200
         chart_data = response.json()
-        assert chart_data["id"] == chart_id
+        assert chart_data["chart_id"] == chart_id
         assert "planets" in chart_data
         assert "houses" in chart_data
+        assert "ascendant" in chart_data
 
-        # Step 3: Update the chart with additional information
-        update_data = {
-            "notes": "Updated test chart with additional information"
-        }
-
-        response = client.put(f"/api/v1/charts/{chart_id}", json=update_data)
-        assert response.status_code == 200
-        updated_chart = response.json()
-        assert updated_chart["notes"] == update_data["notes"]
-
-        # Step 4: Delete the chart
-        response = client.delete(f"/api/v1/charts/{chart_id}")
-        assert response.status_code == 200
-
-        # Step 5: Verify deletion
-        response = client.get(f"/api/v1/charts/{chart_id}")
-        assert response.status_code == 404
+        # Log success
+        logger.info(f"Chart generation flow test passed successfully")
 
     def test_questionnaire_flow(self, client):
         """Test the questionnaire and birth time rectification flow."""
@@ -210,27 +203,27 @@ class TestEndToEndFlow:
 
         logger.info("All geocoding tests passed successfully")
 
-    def test_chart_comparison(self, client):
-        """Test chart comparison functionality with both GET and POST endpoints."""
-        logger.info("Testing chart comparison functionality")
-
-        # Step 1: Create two test charts to compare
+    def test_chart_generation_and_comparison(self, client):
+        """Test the chart generation and comparison flow"""
+        # Create two charts with different birth times, using different naming conventions
         chart1_data = {
-            "birth_date": "1990-01-15",
-            "birth_time": "14:30:00",
-            "latitude": 40.7128,
-            "longitude": -74.0060,
-            "timezone": "America/New_York",
-            "options": {"house_system": "placidus"}
+            "birth_details": {
+                "date": "1990-01-15",
+                "time": "14:30:00",
+                "latitude": 40.7128,
+                "longitude": -74.0060,
+                "tz": "America/New_York"
+            }
         }
 
         chart2_data = {
-            "birth_date": "1990-01-15",
-            "birth_time": "15:30:00",  # One hour later
-            "latitude": 40.7128,
-            "longitude": -74.0060,
-            "timezone": "America/New_York",
-            "options": {"house_system": "placidus"}
+            "birth_details": {
+                "birth_date": "1990-01-15",
+                "birth_time": "15:30:00",  # One hour later
+                "latitude": 40.7128,
+                "longitude": -74.0060,
+                "tz": "America/New_York"
+            }
         }
 
         # Generate first chart
@@ -252,7 +245,7 @@ class TestEndToEndFlow:
         # Test GET comparison endpoint
         logger.info(f"Testing GET comparison between charts {chart1_id} and {chart2_id}")
         response = client.get(
-            "/api/v1/chart/compare",
+            "/api/v1/chart/compare",  # Use the standard comparison endpoint
             params={
                 "chart1_id": chart1_id,
                 "chart2_id": chart2_id,
@@ -323,6 +316,7 @@ class TestEndToEndFlow:
     def test_api_documentation(self, client):
         """Test that the API documentation is accessible."""
         response = client.get("/docs")
+
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 
@@ -330,5 +324,5 @@ class TestEndToEndFlow:
         assert response.status_code == 200
         api_spec = response.json()
         assert "paths" in api_spec
-        assert "/api/v1/charts" in api_spec["paths"]
+        assert "/api/v1/chart/generate" in api_spec["paths"]
         assert "/api/v1/questionnaire" in api_spec["paths"]

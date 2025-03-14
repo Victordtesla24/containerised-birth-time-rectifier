@@ -1,156 +1,143 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { v4 as uuidv4 } from 'uuid';
+import type { NextApiRequest, NextApiResponse } from 'next';
 
-// Define types for our response
-interface ChartDifference {
-  type: string;
-  entity: string;
-  description: string;
-  details: string;
-  significance?: number;
-}
+type ChartComparisonResponse = {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  comparison_id?: string;
+  comparison_data?: any;
+  differences?: any[];
+  original_chart?: any;
+  rectified_chart?: any;
+};
 
-interface ComparisonResponse {
-  comparison_id: string;
-  chart1_id: string;
-  chart2_id: string;
-  differences: ChartDifference[];
-  summary?: string;
-}
+/**
+ * Chart Comparison API Endpoint
+ *
+ * This endpoint allows comparison between original and rectified charts
+ * to visualize the differences and their astrological significance.
+ */
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<ChartComparisonResponse>
+) {
+  // Allow GET for retrieving comparison and POST for creating
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({
+      success: false,
+      error: 'Method not allowed'
+    });
+  }
 
-// Chart comparison endpoint to handle both GET and POST requests
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    switch (req.method) {
-      case 'GET':
-        return handleGetComparison(req, res);
-      case 'POST':
-        return handlePostComparison(req, res);
-      default:
-        return res.status(405).json({ error: 'Method not allowed' });
+    // Get AI service URL from environment or use default
+    const aiServiceUrl = process.env.NEXT_PUBLIC_AI_SERVICE_URL || 'http://localhost:8000';
+    let response;
+
+    if (req.method === 'GET') {
+      // Extract comparison ID from query
+      const { id, type = 'full' } = req.query;
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Comparison ID is required'
+        });
+      }
+
+      // Call the backend service to retrieve the comparison
+      response = await fetch(`${aiServiceUrl}/api/chart/compare/${id}?type=${type}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': req.headers['x-session-token'] as string || '',
+        }
+      });
+    } else {
+      // POST request to create a comparison
+      const {
+        originalChartId,
+        rectifiedChartId,
+        originalTime,
+        rectifiedTime,
+        comparisonType = 'full'
+      } = req.body;
+
+      // Validate required fields
+      if (!originalChartId || !rectifiedChartId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Both original and rectified chart IDs are required'
+        });
+      }
+
+      // Call the backend service to create a comparison
+      response = await fetch(`${aiServiceUrl}/api/chart/compare`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': req.headers['x-session-token'] as string || '',
+        },
+        body: JSON.stringify({
+          original_chart_id: originalChartId,
+          rectified_chart_id: rectifiedChartId,
+          original_time: originalTime,
+          rectified_time: rectifiedTime,
+          comparison_type: comparisonType
+        }),
+      });
     }
-  } catch (error: any) {
-    console.error('Chart comparison error:', error);
-    return res.status(500).json({ error: 'Internal server error', details: error?.message || 'Unknown error' });
-  }
-}
 
-/**
- * Handle GET request for chart comparison
- */
-async function handleGetComparison(req: NextApiRequest, res: NextApiResponse) {
-  const { chart1_id, chart2_id, comparison_type = 'differences', include_significance = 'false' } = req.query;
+    // Handle API response
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        detail: 'Failed to parse API error response'
+      }));
 
-  // Validate required parameters
-  if (!chart1_id || !chart2_id) {
-    return res.status(400).json({ error: 'Missing required parameters: chart1_id and chart2_id are required' });
-  }
+      const statusCode = response.status;
+      const errorMessage = errorData.detail || errorData.message ||
+        `Chart comparison service responded with status ${statusCode}`;
 
-  try {
-    // In a real implementation, we would fetch the charts from a database or API
-    // For now, generate mock comparison data
-    const comparisonData = generateComparisonData(
-      chart1_id as string,
-      chart2_id as string,
-      comparison_type as string,
-      include_significance === 'true'
-    );
+      console.error('Chart comparison service error:', errorMessage);
 
-    return res.status(200).json(comparisonData);
-  } catch (error: any) {
-    console.error('Error generating chart comparison:', error);
-    return res.status(500).json({ error: 'Failed to generate chart comparison', details: error?.message || 'Unknown error' });
-  }
-}
-
-/**
- * Handle POST request for chart comparison
- */
-async function handlePostComparison(req: NextApiRequest, res: NextApiResponse) {
-  const { chart1_id, chart2_id, comparison_type = 'differences', include_significance = false } = req.body;
-
-  // Validate required parameters
-  if (!chart1_id || !chart2_id) {
-    return res.status(400).json({ error: 'Missing required parameters: chart1_id and chart2_id are required' });
-  }
-
-  try {
-    // In a real implementation, we would fetch the charts from a database or API
-    // For now, generate mock comparison data
-    const comparisonData = generateComparisonData(
-      chart1_id,
-      chart2_id,
-      comparison_type,
-      include_significance
-    );
-
-    return res.status(200).json(comparisonData);
-  } catch (error: any) {
-    console.error('Error generating chart comparison:', error);
-    return res.status(500).json({ error: 'Failed to generate chart comparison', details: error?.message || 'Unknown error' });
-  }
-}
-
-/**
- * Generate mock comparison data
- */
-function generateComparisonData(
-  chart1Id: string,
-  chart2Id: string,
-  comparisonType: string,
-  includeSignificance: boolean
-): ComparisonResponse {
-  // Create a unique ID for this comparison
-  const comparisonId = uuidv4();
-
-  // Default response structure
-  const response: ComparisonResponse = {
-    comparison_id: comparisonId,
-    chart1_id: chart1Id,
-    chart2_id: chart2Id,
-    differences: generateDifferences(includeSignificance),
-  };
-
-  // Add summary for full and summary comparison types
-  if (comparisonType === 'full' || comparisonType === 'summary') {
-    response.summary = 'This comparison reveals significant differences in planetary positions, particularly for the Moon and Ascendant, which have shifted houses due to the time difference. These changes impact personality expression and emotional tendencies.';
-  }
-
-  return response;
-}
-
-/**
- * Generate mock differences between charts
- */
-function generateDifferences(includeSignificance: boolean) {
-  const baseDifferences = [
-    {
-      type: 'planet_position',
-      entity: 'Moon',
-      description: 'Moon has changed from Cancer to Leo',
-      details: 'The Moon has moved from 29° Cancer to 3° Leo',
-    },
-    {
-      type: 'house_cusp',
-      entity: 'Ascendant',
-      description: 'Ascendant has shifted by 15 degrees',
-      details: 'The Ascendant has moved from 15° Virgo to 0° Libra',
-    },
-    {
-      type: 'planet_house',
-      entity: 'Venus',
-      description: 'Venus has moved from 9th house to 10th house',
-      details: 'Venus at 18° Capricorn has changed houses due to house cusp shift',
+      return res.status(statusCode).json({
+        success: false,
+        error: errorMessage
+      });
     }
-  ];
 
-  // Add significance values if requested
-  if (includeSignificance) {
-    return baseDifferences.map((diff, index) => ({
-      ...diff,
-      significance: 0.85 - (index * 0.15) // Decreasing significance values
-    }));
+    // Successfully got data from backend service
+    const data = await response.json();
+
+    // Store comparison data in session if available (for POST requests)
+    if (req.method === 'POST' && typeof window !== 'undefined' && data.comparison_id) {
+      try {
+        sessionStorage.setItem('chartComparison', JSON.stringify({
+          comparisonId: data.comparison_id,
+          originalChart: data.original_chart,
+          rectifiedChart: data.rectified_chart,
+          differences: data.differences
+        }));
+      } catch (e) {
+        console.warn('Failed to store comparison data in session storage', e);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      comparison_id: data.comparison_id,
+      comparison_data: data.comparison_data,
+      differences: data.differences,
+      original_chart: data.original_chart,
+      rectified_chart: data.rectified_chart,
+      message: data.message || 'Chart comparison successful'
+    });
+
+  } catch (error) {
+    console.error('Error comparing charts:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
+    });
   }
-
-  return baseDifferences;
 }

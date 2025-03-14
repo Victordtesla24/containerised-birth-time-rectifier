@@ -4,8 +4,9 @@ Handles session initialization, status checking, and management.
 """
 
 import time
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from ai_service.core.config import settings
 from ai_service.api.middleware.session import get_session, save_session
@@ -19,22 +20,27 @@ async def initialize_session(request: Request):
 
     Returns session ID and metadata that can be used for subsequent requests.
     """
-    # Check if a new session was created by the middleware
-    if not hasattr(request.state, "new_session_id"):
-        # Create a session ID (This might happen if the middleware setup isn't complete)
-        return {
-            "status": "error",
-            "message": "Session initialization failed"
-        }
+    # Generate a new session ID
+    session_id = str(uuid.uuid4())
 
-    # Session was created by middleware
-    session_id = request.state.new_session_id
+    # Create session data
+    session_data = {
+        "created_at": time.time(),
+        "expires_at": time.time() + settings.SESSION_TTL,
+        "status": "active"
+    }
+
+    # Save session data
+    save_session(session_id, session_data)
+
+    # Store the new session ID in request state for middleware
+    request.state.new_session_id = session_id
 
     # Return session info
     return {
         "session_id": session_id,
-        "created_at": time.time(),
-        "expires_at": time.time() + settings.SESSION_TTL,
+        "created_at": session_data["created_at"],
+        "expires_at": session_data["expires_at"],
         "status": "active"
     }
 
@@ -85,7 +91,7 @@ async def update_session_data(
     # Merge new data with existing session data
     for key, value in data.items():
         # Don't allow overriding reserved keys
-        if key not in ["created_at", "expires_at"]:
+        if key not in ["created_at", "expires_at", "status"]:
             session_data[key] = value
 
     # Save updated session data
@@ -95,3 +101,26 @@ async def update_session_data(
         "status": "success",
         "message": "Session data updated"
     }
+
+@router.get("/data")
+async def get_session_data(request: Request):
+    """
+    Get session data.
+
+    Returns all custom data stored in the session.
+    """
+    # Check if there's an active session
+    if not hasattr(request.state, "session_id"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active session"
+        )
+
+    session_id = request.state.session_id
+    session_data = request.state.session
+
+    # Filter out reserved keys
+    reserved_keys = ["created_at", "expires_at", "status"]
+    custom_data = {k: v for k, v in session_data.items() if k not in reserved_keys}
+
+    return custom_data

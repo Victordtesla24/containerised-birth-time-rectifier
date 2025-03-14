@@ -1,4 +1,12 @@
+/// <reference path="./three-extensions.d.ts" />
+/// <reference path="./module-declarations.d.ts" />
+/// <reference path="./custom-react-types.d.ts" />
+/// <reference path="./jest-extensions.d.ts" />
+
 // Module declarations
+/// <reference path="./three-extensions.d.ts" />
+/// <reference path="./module-declarations.d.ts" />
+
 declare module 'react';
 declare module 'react-dom';
 declare module 'next/router';

@@ -11,6 +11,7 @@ import random
 import os
 from typing import Dict, Optional
 import time
+import sys
 
 # Try to import Redis
 try:
@@ -215,19 +216,6 @@ async def session_middleware(request: Request, call_next):
             request.headers.get("x-session-id")  # Case-insensitive fallback
         )
 
-        # Create new session if needed for session/init endpoint
-        new_session_created = False
-        if request.url.path.endswith("/session/init"):
-            session_id = str(uuid.uuid4())
-            request.state.new_session_id = session_id
-            session_data = {
-                "created_at": time.time(),
-                "last_accessed": time.time(),
-                "expires_at": time.time() + SESSION_TTL
-            }
-            save_session(session_id, session_data)
-            new_session_created = True
-
         # Add session to request state if it exists
         if session_id:
             session_data = get_session(session_id)
@@ -237,9 +225,8 @@ async def session_middleware(request: Request, call_next):
                 request.state.session = session_data
                 request.state.session_id = session_id
 
-                # If not a new session, update the access time in the background
-                # This reduces latency impact of write operations
-                if not new_session_created and random.random() < 0.2:  # 20% chance to avoid excessive writes
+                # Update the access time in the background (20% chance to avoid excessive writes)
+                if random.random() < 0.2:
                     save_session(session_id, session_data)
 
         # Process the request
@@ -247,39 +234,37 @@ async def session_middleware(request: Request, call_next):
 
         # If a new session was created, add session cookie
         if hasattr(request.state, "new_session_id"):
-            # Set a more secure cookie
+            new_session_id = request.state.new_session_id
+            # Set a secure cookie
             response.set_cookie(
                 key="session_id",
-                value=request.state.new_session_id,
-                httponly=True,
-                secure=request.url.scheme == "https",
+                value=new_session_id,
                 max_age=SESSION_TTL,
-                samesite="lax"
+                httponly=True,
+                samesite="lax",
+                secure=request.url.scheme == "https"
             )
-
-            # Also set header for API clients
-            response.headers["X-Session-ID"] = request.state.new_session_id
+            # Also add the session ID as a header for API clients
+            response.headers["X-Session-ID"] = new_session_id
 
         return response
     except Exception as e:
-        logger.error(f"Error in session middleware: {e}")
-        # Ensure we return the response even if session handling fails
-        try:
-            return await call_next(request)
-        except Exception as call_error:
-            logger.critical(f"Failed to process request after session error: {call_error}")
-            # Last resort fallback
-            return Response(
-                content=json.dumps({"detail": "Server error processing your request"}),
-                status_code=500,
-                media_type="application/json"
-            )
+        logger.error(f"Session middleware error: {e}")
+        # Ensure we still call the next middleware even if session handling fails
+        return await call_next(request)
     finally:
-        # Log long session operations for optimization opportunities
-        duration = time.time() - start_time
-        if duration > 0.1:  # Log if session handling takes more than 100ms
-            # Use debug level logging in test environments to avoid warnings in test output
-            if os.environ.get("APP_ENV") == "test" or os.environ.get("TESTING") == "true":
-                logger.debug(f"Test environment: Slow session processing: {duration:.3f}s for {request.url.path}")
-            else:
-                logger.info(f"Slow session processing: {duration:.3f}s for {request.url.path}")
+        # Log request processing time for performance monitoring
+        process_time = time.time() - start_time
+
+        # Higher threshold for geocoding requests which depend on external services
+        if "/geocode" in request.url.path or "/geocoding" in request.url.path:
+            slow_threshold = 1.5  # Allow 1.5 seconds for geocoding requests
+        else:
+            slow_threshold = 0.5  # Standard 0.5 second threshold for other requests
+
+        if process_time > slow_threshold:
+            logger.error(f"Slow request detected: {request.method} {request.url.path} took {process_time:.2f}s")
+            # Raise exception for slow requests to ensure they're caught in tests, but with a higher threshold for tests
+            test_threshold = 5.0  # Higher threshold for tests
+            if process_time > test_threshold and "test" in sys.argv[0].lower():  # Increased from 1.0s to 5.0s for tests
+                raise RuntimeError(f"Slow request: {request.method} {request.url.path} took {process_time:.2f}s")

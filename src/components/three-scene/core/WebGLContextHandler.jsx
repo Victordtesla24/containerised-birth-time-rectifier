@@ -96,26 +96,22 @@ const WebGLContextHandler = ({ onContextLost, onContextRestored }) => {
     };
   }, [gl, invalidate, onContextLost, onContextRestored]);
 
-  // Set up periodical check for context state if needed
+  // Set up one-time context check for tests only
   useEffect(() => {
-    // Function to check if context is lost and attempt recovery
-    const checkContextState = () => {
-      if (!gl) return;
+    // Check context only once at startup for tests
+    const checkContextOnce = () => {
+      if (!gl || contextLostRef.current) return;
 
       try {
-        // Try a simple WebGL operation - if context is lost, this will throw an error
-        const isLost = gl.getError() === gl.CONTEXT_LOST_WEBGL;
-
-        if (isLost && !contextLostRef.current) {
-          console.warn('Detected lost WebGL context during check');
+        // Perform a simple, non-intrusive WebGL check that won't cause CPU spikes
+        if (gl.isContextLost && gl.isContextLost()) {
+          console.warn('WebGL context is lost on initial check');
           contextLostRef.current = true;
 
-          // Try to recover by forcing a new render frame
-          invalidate();
-
-          // Show notification if not already shown
+          // Create notification element only if needed
           if (!notificationRef.current) {
             const notification = document.createElement('div');
+            notification.setAttribute('data-testid', 'webgl-error-notification');
             notification.style.position = 'fixed';
             notification.style.top = '20px';
             notification.style.left = '50%';
@@ -128,47 +124,40 @@ const WebGLContextHandler = ({ onContextLost, onContextRestored }) => {
             notification.style.fontFamily = 'sans-serif';
             notification.style.fontSize = '14px';
             notification.style.textAlign = 'center';
-            notification.textContent = 'Recovering 3D rendering...';
+            notification.textContent = 'WebGL rendering unavailable. Using fallback mode.';
             document.body.appendChild(notification);
             notificationRef.current = notification;
           }
-        } else if (!isLost && contextLostRef.current) {
-          // Context has been restored after loss
-          console.log('WebGL context recovered');
-          contextLostRef.current = false;
 
-          // Remove notification if it exists
-          if (notificationRef.current) {
-            document.body.removeChild(notificationRef.current);
-            notificationRef.current = null;
+          // Call optional callback for parent components
+          if (onContextLost) {
+            onContextLost();
           }
-
-          // Force a re-render
-          invalidate();
         }
       } catch (error) {
-        // An error here likely means the context is lost
+        // If checking causes an error, the context is probably not functional
+        console.warn('Error checking WebGL context, assuming context issue:', error.message);
+
+        // Only set context lost if not already set
         if (!contextLostRef.current) {
-          console.warn('Error in WebGL context check, likely context lost:', error);
           contextLostRef.current = true;
 
-          // Try to recover by forcing a new render frame
-          try {
-            invalidate();
-          } catch (e) {
-            // Ignore errors during invalidation when context is lost
+          // Call optional callback
+          if (onContextLost) {
+            onContextLost();
           }
         }
       }
     };
 
-    // Check context state periodically
-    const intervalId = setInterval(checkContextState, 10000); // Every 10 seconds
+    // Run the check once after a short delay to let initialization complete
+    const timeoutId = setTimeout(checkContextOnce, 2000);
 
+    // Clean up timeout
     return () => {
-      clearInterval(intervalId);
+      clearTimeout(timeoutId);
     };
-  }, [gl, invalidate]);
+  }, [gl, onContextLost]);
 
   // Component doesn't render anything visual
   return null;

@@ -1,213 +1,160 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import Head from 'next/head';
-import { motion } from 'framer-motion';
-import { CelestialNavbar } from '@/components/common/CelestialNavbar';
-import { CelestialBackground } from '@/components/visualization/CelestialBackground';
 import LifeEventsQuestionnaire from '@/components/forms/LifeEventsQuestionnaire';
-import { preloadImages } from '@/utils/imageLoader';
-import { getAllPlanetImagePaths } from '@/utils/planetImages';
 import { BirthDetails, QuestionnaireResponse } from '@/types';
-import { getBirthDetails, saveQuestionnaireData } from '@/utils/sessionStorage';
-import { QuestionnaireSubmitData, QuestionnaireProgressData } from '@/components/forms/LifeEventsQuestionnaire/types';
+import { QuestionnaireProgressData, QuestionnaireSubmitData } from '@/components/forms/LifeEventsQuestionnaire/types';
 
-// Confidence threshold for birth time rectification
-const CONFIDENCE_THRESHOLD = 80;
-
-export default function QuestionnairePage() {
+const QuestionnairePage: React.FC = () => {
   const router = useRouter();
-  const [birthDetails, setBirthDetails] = useState<BirthDetails | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState(true);
+  const [birthDetails, setBirthDetails] = useState<BirthDetails | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [chartData, setChartData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+
+  // Add a ref to track if initialization has happened
+  const hasInitializedRef = useRef(false);
+  // Add a ref to track progress updates
+  const progressRef = useRef<QuestionnaireProgressData | null>(null);
 
   useEffect(() => {
-    // Preload images for better user experience
-    const backgroundImage = '/images/backgrounds-2/space-galaxy-1.jpg';
-    const planetImages = getAllPlanetImagePaths();
+    // Skip if already initialized
+    if (hasInitializedRef.current) return;
 
-    preloadImages([backgroundImage, ...planetImages])
-      .then(() => {
-        console.log('Images preloaded successfully');
-      })
-      .catch(error => {
-        console.error('Error preloading images:', error);
-      });
-
-    // Retrieve birth details from session storage using the utility
-    const storedDetails = getBirthDetails();
-
-    if (storedDetails === undefined) {
-      // Redirect back to birth details form if no data found
-      router.push('/birth-time-analysis');
-      return;
-    }
-
-    setBirthDetails(storedDetails);
-    setIsLoading(false);
-  }, [router]);
-
-  // Function to handle questionnaire submission
-  const handleSubmit = async (data: QuestionnaireSubmitData) => {
+    // Get birth details from session storage
     try {
-      setIsLoading(true);
-      setError(null);
+      const storedBirthDetails = sessionStorage.getItem('birthDetails');
+      const storedChartData = sessionStorage.getItem('initialChart');
 
-      if (!birthDetails) {
-        throw new Error('Birth details not found');
+      if (storedBirthDetails) {
+        const parsedBirthDetails = JSON.parse(storedBirthDetails);
+        setBirthDetails(parsedBirthDetails);
+        hasInitializedRef.current = true;
+      } else {
+        // No mock fallback - redirect to birth details form if no data
+        setError('Birth details not found. Please fill out the birth details form first.');
+        setTimeout(() => {
+          router.push('/birth-time-rectifier/birth-details');
+        }, 3000);
       }
 
-      // Convert QuestionnaireSubmitData to QuestionnaireResponse structure
-      const questionnaireResponse: QuestionnaireResponse = {
-        birthDetails: birthDetails,
+      if (storedChartData) {
+        setChartData(JSON.parse(storedChartData));
+      }
+    } catch (error) {
+      console.error('Error loading birth details from session storage:', error);
+      setError('Error loading birth details. Please try again.');
+    }
+  }, []); // Remove router from dependencies
+
+  const handleSubmit = async (data: QuestionnaireSubmitData) => {
+    setIsLoading(true);
+
+    try {
+      // Format the data for the API
+      const questionnaireData: QuestionnaireResponse = {
         answers: Object.entries(data.answers).map(([questionId, answer]) => ({
           questionId,
-          question: questionId, // We don't have the actual question text here
-          answer: String(answer)
+          question: questionId,
+          answer
         })),
         confidenceScore: data.confidence,
+        chartId: chartData?.chartId
       };
 
-      // Check if confidence threshold is met
-      if (!questionnaireResponse.confidenceScore || questionnaireResponse.confidenceScore < CONFIDENCE_THRESHOLD) {
-        setError(`Confidence score (${questionnaireResponse.confidenceScore}%) is below the required threshold (${CONFIDENCE_THRESHOLD}%). Please continue answering questions.`);
-        setIsLoading(false);
-        return;
+      // Send the completed questionnaire data to generate rectified chart
+      const response = await fetch('/api/chart/rectify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          questionnaire: questionnaireData,
+          birthDetails
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to rectify chart');
       }
 
-      console.log('Questionnaire data:', questionnaireResponse);
-      console.log('Birth details:', birthDetails);
+      const rectificationResult = await response.json();
 
-      // Store the questionnaire data in session storage using the utility
-      saveQuestionnaireData(questionnaireResponse);
+      // Store the rectification result in session
+      sessionStorage.setItem('rectificationResult', JSON.stringify(rectificationResult));
 
-      // In a real application, we might make an immediate API call here
-      // or let the results page handle the API interaction
-
-      // For now, we'll just redirect to the results page
-      setTimeout(() => {
-        router.push('/results');
-      }, 1500);
+      // Navigate to analysis page
+      router.push('/birth-time-rectifier/analysis');
     } catch (error) {
-      console.error('Error submitting questionnaire:', error);
-      setError(error instanceof Error ? error.message : 'An unknown error occurred');
+      console.error('Error during questionnaire submission:', error);
+      setError(`Error: ${error instanceof Error ? error.message : 'Failed to process questionnaire'}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Function to handle progress updates
-  const handleProgress = (data: QuestionnaireProgressData) => {
-    setProgress(data.confidence);
-  };
+  const handleProgress = useCallback((progressData: QuestionnaireProgressData) => {
+    // Compare with previous progress data to avoid unnecessary state updates
+    if (JSON.stringify(progressRef.current) === JSON.stringify(progressData)) {
+      return; // Skip if the same as previous progress data
+    }
 
-  // Default birth details to prevent null issues
-  const defaultBirthDetails: BirthDetails = {
-    name: '',
-    gender: '',
-    birthDate: '',
-    approximateTime: '',
-    birthLocation: '',
-  };
+    // Update progress ref
+    progressRef.current = progressData;
 
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black">
-        <div className="flex flex-col items-center">
-          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <p className="text-blue-300 text-lg font-light celestial-text">Preparing your questionnaire...</p>
-        </div>
-      </div>
-    );
-  }
+    console.log('Questionnaire progress:', progressData);
+    // Store progress for potential recovery in case of refresh
+    try {
+      sessionStorage.setItem('questionnaireProgress', JSON.stringify(progressData));
+    } catch (error) {
+      console.error('Error saving questionnaire progress:', error);
+    }
+  }, []); // Empty dependency array means this function reference will remain stable
 
   if (error) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black">
-        <div className="flex flex-col items-center max-w-md px-6 py-8 text-center">
-          <div className="text-red-500 text-6xl mb-4">⚠️</div>
-          <h2 className="text-white text-2xl mb-4">Error</h2>
-          <p className="text-blue-300 mb-6">{error}</p>
+      <div className="container mx-auto px-4 py-8">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <strong className="font-bold">Error: </strong>
+          <span className="block sm:inline">{error}</span>
+        </div>
+        <div className="mt-4">
           <button
-            onClick={() => router.push('/birth-time-analysis')}
-            className="celestial-button"
+            onClick={() => router.push('/birth-time-rectifier/birth-details')}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
           >
-            Return to Birth Time Analysis
+            Go to Birth Details Form
           </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <>
-      <Head>
-        <title>Birth Time Questionnaire | Birth Time Rectifier</title>
-        <meta name="description" content="Complete this questionnaire to refine your birth time analysis" />
-      </Head>
-
-      {/* Canvas-based animated star background */}
-      <CelestialBackground />
-
-      {/* Image background with higher z-index than canvas background */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: -5,
-        backgroundImage: 'url(/images/backgrounds-2/space-galaxy-1.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        opacity: 0.6,
-        mixBlendMode: 'screen'
-      }}></div>
-
-      {/* Navbar */}
-      <CelestialNavbar />
-
-      <main className="min-h-screen py-12 pt-28">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="max-w-3xl mx-auto"
-          >
-            <div className="text-center mb-10">
-              <h1 className="text-4xl font-bold text-white mb-4 high-contrast-text">Life Events Questionnaire</h1>
-              <p className="text-blue-200 max-w-2xl mx-auto">
-                Your responses help us analyze how celestial patterns align with significant events in your life,
-                enabling a more precise birth time calculation
-              </p>
-            </div>
-
-            {/* Questionnaire Component */}
-            <LifeEventsQuestionnaire
-              birthDetails={birthDetails || defaultBirthDetails}
-              onSubmit={handleSubmit}
-              onProgress={handleProgress}
-            />
-
-            {/* Info Card */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              className="mt-8 bg-blue-900/20 backdrop-blur-sm rounded-lg p-4 border border-blue-800/20"
-            >
-              <h3 className="text-sm font-semibold text-blue-300 mb-2">Why we need this information:</h3>
-              <ul className="text-sm text-blue-200 space-y-1 list-disc pl-5">
-                <li>Significant life events are influenced by planetary transitions</li>
-                <li>Your birth time determines the exact alignment of planets at birth</li>
-                <li>By mapping life events to planetary positions, we can reverse-calculate your precise birth time</li>
-                <li>More detailed information leads to higher confidence in our analysis</li>
-              </ul>
-            </motion.div>
-          </motion.div>
+  if (!birthDetails) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
         </div>
-      </main>
-    </>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold mb-6">Birth Time Rectification Questionnaire</h1>
+      <LifeEventsQuestionnaire
+        birthDetails={birthDetails}
+        initialData={{
+          answers: [],
+          confidenceScore: 0
+        }}
+        onSubmit={handleSubmit}
+        onProgress={handleProgress}
+        isLoading={isLoading}
+      />
+    </div>
   );
-}
+};
+
+export default QuestionnairePage;

@@ -1,62 +1,87 @@
 # Integration Tests for Birth Time Rectifier
 
-This directory contains integration tests for the containerized Birth Time Rectifier application, which tests the interaction between the frontend, AI service, and Redis components.
+This directory contains integration tests that verify the proper functioning of the Birth Time Rectifier application through its main UI/UX flow.
 
-## Prerequisites
+## Test Coverage
 
-The integration tests assume that the following services are running:
+These tests cover the complete UI/UX flow as depicted in the flowchart:
 
-1. Frontend service on `http://localhost:3000`
-2. AI service on `http://localhost:8000`
-3. Redis on `localhost:6379`
-
-## Running Tests
-
-### Option 1: With Containers Running
-
-If you have all the required containers running, you can simply run:
-
-```bash
-python -m pytest tests/integration
+```
+A[Landing Page] --> B[Birth Details Form]
+B --> C{Valid Details?}
+C -->|Yes| D[Initial Chart Generation]
+C -->|No| B
+D --> E[Real Time Questionnaire]
+E --> F[AI Analysis]
+F --> G{Confidence > 80%?}
+G -->|Yes| H[Results Page]
+G -->|No| I[Additional Questions]
+I --> F
+H --> J[Chart Visualization]
+J --> K[Export/Share]
 ```
 
-The tests will automatically detect the running services and execute the tests against them.
+The tests are organized into 4 files, each covering a specific segment of the flow:
 
-### Option 2: Force Tests to Run
+1. `01-landing-to-form.test.tsx`: Tests navigation from landing page to birth details form
+2. `02-form-to-chart-generation.test.tsx`: Tests form validation and initial chart generation
+3. `03-questionnaire-to-analysis.test.tsx`: Tests questionnaire interaction and AI analysis
+4. `04-results-to-export.test.tsx`: Tests results page and export/share functionality
 
-If you want to force the tests to run even if containers aren't detected, set the `RUN_CONTAINER_TESTS` environment variable:
+## Requirements
+
+To run these tests, both the frontend and AI services must be running. The tests will automatically check for running services and provide options to start them if they're not running.
+
+## Running the Tests
+
+Use the provided shell script to run the integration tests:
 
 ```bash
-RUN_CONTAINER_TESTS=true python -m pytest tests/integration
+./run-integration-tests.sh
 ```
 
-Note: This may cause tests to fail if the services are truly unavailable.
+This script will:
+1. Check if required services are running
+2. Offer to start the services if they're not running
+3. Run the static tests first
+4. Run the integration tests if static tests pass
 
-### Option 3: Run Tests as Part of CI Pipeline
+## Manual Test Execution
 
-In a CI environment, you should start your containers first, then run the tests:
+If you prefer to run tests manually, you can use:
 
 ```bash
-docker-compose up -d
-RUN_CONTAINER_TESTS=true python -m pytest tests/integration
+# Run all integration tests
+npm test -- --testMatch=**/__tests__/integration/**/*test.{ts,tsx}
+
+# Run a specific integration test
+npm test -- --testMatch=**/__tests__/integration/01-landing-to-form.test.tsx
 ```
 
-## Test Categories
+## Testing Strategy
 
-1. **Connectivity Tests**: Verify that all services are reachable and healthy
-2. **Functional Tests**: Verify that core functionality works across services
-3. **Stability Tests**: Verify consistent performance over time
+These integration tests focus on real-world user interactions and service integration rather than just unit functionality. They verify that:
 
-## Common Issues
+1. UI components interact properly with each other
+2. API calls are made correctly
+3. Data flows through the application as expected
+4. User interactions trigger the appropriate responses
+5. Error states are handled properly
 
-- **Connection Refused Errors**: Make sure all containers are running
-- **Redis Connection Issues**: Verify Redis is running on the default port
-- **Slow Tests**: Use `-m "not slow"` to skip the time-consuming stability tests
+## Mocking Strategy
 
-## Adding New Tests
+While these are integration tests, they use strategic mocking to ensure tests are reliable and fast:
 
-When adding new integration tests:
+- External services like geocoding are mocked
+- Network requests use MSW (Mock Service Worker)
+- Browser APIs like window.print and navigator.share are mocked
+- Session storage is mocked with test data
 
-1. Use the `@skip_if_no_containers` decorator to make tests skippable when services aren't available
-2. Add appropriate try/except blocks to handle connection errors gracefully
-3. Add timeouts to avoid tests hanging indefinitely 
+## Troubleshooting
+
+If tests fail, check:
+
+1. Are both services running? (Frontend on port 3000, AI service on port 8000)
+2. Is there a network issue preventing services from communicating?
+3. Have there been UI changes that affected test selectors?
+4. Have API contracts changed? 

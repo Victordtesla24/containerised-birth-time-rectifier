@@ -8,20 +8,23 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Optional, Any, Union
 
 class DifferenceType(str, Enum):
-    """Types of differences that can be detected between charts"""
+    """Types of differences between charts"""
     ASCENDANT_SHIFT = "ascendant_shift"
     MIDHEAVEN_SHIFT = "midheaven_shift"
     PLANET_SIGN_CHANGE = "planet_sign_change"
-    PLANET_HOUSE_TRANSITION = "planet_house_transition"
+    PLANET_HOUSE_CHANGE = "planet_house_change"
+    PLANET_DEGREE_CHANGE = "planet_degree_change"
+    HOUSE_CUSP_SHIFT = "house_cusp_shift"
     ASPECT_CHANGE = "aspect_change"
+    PLANET_HOUSE_TRANSITION = "planet_house_transition"
     ASPECT_FORMATION = "aspect_formation"
     ASPECT_DISSOLUTION = "aspect_dissolution"
-    HOUSE_CUSP_SHIFT = "house_cusp_shift"
 
 class PlanetaryPosition(BaseModel):
-    """Position of a planet in a sign with degree"""
+    """Position of a planet in a chart"""
     sign: str
     degree: float
+    house: Optional[int] = None
 
 class AspectData(BaseModel):
     """Data about an astrological aspect"""
