@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextRequest } from 'next/server';
+import type { NextResponse } from 'next/server';
 
 type GenerateResponse = {
   success?: boolean;
@@ -17,34 +18,45 @@ type GenerateResponse = {
 // Removed fallback mechanism to ensure tests properly fail when services are unavailable
 
 export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<GenerateResponse>
+  req: Request,
+  res: Response
 ) {
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return res.status(405).json({
+    return new Response(JSON.stringify({
       success: false,
       error: 'Method not allowed'
+    }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 
   try {
     // Extract request data
-    const { birthDetails, currentConfidence = 0, previousAnswers = {} } = req.body;
+    const body = await req.json();
+    const { birthDetails, currentConfidence = 0, previousAnswers = {} } = body;
 
     // Validate required fields
     if (!birthDetails) {
-      return res.status(400).json({
+      return new Response(JSON.stringify({
         success: false,
         message: 'Birth details are required'
+      }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // Get AI service URL from environment or use default
     const aiServiceUrl = process.env.NEXT_PUBLIC_AI_SERVICE_URL || 'http://localhost:8000';
 
-    // Call the AI service
-    const response = await fetch(`${aiServiceUrl}/api/generate-questions`, {
+    // Call the AI service with the correct endpoint
+    const response = await fetch(`${aiServiceUrl}/api/v1/questionnaire/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -60,22 +72,37 @@ export default async function handler(
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Failed to parse API error response' }));
       console.error('AI service error:', errorData);
-      return res.status(response.status).json({
+      return new Response(JSON.stringify({
         success: false,
         error: errorData.detail || `AI service responded with status ${response.status}`
+      }), {
+        status: response.status,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // Successfully got data from AI service
     const data = await response.json();
-    return res.status(200).json(data);
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   } catch (error) {
     console.error('Error generating questionnaire:', error);
-    return res.status(503).json({
+    return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error
         ? `Service unavailable: ${error.message}`
         : 'Service unavailable: Failed to connect to AI service'
+    }), {
+      status: 503,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 }

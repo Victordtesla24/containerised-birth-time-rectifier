@@ -1,66 +1,167 @@
-# API Endpoint Architecture Consolidation Plan
+## RUN SIMPLE TEST SHELL SCRIPT ARCHITECTURE
 
-## 1. Identified Issues
+1. Modular Script Architecture
+ - Following best practices for shell script organization, I recommend refactoring the script into a modular structure:
+ ```bash
+ test_scripts/
+ ├── run-simple-test.sh              # Main entry point
+ ├── lib/
+ │   ├── common.sh                   # Common functions, colors, formatting
+ │   ├── api_client.sh               # API interaction functions
+ │   ├── websocket_client.sh         # WebSocket handling functions
+ │   ├── chart_operations.sh         # Chart-specific operations
+ │   ├── questionnaire_operations.sh # Questionnaire-specific operations
+ │   └── validation.sh               # Input and output validation functions
+ ├── config/
+ │   └── defaults.conf               # Configuration parameters
+ └── tests/
+     └── unit_tests.sh               # Tests for script components
+ ```
 
-### 1.1 Redundant Files
+2. Robust Error Handling Framework
+ - Implement a consistent error handling framework:
+ ```bash
+ # Error handling framework
+ ERROR_LEVELS=("INFO" "WARNING" "ERROR" "FATAL")
 
-| File Type | Files | Differences | Action |
-|-----------|-------|-------------|--------|
-| Backup Files | ai_service/main.py.bak, ai_service/api/main.py.bak | Significant | Remove after verification |
-| Router Duplicates | chart.py vs charts.py | 193 lines | Consolidate to chart.py |
-| Router Duplicates | geocode.py vs geocoding.py | 12 lines | Consolidate to geocode.py |
+ log_message() {
+  local level="$1"
+  local message="$2"
+  local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  echo -e "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
 
-### 1.2 Architectural Inconsistencies
+  # Exit on fatal errors
+  if [[ "$level" == "FATAL" ]]; then
+    exit 1
+  fi
+ }
 
-1. **Dual Main Files**:
-   - `ai_service/main.py` - Standard version with API prefix
-   - `ai_service/api/main.py` - More comprehensive version with AsyncContext manager
+ # Usage
+ log_message "ERROR" "WebSocket connection failed: $error_details"
+ ```
 
-2. **API Endpoint Registration**:
-   - Both main files register routes at root level and with /api prefix
-   - This creates multiple ways to access the same functionality (e.g., `/chart/validate` and `/api/chart/validate`)
+3. Connection Management Best Practices
+ - For containerized applications with WebSocket connections:
 
-3. **Test Configuration**:
-   - tests/e2e/constants.js defines both prefixed and non-prefixed endpoints
-   - This suggests intentional dual registration for backward compatibility
+ 1. Progressive Connection Strategy:
+ ```bash
+   establish_connection() {
+     # Try direct connection first
+     if direct_connection; then
+       return 0
+     fi
 
-## 2. Consolidation Approach
+     # Try connection through proxy
+     if proxy_connection; then
+       return 0
+     fi
 
-### 2.1 File Cleanup
+     # Try alternative protocols
+     if alternative_protocol_connection; then
+       return 0
+     fi
 
-1. Remove backup files after verifying they contain no unique functionality
-2. Keep only one version of each router file
-   - Keep `chart.py` - Referenced in current main.py
-   - Keep `geocode.py` - Referenced in current main.py
+     return 1
+   }
+ ```
 
-### 2.2 API Architecture Standardization
+ 2. State Management:
+ ```bash
+   # Define connection states
+   CONNECTION_STATES=("DISCONNECTED" "CONNECTING" "CONNECTED" "RECONNECTING" "FAILED")
+   current_state="DISCONNECTED"
 
-1. **Maintain Dual Registration Pattern**:
-   - This appears to be an intentional design for backward compatibility
-   - Keep both /api/ prefixed and non-prefixed endpoints in main.py
+   update_connection_state() {
+     previous_state="$current_state"
+     current_state="$1"
+     log_message "INFO" "Connection state change: $previous_state -> $current_state"
 
-2. **Update Documentation**:
-   - Document the dual registration pattern in implementation_plan.md
-   - Ensure all API endpoints are accurately documented
+     # Execute state transition hooks
+     if type "on_${previous_state}_to_${current_state}" &>/dev/null; then
+       "on_${previous_state}_to_${current_state}"
+     fi
+   }
+ ```
 
-### 2.3 Test Configuration Update
+4. API Client Architecture
+ - Implement a robust API client pattern:
+ ```bash
+ # API Client with automatic retry
+ api_request() {
+  local method="$1"
+  local endpoint="$2"
+  local data="$3"
+  local max_retries=3
+  local retry_count=0
 
-1. **Verify constants.js**:
-   - Confirm all endpoints match actual implementation
-   - Keep both primary and alternative endpoints consistent
+  while [[ $retry_count -lt $max_retries ]]; do
+    response=$(curl -s -X "$method" "${API_URL}${endpoint}" \
+      -H "Authorization: Bearer ${SESSION_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$data")
 
-## 3. Implementation Steps
+    if [[ $? -eq 0 && ! -z "$response" ]]; then
+      echo "$response"
+      return 0
+    fi
 
-1. Remove backup files
-2. Remove redundant router files (charts.py, geocoding.py)
-3. Update implementation_plan.md to document the API endpoint architecture
-4. Update tests/e2e/constants.js if needed to match actual implementation
-5. Run tests to confirm functionality is preserved
+    retry_count=$((retry_count + 1))
+    log_message "WARNING" "API request failed, retrying ($retry_count/$max_retries)"
+    sleep $((2 ** retry_count))  # Exponential backoff
+  done
 
-## 4. API Endpoint Architecture Decision
+  log_message "ERROR" "API request failed after $max_retries attempts"
+  return 1
+ }
+ ```
 
-Based on the analysis of the codebase and test files, the dual registration of endpoints (with both /api prefix and at root level) appears to be an intentional design choice for backward compatibility. This approach allows clients to use either endpoint format, which can be useful during a transition period or when supporting multiple client versions.
+5. Test Session Management
+ - Implement proper session lifecycle management:
+ ```bash
+ # Session management
+ init_session() {
+  # Create session
+  local response=$(api_request "POST" "/session/init" "{}")
+  SESSION_TOKEN=$(echo "$response" | jq -r '.session_id // empty')
 
-This pattern is commonly used in API versioning strategies where maintaining backward compatibility is important. While it adds some complexity to the router configuration, it provides flexibility for clients and reduces the risk of breaking changes.
+  if [[ -z "$SESSION_TOKEN" ]]; then
+    log_message "FATAL" "Failed to initialize session"
+    return 1
+  fi
 
-The recommendation is to maintain this dual registration pattern but ensure it is well-documented and consistently implemented across all routers.
+  # Register cleanup on exit
+  trap cleanup_session EXIT
+
+  # Start token refresh timer
+  start_token_refresh_timer
+
+  return 0
+ }
+
+ cleanup_session() {
+  if [[ ! -z "$SESSION_TOKEN" ]]; then
+    api_request "POST" "/session/end" "{\"session_id\": \"$SESSION_TOKEN\"}"
+    SESSION_TOKEN=""
+  fi
+ }
+ ```
+
+## Implementation Recommendations
+ 1. To implement these improvements while maintaining current functionality:
+    - Gradual Refactoring Strategy:
+    - Start by extracting common functions to a separate file
+    - Implement the improved error handling framework
+    - Refactor one endpoint interaction at a time
+    - Add unit tests for each refactored component
+
+ 2. WebSocket Connection Improvement:
+    - Add proper handshake diagnostic output
+    - Implement connection health monitoring
+
+ 3. API Endpoint Validation:
+    - Add a startup validation phase that tests each API endpoint
+    - Implement schema validation for API responses
+    - Create environment-specific configuration options
+
+ 4. Dockerized Test Environment:
+    - Implement network simulation for testing connection issues

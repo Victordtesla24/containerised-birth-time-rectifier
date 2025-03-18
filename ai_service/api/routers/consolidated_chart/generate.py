@@ -5,7 +5,7 @@ This module provides endpoints for generating and retrieving astrological charts
 with OpenAI verification against Indian Vedic Astrological standards.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Response, Depends
+from fastapi import APIRouter, HTTPException, Query, Body, Response, Depends, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Union
@@ -14,10 +14,10 @@ import time
 from datetime import datetime
 import uuid
 
+from ai_service.api.websocket_events import emit_event, EventType
+
 # Import utilities and models
-from ai_service.api.routers.consolidated_chart.utils import (
-    validate_chart_data, format_chart_response, store_chart, retrieve_chart
-)
+from ai_service.api.routers.consolidated_chart.utils import validate_chart_data, format_chart_response, store_chart, retrieve_chart
 from ai_service.core.chart_calculator import calculate_chart, calculate_verified_chart
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
 
@@ -214,10 +214,21 @@ async def validate_birth_details_alt(request: ChartRequestAlt, response: Respons
         additional_info=None
     )
 
+    # Convert options
+    std_options = None
+    if request.options:
+        std_options = ChartOptions(
+            house_system=request.options.get("house_system", "P"),
+            zodiac_type=request.options.get("zodiac_type", "sidereal"),
+            ayanamsa=request.options.get("ayanamsa", "lahiri"),
+            node_type=request.options.get("node_type", "true"),
+            verify_with_openai=request.options.get("verify_with_openai", True)
+        )
+
     # Create standard request
     std_request = ChartRequest(
         birth_details=std_birth_details,
-        options=None
+        options=std_options
     )
 
     # Add deprecation warning header
@@ -229,7 +240,9 @@ async def validate_birth_details_alt(request: ChartRequestAlt, response: Respons
 @router.post("/generate", response_model=Dict[str, Any])
 async def generate_chart(
     request: Union[ChartRequest, Dict[str, Any]],
-    response: Response
+    response: Response,
+    req: Request,
+    background_tasks: BackgroundTasks
 ):
     """
     Generate an astrological chart based on birth details with OpenAI verification.
@@ -407,6 +420,28 @@ async def generate_chart(
             # Log success
             logger.info(f"Chart generated successfully in {processing_time:.2f} seconds")
 
+            # Emit chart generated event if we have a session ID
+            if hasattr(req.state, "session_id"):
+                session_id = req.state.session_id
+                # Send WebSocket event in the background
+                background_tasks.add_task(
+                    emit_event,
+                    session_id,
+                    EventType.CHART_GENERATED,
+                    {
+                        "chart_id": chart_id,
+                        "processing_time": processing_time,
+                        "verification": formatted_response.get("verification", {}),
+                        "birth_details": {
+                            "date": date_str,
+                            "time": time_str,
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "timezone": timezone
+                        }
+                    }
+                )
+
             return formatted_response
 
         except Exception as e:
@@ -436,7 +471,12 @@ async def generate_chart(
         )
 
 @router.post("/generate/alt", response_model=Dict[str, Any])
-async def generate_chart_alt(request: ChartRequestAlt, response: Response):
+async def generate_chart_alt(
+    request: ChartRequestAlt,
+    response: Response,
+    req: Request,
+    background_tasks: BackgroundTasks
+):
     """
     Alternative endpoint for chart generation (backward compatibility).
 
@@ -476,10 +516,15 @@ async def generate_chart_alt(request: ChartRequestAlt, response: Response):
     response.headers["X-Deprecation-Warning"] = "This endpoint is deprecated. Please use /generate instead."
 
     # Call primary endpoint
-    return await generate_chart(std_request, response)
+    return await generate_chart(std_request, response, req, background_tasks)
 
 @router.post("/generate/simple", response_model=Dict[str, Any])
-async def generate_chart_simple(request: ChartRequestSimple, response: Response):
+async def generate_chart_simple(
+    request: ChartRequestSimple,
+    response: Response,
+    req: Request,
+    background_tasks: BackgroundTasks
+):
     """
     Simple endpoint for chart generation (maximum backward compatibility).
 
@@ -513,10 +558,15 @@ async def generate_chart_simple(request: ChartRequestSimple, response: Response)
     response.headers["X-Deprecation-Warning"] = "This endpoint is deprecated. Please use /generate instead."
 
     # Call primary endpoint
-    return await generate_chart(std_request, response)
+    return await generate_chart(std_request, response, req, background_tasks)
 
 @router.get("/{chart_id}", response_model=Dict[str, Any])
-async def get_chart(chart_id: str, response: Response):
+async def get_chart(
+    chart_id: str,
+    response: Response,
+    req: Request,
+    background_tasks: BackgroundTasks
+):
     """
     Retrieve a previously generated chart by ID.
 
@@ -542,8 +592,25 @@ async def get_chart(chart_id: str, response: Response):
                 }
             )
 
-        # Format and return chart
-        return format_chart_response(chart_data)
+        # Format the chart response
+        formatted_response = format_chart_response(chart_data)
+
+        # Emit chart retrieved event if we have a session ID
+        if hasattr(req.state, "session_id"):
+            session_id = req.state.session_id
+            # Send WebSocket event in the background
+            background_tasks.add_task(
+                emit_event,
+                session_id,
+                EventType.CHART_RETRIEVED,
+                {
+                    "chart_id": chart_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+
+        # Return the formatted chart
+        return formatted_response
     except HTTPException:
         # Pass through HTTP exceptions
         raise
@@ -687,6 +754,70 @@ async def compare_charts(params: Union[ComparisonQueryParams, ComparisonRequest]
             }
         )
 
+def get_planet_significance(planet_name: str) -> float:
+    """
+    Get the significance score for a planet.
+
+    Args:
+        planet_name: The name of the planet
+
+    Returns:
+        float: The significance score (0.0-1.0)
+    """
+    # Define significance scores for different planets
+    significance_map = {
+        "sun": 0.95,
+        "moon": 0.95,
+        "mercury": 0.85,
+        "venus": 0.85,
+        "mars": 0.85,
+        "jupiter": 0.9,
+        "saturn": 0.9,
+        "uranus": 0.8,
+        "neptune": 0.8,
+        "pluto": 0.75,
+        "north_node": 0.7,
+        "south_node": 0.7,
+        "chiron": 0.65,
+        "ascendant": 0.95,
+        "midheaven": 0.9
+    }
+
+    # Normalize planet name
+    normalized_name = planet_name.lower().replace(" ", "_")
+
+    # Return significance score or default
+    return significance_map.get(normalized_name, 0.7)
+
+def get_house_significance(house_number: int) -> float:
+    """
+    Get the significance score for a house.
+
+    Args:
+        house_number: The house number (1-12)
+
+    Returns:
+        float: The significance score (0.0-1.0)
+    """
+    # Define significance scores for different houses
+    significance_map = {
+        1: 0.95,  # Ascendant/1st house - very important
+        4: 0.9,   # IC/4th house - important for home/family
+        7: 0.9,   # Descendant/7th house - important for relationships
+        10: 0.9,  # MC/10th house - important for career
+        2: 0.8,   # 2nd house - finances
+        5: 0.8,   # 5th house - creativity, children
+        8: 0.8,   # 8th house - transformation
+        11: 0.8,  # 11th house - social connections
+        3: 0.7,   # 3rd house - communication
+        6: 0.7,   # 6th house - health, service
+        9: 0.7,   # 9th house - higher learning
+        12: 0.7   # 12th house - spirituality
+    }
+
+    # Return significance score or default
+    return significance_map.get(house_number, 0.7)
+
 def calculate_chart_differences(chart1: Dict[str, Any], chart2: Dict[str, Any], include_significance: bool) -> List[Dict[str, Any]]:
     """
     Calculate the differences between two charts.
@@ -783,39 +914,13 @@ def calculate_chart_differences(chart1: Dict[str, Any], chart2: Dict[str, Any], 
                     house_num = house1.get("number", i+1)
                     differences.append({
                         "type": "house_sign",
-                        "description": f"House {house_num} sign changes: {house1.get('sign')} to {house2.get('sign')}",
+                        "description": f"House {house_num} sign differs: {house1.get('sign')} vs {house2.get('sign')}",
                         "significance": get_house_significance(house_num) if include_significance else None
                     })
 
-    # Compare aspects
-    if "aspects" in chart1 and "aspects" in chart2:
-        # This would be a complex comparison that would need to match aspects
-        # between the two charts. For simplicity, we'll just note if the number of aspects changed.
-        aspects1 = chart1["aspects"]
-        aspects2 = chart2["aspects"]
-
-        if isinstance(aspects1, list) and isinstance(aspects2, list):
-            aspect_count1 = len(aspects1)
-            aspect_count2 = len(aspects2)
-
-            if aspect_count1 != aspect_count2:
-                differences.append({
-                    "type": "aspect_count",
-                    "description": f"Number of aspects changed: {aspect_count1} to {aspect_count2}",
-                    "significance": 0.7 if include_significance else None
-                })
-
-    # Ensure we return at least one difference even if none were found
-    if not differences:
-        differences.append({
-            "type": "minimal",
-            "description": "Charts have only minor differences",
-            "significance": 0.1 if include_significance else None
-        })
-
     return differences
 
-def generate_comparison_summary(chart1: Dict[str, Any], chart2: Dict[str, Any], differences: List[Dict[str, Any]]) -> str:
+def generate_comparison_summary(chart1: Dict[str, Any], chart2: Dict[str, Any], differences: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Generate a summary of the comparison between two charts.
 
@@ -825,113 +930,68 @@ def generate_comparison_summary(chart1: Dict[str, Any], chart2: Dict[str, Any], 
         differences: The list of differences between the charts
 
     Returns:
-        str: A summary of the comparison
+        Dict[str, Any]: A summary of the comparison
     """
     # Count differences by type
-    diff_types = {}
+    diff_counts = {}
     for diff in differences:
-        diff_type = diff["type"]
-        if diff_type in diff_types:
-            diff_types[diff_type] += 1
-        else:
-            diff_types[diff_type] = 1
+        diff_type = diff.get("type", "unknown")
+        diff_counts[diff_type] = diff_counts.get(diff_type, 0) + 1
 
-    # Generate summary based on difference types
-    summary_parts = []
+    # Get the most significant differences
+    significant_diffs = sorted(
+        [d for d in differences if d.get("significance", 0) > 0.8],
+        key=lambda x: x.get("significance", 0),
+        reverse=True
+    )[:5]  # Top 5 most significant differences
 
-    # Add birth time difference if present
-    if "birth_time" in diff_types:
-        birth1 = chart1.get("birth_details", {})
-        birth2 = chart2.get("birth_details", {})
-        time1 = birth1.get("birth_time", birth1.get("time", ""))
-        time2 = birth2.get("birth_time", birth2.get("time", ""))
-        summary_parts.append(f"Birth time adjustment from {time1} to {time2}")
-
-    # Add ascendant changes
-    if "ascendant_sign" in diff_types:
-        asc1 = chart1.get("ascendant", {})
-        asc2 = chart2.get("ascendant", {})
-        summary_parts.append(f"Ascendant changes from {asc1.get('sign')} to {asc2.get('sign')}")
-    elif "ascendant_position" in diff_types:
-        summary_parts.append("Ascendant position shifts significantly")
-
-    # Add planet house changes
-    if "planet_house" in diff_types:
-        summary_parts.append(f"{diff_types['planet_house']} planet(s) change houses")
-
-    # Add planet sign changes
-    if "planet_sign" in diff_types:
-        summary_parts.append(f"{diff_types['planet_sign']} planet(s) change signs")
-
-    # Add house sign changes
-    if "house_sign" in diff_types:
-        summary_parts.append(f"{diff_types['house_sign']} house(s) change signs")
-
-    # Add aspect changes
-    if "aspect_count" in diff_types:
-        summary_parts.append("Planetary aspect pattern changes")
-
-    # Create final summary
-    if summary_parts:
-        summary = "The chart comparison reveals: " + "; ".join(summary_parts) + "."
-    else:
-        summary = "The charts have minimal differences that do not significantly impact interpretation."
+    # Create summary
+    summary = {
+        "total_differences": len(differences),
+        "difference_counts": diff_counts,
+        "significant_differences": significant_diffs,
+        "summary_text": generate_summary_text(chart1, chart2, differences)
+    }
 
     return summary
 
-def get_planet_significance(planet_name: str) -> float:
+def generate_summary_text(chart1: Dict[str, Any], chart2: Dict[str, Any], differences: List[Dict[str, Any]]) -> str:
     """
-    Get the significance score for a planet.
+    Generate a human-readable summary text of the comparison.
 
     Args:
-        planet_name: The name of the planet
+        chart1: The first chart data
+        chart2: The second chart data
+        differences: The list of differences between the charts
 
     Returns:
-        float: The significance score (0.0 to 1.0)
+        str: A human-readable summary of the comparison
     """
-    # Significance values for different planets (higher = more significant)
-    significance = {
-        "Sun": 0.95,
-        "Moon": 0.95,
-        "Ascendant": 0.95,
-        "Mercury": 0.8,
-        "Venus": 0.8,
-        "Mars": 0.8,
-        "Jupiter": 0.75,
-        "Saturn": 0.75,
-        "Rahu": 0.7,
-        "Ketu": 0.7,
-        "Uranus": 0.6,
-        "Neptune": 0.6,
-        "Pluto": 0.6
-    }
+    if not differences:
+        return "The charts are identical with no significant differences."
 
-    return significance.get(planet_name, 0.5)
+    # Get birth details
+    birth1 = chart1.get("birth_details", {})
+    birth2 = chart2.get("birth_details", {})
 
-def get_house_significance(house_number: int) -> float:
-    """
-    Get the significance score for a house.
+    time1 = birth1.get("birth_time", birth1.get("time", "unknown"))
+    time2 = birth2.get("birth_time", birth2.get("time", "unknown"))
 
-    Args:
-        house_number: The house number (1-12)
+    # Count difference types
+    planet_sign_diffs = sum(1 for d in differences if d.get("type") == "planet_sign")
+    planet_house_diffs = sum(1 for d in differences if d.get("type") == "planet_house")
+    house_sign_diffs = sum(1 for d in differences if d.get("type") == "house_sign")
 
-    Returns:
-        float: The significance score (0.0 to 1.0)
-    """
-    # Significance values for different houses (higher = more significant)
-    significance = {
-        1: 0.95,  # Ascendant/1st house is most significant
-        10: 0.9,  # 10th house (career)
-        7: 0.85,  # 7th house (relationships)
-        4: 0.8,   # 4th house (home)
-        5: 0.75,  # 5th house (creativity/children)
-        9: 0.75,  # 9th house (higher learning)
-        2: 0.7,   # 2nd house (finances)
-        8: 0.7,   # 8th house (transformation)
-        11: 0.65, # 11th house (friends/goals)
-        3: 0.6,   # 3rd house (communication)
-        6: 0.6,   # 6th house (health/service)
-        12: 0.6   # 12th house (hidden/spiritual)
-    }
+    # Generate summary text
+    summary = f"Comparison between charts for birth times {time1} and {time2}:\n"
+    summary += f"Found {len(differences)} differences, including "
+    summary += f"{planet_sign_diffs} planet sign changes, "
+    summary += f"{planet_house_diffs} planet house changes, and "
+    summary += f"{house_sign_diffs} house sign changes."
 
-    return significance.get(house_number, 0.5)
+    # Add note about most significant difference if available
+    if differences:
+        most_significant = max(differences, key=lambda x: x.get("significance", 0))
+        summary += f"\nMost significant difference: {most_significant.get('description')}"
+
+    return summary

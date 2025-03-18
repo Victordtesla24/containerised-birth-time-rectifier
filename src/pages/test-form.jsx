@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import axios from 'axios';
 
 /**
- * Test Form Component - A simplified form component specifically designed for test reliability
+ * Test Form Component - A form component that uses real API endpoints
  * This component matches the exact selectors and attributes used in the test suite
  */
 const TestForm = () => {
@@ -16,35 +17,98 @@ const TestForm = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const [apiResponse, setApiResponse] = useState(null);
+  const [locationSuggestions, setLocationSuggestions] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
 
-  // Handle form submission
+  // Handle form submission - uses real API endpoints
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      // Simulate API call success for tests
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Send actual API request to generate chart
+      const chartData = {
+        birth_details: {
+          birth_date: formData.birthDate,
+          birth_time: formData.birthTime,
+          location: formData.birthLocation,
+          latitude: selectedLocation?.latitude || 40.7128, // Default to NYC if no location selected
+          longitude: selectedLocation?.longitude || -74.006,
+          timezone: selectedLocation?.timezone || "America/New_York"
+        },
+        options: {
+          house_system: "W" // Use Whole Sign houses
+        }
+      };
 
-      // Generate a mock chart ID
-      const chartId = `test-${Date.now()}`;
+      // Call the real API endpoint
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000'}/api/v1/chart/generate`,
+        chartData,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-      // Navigate to the result page
-      router.push(`/chart/${chartId}`);
+      const responseData = response.data;
+      setApiResponse(responseData);
+
+      // If we have a chart ID, navigate to the chart page
+      if (responseData && responseData.chart_id) {
+        router.push(`/chart/${responseData.chart_id}`);
+      } else {
+        throw new Error('No chart ID returned from API');
+      }
     } catch (error) {
       console.error('Form submission error:', error);
+      setErrors({
+        submit: error.message || 'Failed to generate chart'
+      });
       setIsSubmitting(false);
     }
   };
 
   // Handle input changes
-  const handleChange = (e) => {
+  const handleChange = async (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
+
+    // If birth location is being typed, fetch location suggestions
+    if (name === 'birthLocation' && value.length > 2) {
+      try {
+        const response = await axios.get(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000'}/api/v1/geocode/geocode?query=${encodeURIComponent(value)}`,
+          {
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        if (response.data && response.data.results) {
+          setLocationSuggestions(response.data.results);
+        }
+      } catch (error) {
+        console.error('Error fetching location suggestions:', error);
+      }
+    }
+  };
+
+  // Handle location selection
+  const handleLocationSelect = (location) => {
+    setSelectedLocation(location);
+    setFormData({
+      ...formData,
+      birthLocation: location.name + ', ' + (location.state ? location.state + ', ' : '') + location.country
+    });
+    setLocationSuggestions([]);
   };
 
   return (
-    <div className="form-container" style={{
+    <div className="form-container birth-details-form-container" style={{
       padding: '20px',
       maxWidth: '600px',
       margin: '20px auto',
@@ -54,7 +118,7 @@ const TestForm = () => {
     }}>
       <h1>Birth Details</h1>
 
-      <form onSubmit={handleSubmit}>
+      <form className="birth-details-form" id="birth-details-form" data-testid="birth-details-form" onSubmit={handleSubmit}>
         <div style={{ marginBottom: '15px' }}>
           <label htmlFor="fullName" style={{ display: 'block', marginBottom: '5px' }}>Full Name</label>
           <input
@@ -79,7 +143,7 @@ const TestForm = () => {
             type="date"
             id="birthDate"
             name="birthDate"
-            data-testid="date"
+            data-testid="birth-date"
             value={formData.birthDate}
             onChange={handleChange}
             style={{
@@ -97,7 +161,7 @@ const TestForm = () => {
             type="time"
             id="birthTime"
             name="birthTime"
-            data-testid="time"
+            data-testid="birth-time"
             value={formData.birthTime}
             onChange={handleChange}
             style={{
@@ -109,13 +173,13 @@ const TestForm = () => {
           />
         </div>
 
-        <div style={{ marginBottom: '15px' }}>
+        <div style={{ marginBottom: '15px', position: 'relative' }}>
           <label htmlFor="birthLocation" style={{ display: 'block', marginBottom: '5px' }}>Birth Location</label>
           <input
             type="text"
             id="birthLocation"
             name="birthLocation"
-            data-testid="birthPlace"
+            data-testid="birth-location"
             placeholder="City, Country"
             value={formData.birthLocation}
             onChange={handleChange}
@@ -127,8 +191,42 @@ const TestForm = () => {
             }}
           />
 
+          {/* Location suggestions */}
+          {locationSuggestions.length > 0 && (
+            <ul className="location-suggestions" style={{
+              position: 'absolute',
+              width: '100%',
+              backgroundColor: 'white',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              zIndex: 10,
+              listStyle: 'none',
+              padding: 0,
+              margin: 0,
+              maxHeight: '200px',
+              overflowY: 'auto'
+            }}>
+              {locationSuggestions.map((location, index) => (
+                <li
+                  key={location.id || index}
+                  data-testid="location-suggestion"
+                  onClick={() => handleLocationSelect(location)}
+                  style={{
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    borderBottom: index < locationSuggestions.length - 1 ? '1px solid #eee' : 'none'
+                  }}
+                  onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#f0f0f0' }}
+                  onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                >
+                  {location.name}, {location.state && `${location.state}, `}{location.country}
+                </li>
+              ))}
+            </ul>
+          )}
+
           {/* Coordinates display for tests */}
-          {formData.birthLocation && (
+          {selectedLocation && (
             <div
               data-testid="coordinates-display"
               className="coordinates-display"
@@ -138,7 +236,9 @@ const TestForm = () => {
                 color: '#666'
               }}
             >
-              Coordinates: 18.5204° N, 73.8567° E (Timezone: Asia/Kolkata)
+              Coordinates: {selectedLocation.latitude}° {selectedLocation.latitude >= 0 ? 'N' : 'S'},
+              {selectedLocation.longitude}° {selectedLocation.longitude >= 0 ? 'E' : 'W'}
+              (Timezone: {selectedLocation.timezone})
             </div>
           )}
         </div>
@@ -161,6 +261,18 @@ const TestForm = () => {
           />
         </div>
 
+        {errors.submit && (
+          <div style={{
+            color: 'red',
+            marginBottom: '15px',
+            padding: '10px',
+            border: '1px solid red',
+            borderRadius: '4px'
+          }}>
+            {errors.submit}
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <button
             type="submit"
@@ -176,7 +288,7 @@ const TestForm = () => {
               opacity: isSubmitting ? 0.7 : 1
             }}
           >
-            {isSubmitting ? 'Submitting...' : 'Begin Analysis'}
+            {isSubmitting ? 'Submitting...' : 'Generate Chart'}
           </button>
 
           <button

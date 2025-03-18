@@ -1,4 +1,4 @@
-# Single-stage build for all environments (development, testing, production)
+# Single-stage build for all environments
 FROM node:20-slim
 
 # Set working directory
@@ -7,41 +7,58 @@ WORKDIR /app
 # Set environment variables
 ENV PORT=3000
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development
+# Use SWC instead of Babel
+ENV NEXT_SWCMINIFY=true
 
-# Install system dependencies for Next.js rendering
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     build-essential \
     bash \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python path for node-gyp
 ENV PYTHON=/usr/bin/python3
 
 # Copy package files first (for better layer caching)
-COPY package.json package-lock.json ./.npmrc ./.babelrc ./
+COPY package.json package-lock.json ./.npmrc ./
 
-# Install dependencies - DO NOT use --ignore-scripts to ensure build scripts run correctly
+# Install dependencies - allow Next.js to use SWC
 RUN npm install --global npm@latest && \
     npm cache clean --force && \
-    npm install --no-optional && \
+    npm install && \
     npm install --save d3@7.8.5 && \
-    npm install --save-dev @babel/core @babel/preset-env @babel/preset-react @babel/preset-typescript @babel/plugin-transform-runtime && \
+    # Create needed directories
     mkdir -p .next && \
-    echo "{}" > .next/fallback-build-manifest.json
+    echo "{}" > .next/fallback-build-manifest.json && \
+    chmod -R 777 .next && \
+    chmod -R 777 node_modules
 
-# Create directories
-RUN mkdir -p scripts
+# Create directories with proper permissions
+RUN mkdir -p scripts && chmod 777 scripts
 
-# Add entrypoint script
-COPY scripts/nextjs-entrypoint.sh scripts/
-RUN chmod +x scripts/nextjs-entrypoint.sh
+# Add simplified entrypoint script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "Running Next.js entrypoint script..."\n\
+\n\
+# Create the necessary directories and files\n\
+mkdir -p .next\n\
+echo "{}" > .next/fallback-build-manifest.json\n\
+chmod -R 777 .next\n\
+\n\
+echo "Starting Next.js in development mode..."\n\
+exec npm run dev\n\
+' > scripts/nextjs-entrypoint.sh && chmod +x scripts/nextjs-entrypoint.sh
 
 # Copy source code
 COPY . .
-
-# Run a build before starting to ensure all dependencies are correctly installed
-RUN if [ "$NODE_ENV" != "development" ]; then npm run build || echo "Build failed, will retry at runtime"; fi
+RUN rm -f .babelrc babel.config.js # Remove any Babel configuration to use SWC
+RUN chmod -R 777 /app
 
 # Expose port
 EXPOSE 3000

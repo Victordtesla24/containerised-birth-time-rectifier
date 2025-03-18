@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextRequest } from 'next/server';
+import type { NextResponse } from 'next/server';
 
 type ChartComparisonResponse = {
   success?: boolean;
@@ -18,14 +19,18 @@ type ChartComparisonResponse = {
  * to visualize the differences and their astrological significance.
  */
 export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ChartComparisonResponse>
+  req: Request
 ) {
   // Allow GET for retrieving comparison and POST for creating
   if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).json({
+    return new Response(JSON.stringify({
       success: false,
       error: 'Method not allowed'
+    }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 
@@ -35,48 +40,61 @@ export default async function handler(
     let response;
 
     if (req.method === 'GET') {
-      // Extract comparison ID from query
-      const { id, type = 'full' } = req.query;
+      // Extract comparison ID from URL
+      const url = new URL(req.url);
+      const id = url.searchParams.get('id');
+      const type = url.searchParams.get('type') || 'full';
 
       if (!id) {
-        return res.status(400).json({
+        return new Response(JSON.stringify({
           success: false,
           message: 'Comparison ID is required'
+        }), {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json'
+          }
         });
       }
 
-      // Call the backend service to retrieve the comparison
-      response = await fetch(`${aiServiceUrl}/api/chart/compare/${id}?type=${type}`, {
+      // Call the backend service to retrieve the comparison with the correct endpoint
+      response = await fetch(`${aiServiceUrl}/api/v1/chart/compare/${id}?type=${type}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'X-Session-Token': req.headers['x-session-token'] as string || '',
+          'X-Session-Token': req.headers.get('x-session-token') || '',
         }
       });
     } else {
       // POST request to create a comparison
+      const body = await req.json();
       const {
         originalChartId,
         rectifiedChartId,
         originalTime,
         rectifiedTime,
         comparisonType = 'full'
-      } = req.body;
+      } = body;
 
       // Validate required fields
       if (!originalChartId || !rectifiedChartId) {
-        return res.status(400).json({
+        return new Response(JSON.stringify({
           success: false,
           message: 'Both original and rectified chart IDs are required'
+        }), {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json'
+          }
         });
       }
 
-      // Call the backend service to create a comparison
-      response = await fetch(`${aiServiceUrl}/api/chart/compare`, {
+      // Call the backend service to create a comparison with the correct endpoint
+      response = await fetch(`${aiServiceUrl}/api/v1/chart/compare`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Session-Token': req.headers['x-session-token'] as string || '',
+          'X-Session-Token': req.headers.get('x-session-token') || '',
         },
         body: JSON.stringify({
           original_chart_id: originalChartId,
@@ -100,30 +118,21 @@ export default async function handler(
 
       console.error('Chart comparison service error:', errorMessage);
 
-      return res.status(statusCode).json({
+      return new Response(JSON.stringify({
         success: false,
         error: errorMessage
+      }), {
+        status: statusCode,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // Successfully got data from backend service
     const data = await response.json();
 
-    // Store comparison data in session if available (for POST requests)
-    if (req.method === 'POST' && typeof window !== 'undefined' && data.comparison_id) {
-      try {
-        sessionStorage.setItem('chartComparison', JSON.stringify({
-          comparisonId: data.comparison_id,
-          originalChart: data.original_chart,
-          rectifiedChart: data.rectified_chart,
-          differences: data.differences
-        }));
-      } catch (e) {
-        console.warn('Failed to store comparison data in session storage', e);
-      }
-    }
-
-    return res.status(200).json({
+    return new Response(JSON.stringify({
       success: true,
       comparison_id: data.comparison_id,
       comparison_data: data.comparison_data,
@@ -131,13 +140,23 @@ export default async function handler(
       original_chart: data.original_chart,
       rectified_chart: data.rectified_chart,
       message: data.message || 'Chart comparison successful'
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
 
   } catch (error) {
     console.error('Error comparing charts:', error);
-    return res.status(500).json({
+    return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 }

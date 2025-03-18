@@ -3,8 +3,38 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { act } from 'react-dom/test-utils';
 import QuestionnairePage from '../../pages/questionnaire';
 import { questionnaireApi } from '../../services/apiService';
+import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
 
-// Using real API endpoints - no mocks
+// Mock the questionnaireApi
+jest.mock('../../services/apiService', () => ({
+  questionnaireApi: {
+    initialize: jest.fn(),
+    getNextQuestion: jest.fn(),
+    getAnalysisResults: jest.fn(),
+    processRectification: jest.fn()
+  }
+}));
+
+// Create a mock router
+const createMockRouter = (query = {}) => ({
+  basePath: '',
+  pathname: '/',
+  route: '/',
+  asPath: '/',
+  query,
+  push: jest.fn(),
+  replace: jest.fn(),
+  reload: jest.fn(),
+  back: jest.fn(),
+  prefetch: jest.fn(),
+  beforePopState: jest.fn(),
+  events: {
+    on: jest.fn(),
+    off: jest.fn(),
+    emit: jest.fn()
+  },
+  isFallback: false
+});
 
 describe('QuestionnairePage', () => {
   beforeEach(() => {
@@ -14,11 +44,16 @@ describe('QuestionnairePage', () => {
 
   it('renders loading state correctly', async () => {
     // Mock API to delay response
-    questionnaireApi.initializeQuestionnaire.mockImplementation(
+    questionnaireApi.initialize.mockImplementation(
       () => new Promise(resolve => setTimeout(resolve, 100))
     );
 
-    const { container } = render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    const { container } = render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Check loading state using a more flexible matcher
     expect(screen.getByText(/loading questionnaire/i)).toBeInTheDocument();
@@ -29,10 +64,15 @@ describe('QuestionnairePage', () => {
 
   it('renders error state correctly', async () => {
     // Mock API to return error immediately
-    questionnaireApi.initializeQuestionnaire.mockRejectedValueOnce(new Error('API Error'));
+    questionnaireApi.initialize.mockRejectedValueOnce(new Error('API Error'));
 
     // Use render outside of act for cleaner test
-    const { container } = render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    const { container } = render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Wait for error state to appear
     await waitFor(() => {
@@ -56,14 +96,19 @@ describe('QuestionnairePage', () => {
     ];
 
     // Resolve immediately with mock data
-    questionnaireApi.initializeQuestionnaire.mockResolvedValueOnce({
+    questionnaireApi.initialize.mockResolvedValueOnce({
       questions: mockQuestions,
       confidenceScore: 0.2,
       isComplete: false,
       hasReachedThreshold: false
     });
 
-    const { container } = render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    const { container } = render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Wait for questions to load
     await waitFor(() => {
@@ -87,7 +132,7 @@ describe('QuestionnairePage', () => {
     ];
 
     // Resolve immediately with mock data
-    questionnaireApi.initializeQuestionnaire.mockResolvedValueOnce({
+    questionnaireApi.initialize.mockResolvedValueOnce({
       questions: mockQuestions,
       confidenceScore: 0.2,
       isComplete: false,
@@ -108,7 +153,12 @@ describe('QuestionnairePage', () => {
       hasReachedThreshold: false
     });
 
-    const { container } = render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    const { container } = render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Wait for first question to load
     await waitFor(() => {
@@ -144,7 +194,7 @@ describe('QuestionnairePage', () => {
     ];
 
     // Resolve immediately with mock data
-    questionnaireApi.initializeQuestionnaire.mockResolvedValueOnce({
+    questionnaireApi.initialize.mockResolvedValueOnce({
       questions: mockQuestions,
       confidenceScore: 0.2,
       isComplete: false,
@@ -162,7 +212,12 @@ describe('QuestionnairePage', () => {
       chartId: 'test-chart-id'
     });
 
-    const { container } = render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    const { container } = render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Wait for question to load
     await waitFor(() => {
@@ -207,14 +262,19 @@ describe('QuestionnairePage', () => {
     ];
 
     // Resolve immediately with mock data
-    questionnaireApi.initializeQuestionnaire.mockResolvedValueOnce({
+    questionnaireApi.initialize.mockResolvedValueOnce({
       questions: mockQuestions,
       confidenceScore: 0.65,
       isComplete: false,
       hasReachedThreshold: false
     });
 
-    render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Wait for questions to load
     await waitFor(() => {
@@ -242,7 +302,7 @@ describe('QuestionnairePage', () => {
     ];
 
     // Resolve immediately with mock data
-    questionnaireApi.initializeQuestionnaire.mockResolvedValueOnce({
+    questionnaireApi.initialize.mockResolvedValueOnce({
       questions: mockQuestions,
       confidenceScore: 0.2,
       isComplete: false,
@@ -256,7 +316,12 @@ describe('QuestionnairePage', () => {
       hasReachedThreshold: false
     });
 
-    const { container } = render(<QuestionnairePage />);
+    const mockRouter = createMockRouter({ sessionId: 'test-session-id' });
+    const { container } = render(
+      <RouterContext.Provider value={mockRouter}>
+        <QuestionnairePage />
+      </RouterContext.Provider>
+    );
 
     // Wait for question to load
     await waitFor(() => {

@@ -6,6 +6,7 @@ import os
 import shutil
 from pathlib import Path
 import json
+import requests
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Get base URL from environment or use default
 BASE_URL = os.environ.get('BASE_URL', 'http://localhost:3000')
+API_GATEWAY_URL = os.environ.get('API_GATEWAY_URL', 'http://localhost:9000')
+AI_SERVICE_URL = os.environ.get('AI_SERVICE_URL', 'http://localhost:8000')
 
 # Test data
 TEST_DATA = {
@@ -26,6 +29,25 @@ def setup_browser_context(page: Page):
     """Configure the browser context before each test."""
     # Set the base URL
     page.context.set_default_navigation_timeout(60000)  # 60 seconds
+
+    # Verify all services are running
+    try:
+        # Check frontend
+        frontend_response = requests.get(f"{BASE_URL}", timeout=5)
+        assert frontend_response.status_code == 200, "Frontend service is not running"
+
+        # Check API gateway
+        api_gateway_response = requests.get(f"{API_GATEWAY_URL}/health", timeout=5)
+        assert api_gateway_response.status_code == 200, "API gateway service is not running"
+
+        # Check AI service
+        ai_service_response = requests.get(f"{AI_SERVICE_URL}/health", timeout=5)
+        assert ai_service_response.status_code == 200, "AI service is not running"
+
+        logger.info("All services are running and healthy")
+    except (requests.RequestException, AssertionError) as e:
+        pytest.fail(f"Service health check failed: {str(e)}")
+
     return page
 
 def test_birth_details_form_submission(page: Page):
@@ -36,622 +58,413 @@ def test_birth_details_form_submission(page: Page):
     page.goto(f'{BASE_URL}/')
     logger.info("Navigated to application")
 
+    # Look for and click the "Get Started" button first
+    get_started_selectors = [
+        'button#get-started-button',
+        'button[data-testid="get-started-button"]',
+        'button:has-text("Get Started")',
+        '.cosmic-button.primary',
+        'a:has-text("Get Started")',
+        'a.get-started-link'
+    ]
+
+    get_started_found = False
+    for selector in get_started_selectors:
+        if page.locator(selector).count() > 0:
+            button = page.locator(selector).first
+            get_started_found = True
+            logger.info(f"Found Get Started button with selector: {selector}")
+            # Take screenshot before clicking
+            page.screenshot(path="/tmp/before_get_started.png")
+            # Click the button
+            button.click()
+            logger.info("Clicked Get Started button")
+            # Wait for navigation to complete
+            page.wait_for_load_state("networkidle")
+            break
+
+    assert get_started_found, "Get Started button not found on homepage"
+    logger.info("Navigated to form page after clicking Get Started")
+
+    # Take screenshot of current state after navigation
+    page.screenshot(path='/tmp/after_get_started.png')
+
     # Look for the birth details form
-    try:
-        # Try various form selectors to find the form
-        form_selectors = [
-            'form.birth-details-form',
-            'form#birth-details-form',
-            'form[data-testid="birth-details-form"]',
-            'form',
-            '.form',
-            'form:has(input[type="date"])',
-            'form:has(input[name="birthDate"])'
-        ]
+    form_selectors = [
+        'form.birth-details-form',
+        'form#birth-details-form',
+        'form[data-testid="birth-details-form"]',
+        'form',
+        '.form',
+        'form:has(input[type="date"])',
+        'form:has(input[name="birthDate"])'
+    ]
 
-        # First check if there are ANY forms at all
-        all_forms = page.locator('form')
-        form_count = all_forms.count()
-        logger.info(f"Found {form_count} forms on the page")
+    # First check if there are ANY forms at all
+    all_forms = page.locator('form')
+    form_count = all_forms.count()
+    logger.info(f"Found {form_count} forms on the page")
 
-        if form_count > 0:
-            # Log information about each form
-            for i in range(form_count):
-                form = all_forms.nth(i)
-                try:
-                    form_id = form.get_attribute('id') or 'no-id'
-                    form_class = form.get_attribute('class') or 'no-class'
-                    form_action = form.get_attribute('action') or 'no-action'
-
-                    # Check for inputs inside this form
-                    inputs = form.locator('input')
-                    input_count = inputs.count()
-                    logger.info(f"Form {i+1}: id={form_id}, class={form_class}, action={form_action}, inputs={input_count}")
-                except Exception as e:
-                    logger.warning(f"Error inspecting form {i+1}: {str(e)}")
-
-        # Also look for specific input elements
-        input_selectors = [
-            'input[type="date"]',
-            'input[name="birthDate"]',
-            'input[placeholder*="date"]',
-            'input[type="time"]',
-            'input[name="birthTime"]'
-        ]
-
-        for selector in input_selectors:
-            input_count = page.locator(selector).count()
-            if input_count > 0:
-                logger.info(f"Found {input_count} inputs matching {selector}")
-
-        form_found = False
-        for selector in form_selectors:
-            if page.locator(selector).count() > 0:
-                form = page.locator(selector).first
-                form_found = True
-                logger.info(f"Found form with selector: {selector}")
-                break
-
-        # Take screenshot of current state
-        page.screenshot(path='/tmp/form-state.png')
-
-        # Instead of asserting and failing, we'll log a warning and continue with a direct API approach
-        if not form_found:
-            logger.warning("Form not found on page, will attempt to create chart via API directly")
-
-            # Create chart directly via API
+    if form_count > 0:
+        # Log information about each form
+        for i in range(form_count):
+            form = all_forms.nth(i)
             try:
-                chart_data = {
-                    "birth_details": {
-                        "birth_date": TEST_DATA["birthDate"],
-                        "birth_time": TEST_DATA["birthTime"],
-                        "location": TEST_DATA["birthLocation"],
-                        "latitude": 40.7128,  # Default to New York
-                        "longitude": -74.006,
-                        "timezone": "America/New_York"
-                    },
-                    "options": {
-                        "house_system": "W"  # Use Whole Sign houses for more reliable calculations
-                    }
-                }
+                form_id = form.get_attribute('id') or 'no-id'
+                form_class = form.get_attribute('class') or 'no-class'
+                form_action = form.get_attribute('action') or 'no-action'
 
-                response = page.request.post(
-                    f'{BASE_URL}/api/v1/chart/generate',
-                    headers={"Content-Type": "application/json"},
-                    data=json.dumps(chart_data)
-                )
-
-                # Handle both success and failure gracefully
-                if response.ok:
-                    try:
-                        chart_response = response.json()
-                        chart_id = chart_response.get("chart_id", "test-123")
-                        logger.info(f"Successfully created chart via API with ID: {chart_id}")
-                        # Navigate to this chart
-                        page.goto(f'{BASE_URL}/chart/{chart_id}')
-                    except Exception as e:
-                        logger.warning(f"Error parsing API response: {str(e)}")
-                        # Use default chart ID
-                        logger.info("Using fallback chart ID: test-123")
-                        page.goto(f'{BASE_URL}/chart/test-123')
-                else:
-                    logger.warning(f"API chart creation failed with status {response.status}: {response.text}")
-                    # Use default chart ID
-                    logger.info("Using fallback chart ID: test-123")
-                    page.goto(f'{BASE_URL}/chart/test-123')
+                # Check for inputs inside this form
+                inputs = form.locator('input')
+                input_count = inputs.count()
+                logger.info(f"Form {i+1}: id={form_id}, class={form_class}, action={form_action}, inputs={input_count}")
             except Exception as e:
-                logger.warning(f"Error in direct API chart creation: {str(e)}")
-                # Use default chart ID as a fallback
-                logger.info("Using fallback chart ID after API error: test-123")
-                page.goto(f'{BASE_URL}/chart/test-123')
+                logger.error(f"Error inspecting form {i+1}: {str(e)}")
 
-            logger.info("Simulation complete: form submission bypassed using direct API call")
-            # Continue with the chart page checks below
+    # Also look for specific input elements
+    input_selectors = [
+        'input[type="date"]',
+        'input[name="birthDate"]',
+        'input[placeholder*="date"]',
+        'input[type="time"]',
+        'input[name="birthTime"]'
+    ]
 
-        # Fill out the form with valid data
-        # Try different selectors for date input
-        date_selectors = [
-            'input[name="birthDate"]',
-            'input[type="date"]',
-            'input[data-testid="birth-date"]'
-        ]
+    for selector in input_selectors:
+        input_count = page.locator(selector).count()
+        if input_count > 0:
+            logger.info(f"Found {input_count} inputs matching {selector}")
 
-        for selector in date_selectors:
-            if page.locator(selector).count() > 0:
-                page.fill(selector, TEST_DATA['birthDate'])
-                logger.info(f"Filled date with selector: {selector}")
-                break
+    form_found = False
+    for selector in form_selectors:
+        if page.locator(selector).count() > 0:
+            form = page.locator(selector).first
+            form_found = True
+            logger.info(f"Found form with selector: {selector}")
+            break
 
-        # Try different selectors for time input
-        time_selectors = [
-            'input[name="birthTime"]',
-            'input[type="time"]',
-            'input[data-testid="birth-time"]'
-        ]
+    # Take screenshot of current state
+    page.screenshot(path='/tmp/form-state.png')
 
-        for selector in time_selectors:
-            if page.locator(selector).count() > 0:
-                page.fill(selector, TEST_DATA['birthTime'])
-                logger.info(f"Filled time with selector: {selector}")
-                break
+    # Assert form is found - don't continue with fallbacks if no form is found
+    assert form_found, "Form element not found on page. UI test cannot proceed without form."
 
-        # Try different selectors for location input
-        location_selectors = [
-            'input[name="birthLocation"]',
-            'input[placeholder*="location" i]',
-            'input[data-testid="birth-location"]'
-        ]
+    # Fill out the form with valid data
+    # Try different selectors for date input
+    date_selectors = [
+        'input[name="birthDate"]',
+        'input[type="date"]',
+        'input[data-testid="birth-date"]'
+    ]
 
-        for selector in location_selectors:
-            if page.locator(selector).count() > 0:
-                page.fill(selector, TEST_DATA['birthLocation'])
-                logger.info(f"Filled location with selector: {selector}")
-                # Wait for location suggestions to appear
-                try:
-                    # Wait for the suggestion dropdown to appear (different apps use different UIs)
-                    time.sleep(1)  # Give time for suggestion API to respond
-                    suggestion_selectors = [
-                        '.location-suggestions li',
-                        '.autocomplete-suggestions div',
-                        '[data-testid="location-suggestion"]'
-                    ]
+    date_filled = False
+    for selector in date_selectors:
+        if page.locator(selector).count() > 0:
+            page.fill(selector, TEST_DATA['birthDate'])
+            logger.info(f"Filled date with selector: {selector}")
+            date_filled = True
+            break
 
-                    for suggestion_selector in suggestion_selectors:
-                        if page.locator(suggestion_selector).count() > 0:
-                            # Click the first suggestion
-                            page.locator(suggestion_selector).first.click()
-                            logger.info(f"Selected location suggestion with selector: {suggestion_selector}")
-                            break
-                except Exception as e:
-                    logger.warning(f"Location suggestion selection failed: {str(e)}")
-                break
+    assert date_filled, "Date input field not found"
 
-        # Find and click the submit button
-        submit_selectors = [
-            'button[type="submit"]',
-            'input[type="submit"]',
-            'button:has-text("Generate Chart")',
-            'button:has-text("Submit")',
-            'button.primary-button',
-            'button.submit-button'
-        ]
+    # Try different selectors for time input
+    time_selectors = [
+        'input[name="birthTime"]',
+        'input[type="time"]',
+        'input[data-testid="birth-time"]'
+    ]
 
-        submit_button_found = False
-        for selector in submit_selectors:
-            if page.locator(selector).count() > 0:
-                submit_button = page.locator(selector).first
-                submit_button_found = True
-                logger.info(f"Found submit button with selector: {selector}")
-                # Save before submission
-                page.screenshot(path="/tmp/before_submit.png")
-                # Click the submit button
-                submit_button.click()
-                logger.info("Clicked submit button")
-                break
+    time_filled = False
+    for selector in time_selectors:
+        if page.locator(selector).count() > 0:
+            page.fill(selector, TEST_DATA['birthTime'])
+            logger.info(f"Filled time with selector: {selector}")
+            time_filled = True
+            break
 
-        if not submit_button_found:
-            logger.warning("Submit button not found")
-            page.screenshot(path="/tmp/no_submit_button.png")
+    assert time_filled, "Time input field not found"
 
-            # Instead of skipping, simulate a successful form submission
-            logger.info("Simulating form submission since submit button was not found")
+    # Try different selectors for location input
+    location_selectors = [
+        'input[name="birthLocation"]',
+        'input[placeholder*="location" i]',
+        'input[data-testid="birth-location"]'
+    ]
 
-            # Navigate directly to a chart page or demo chart
+    location_filled = False
+    for selector in location_selectors:
+        if page.locator(selector).count() > 0:
+            page.fill(selector, TEST_DATA['birthLocation'])
+            logger.info(f"Filled location with selector: {selector}")
+            # Wait for location suggestions to appear
             try:
-                page.goto("http://localhost:3000/chart/demo")
-                logger.info("Navigated to demo chart page")
-            except Exception as e:
-                logger.warning(f"Error navigating to demo chart: {e}")
-                # Create a mock chart ID for testing
-                chart_id = "test-chart-simulation"
-                logger.info(f"Using mock chart ID: {chart_id}")
-
-            # Continue with the test as if submission was successful
-
-        # Wait for chart page to load
-        try:
-            # Try different selectors to detect chart page has loaded
-            chart_page_selectors = [
-                '.chart-container',
-                '.birth-chart',
-                'canvas.chart-canvas',
-                '[data-testid="chart-page"]',
-                'h1:has-text("Birth Chart")',
-                'h2:has-text("Birth Chart")'
-            ]
-
-            chart_found = False
-            for selector in chart_page_selectors:
-                try:
-                    if page.wait_for_selector(selector, timeout=10000, state='visible') is not None:
-                        chart_found = True
-                        logger.info(f"Chart page loaded with selector: {selector}")
-                        break
-                except Exception:
-                    pass
-
-            if not chart_found:
-                # Take a screenshot of what's shown instead of the chart
-                page.screenshot(path="/tmp/chart_not_found.png")
-                page_content = page.content()
-                logger.warning(f"Chart not found after submit. Current page content: {page_content[:500]}...")
-
-                # Check if there's an error message
-                error_selectors = [
-                    '.error-message',
-                    '.alert-error',
-                    '[data-testid="error"]',
-                    '.notification-error'
+                # Wait for the suggestion dropdown to appear
+                time.sleep(1)  # Give time for suggestion API to respond
+                suggestion_selectors = [
+                    '.location-suggestions li',
+                    '.autocomplete-suggestions div',
+                    '[data-testid="location-suggestion"]'
                 ]
 
-                for selector in error_selectors:
-                    if page.locator(selector).count() > 0:
-                        error_text = page.locator(selector).first.text_content()
-                        logger.warning(f"Found error message: {error_text}")
+                for suggestion_selector in suggestion_selectors:
+                    if page.locator(suggestion_selector).count() > 0:
+                        # Click the first suggestion
+                        page.locator(suggestion_selector).first.click()
+                        logger.info(f"Selected location suggestion with selector: {suggestion_selector}")
                         break
+            except Exception as e:
+                logger.error(f"Location suggestion selection failed: {str(e)}")
+            location_filled = True
+            break
 
-                # Don't fail the test immediately, try to continue with what we have
-                logger.warning("Continuing test despite chart not loading properly")
-            else:
-                # Test passed - chart successfully loaded
-                logger.info("Chart generated successfully")
-        except Exception as e:
-            logger.error(f"Error waiting for chart page: {str(e)}")
-            page.screenshot(path="/tmp/chart_wait_error.png")
-            raise
+    assert location_filled, "Location input field not found"
 
-        # Verify birth chart components are present
-        chart_component_selectors = [
-            # Chart visualization
-            '.chart-visualization',
-            'canvas.chart-canvas',
-            '[data-testid="chart-visualization"]',
+    # Find and click the submit button
+    submit_selectors = [
+        'button[type="submit"]',
+        'input[type="submit"]',
+        'button:has-text("Generate Chart")',
+        'button:has-text("Submit")',
+        'button.primary-button',
+        'button.submit-button'
+    ]
 
-            # Planet positions or details table
-            '.planet-positions',
-            'table.positions-table',
-            '[data-testid="planet-positions"]',
+    submit_button_found = False
+    for selector in submit_selectors:
+        if page.locator(selector).count() > 0:
+            submit_button = page.locator(selector).first
+            submit_button_found = True
+            logger.info(f"Found submit button with selector: {selector}")
+            # Save before submission
+            page.screenshot(path="/tmp/before_submit.png")
+            # Click the submit button
+            submit_button.click()
+            logger.info("Clicked submit button")
+            break
 
-            # Chart details/info section
-            '.chart-details',
-            '.chart-info',
-            '[data-testid="chart-details"]'
-        ]
+    assert submit_button_found, "Submit button not found"
 
-        components_found = 0
-        for selector in chart_component_selectors:
-            if page.locator(selector).count() > 0:
-                components_found += 1
-                logger.info(f"Found chart component with selector: {selector}")
+    # Wait for chart page to load
+    chart_page_selectors = [
+        '.chart-container',
+        '.birth-chart',
+        'canvas.chart-canvas',
+        '[data-testid="chart-page"]',
+        'h1:has-text("Birth Chart")',
+        'h2:has-text("Birth Chart")',
+        'svg' # Generic chart indicator
+    ]
 
-        if components_found > 0:
-            logger.info(f"Found {components_found} chart components")
-        else:
-            logger.warning("No specific chart components found")
-            page.screenshot(path="/tmp/no_chart_components.png")
-
-        # Test interaction with chart (click/hover on elements)
+    chart_found = False
+    for selector in chart_page_selectors:
         try:
-            interaction_selectors = [
-                '.chart-visualization .planet',
-                '.interactive-element',
-                '[data-testid="interactive-chart"] *',
-                'canvas.chart-canvas'
-            ]
-
-            for selector in interaction_selectors:
-                if page.locator(selector).count() > 0:
-                    # Try clicking or hovering
-                    try:
-                        el = page.locator(selector).first
-                        # Hover first to see if tooltips appear
-                        el.hover()
-                        time.sleep(0.5)  # Brief wait for tooltip
-
-                        # Then try clicking if it's clickable
-                        el.click()
-                        logger.info(f"Successfully interacted with chart element: {selector}")
-                        break
-                    except Exception as e:
-                        logger.warning(f"Interaction with {selector} failed: {str(e)}")
+            if page.wait_for_selector(selector, timeout=10000, state='visible') is not None:
+                chart_found = True
+                logger.info(f"Chart page loaded with selector: {selector}")
+                break
         except Exception as e:
-            logger.warning(f"Chart interaction test failed: {str(e)}")
+            logger.error(f"Selector {selector} not found: {str(e)}")
 
-        # Test passed
-        logger.info("Birth details form submission test completed successfully")
-    except Exception as e:
-        logger.error(f"Test failed with error: {str(e)}")
-        page.screenshot(path="/tmp/test_failure.png")
-        # Don't raise the exception, just log it
-        logger.warning("Test encountered errors but will be marked as passed")
-        return
+    # Take a screenshot if chart not found
+    if not chart_found:
+        page.screenshot(path="/tmp/chart_not_found.png")
+
+    assert chart_found, "Chart not found after form submission"
+
+    # Verify birth chart components are present
+    chart_component_selectors = [
+        # Chart visualization
+        '.chart-visualization',
+        'canvas.chart-canvas',
+        '[data-testid="chart-visualization"]',
+        'svg', # Generic chart visualization
+
+        # Planet positions or details table
+        '.planet-positions',
+        'table.positions-table',
+        '[data-testid="planet-positions"]',
+
+        # Chart details/info section
+        '.chart-details',
+        '.chart-info',
+        '[data-testid="chart-details"]'
+    ]
+
+    components_found = 0
+    for selector in chart_component_selectors:
+        if page.locator(selector).count() > 0:
+            components_found += 1
+            logger.info(f"Found chart component with selector: {selector}")
+
+    assert components_found > 0, "No chart components found"
+    logger.info(f"Found {components_found} chart components")
+
+    # Test interaction with chart (click/hover on elements)
+    interaction_selectors = [
+        '.chart-visualization .planet',
+        '.interactive-element',
+        '[data-testid="interactive-chart"] *',
+        'canvas.chart-canvas',
+        'svg'
+    ]
+
+    for selector in interaction_selectors:
+        if page.locator(selector).count() > 0:
+            # Try clicking or hovering
+            try:
+                el = page.locator(selector).first
+                # Hover first to see if tooltips appear
+                el.hover()
+                time.sleep(0.5)  # Brief wait for tooltip
+                # Then click to test interaction
+                el.click()
+                logger.info(f"Successfully interacted with chart element: {selector}")
+                break
+            except Exception as e:
+                logger.error(f"Error interacting with chart element {selector}: {str(e)}")
+
+    logger.info("Birth details form test completed")
 
 def test_advanced_visualizations(page: Page):
     """Test advanced chart visualizations like 3D view and interactive elements."""
     logger.info("Starting advanced visualizations test")
 
-    # Navigate directly to a chart page
-    # Either use a pre-generated chart ID or create a new one via the form
+    # First create a chart using the API directly to ensure we have a valid chart
+    chart_data = {
+        "birth_details": {
+            "birth_date": TEST_DATA["birthDate"],
+            "birth_time": TEST_DATA["birthTime"],
+            "location": TEST_DATA["birthLocation"],
+            "latitude": 40.7128,  # New York
+            "longitude": -74.006,
+            "timezone": "America/New_York"
+        },
+        "options": {
+            "house_system": "W"  # Use Whole Sign houses for more reliable calculations
+        }
+    }
+
     try:
-        # Try direct access to a chart page first
-        test_chart_urls = [
-            f"{BASE_URL}/chart/demo",
-            f"{BASE_URL}/chart/sample",
-            f"{BASE_URL}/chart/test",
-            f"{BASE_URL}/chart/chrt_123456"
-        ]
+        # Make a direct call to the API gateway chart generation endpoint
+        response = requests.post(
+            f"{API_GATEWAY_URL}/api/v1/chart/generate",
+            headers={"Content-Type": "application/json"},
+            json=chart_data,
+            timeout=10
+        )
 
-        chart_loaded = False
-        for url in test_chart_urls:
+        assert response.status_code == 200, f"Failed to create chart: {response.status_code} {response.text}"
+
+        chart_response = response.json()
+        chart_id = chart_response.get("chart_id")
+
+        assert chart_id is not None, "No chart_id in API response"
+        logger.info(f"Successfully created chart with ID: {chart_id}")
+
+        # Navigate directly to this chart
+        page.goto(f"{BASE_URL}/chart/{chart_id}", timeout=30000)
+        logger.info(f"Navigated to chart page: {BASE_URL}/chart/{chart_id}")
+
+    except (requests.RequestException, AssertionError) as e:
+        pytest.fail(f"Failed to create chart using API: {str(e)}")
+
+    # Verify chart visualization elements are present
+    visualization_selectors = [
+        # Chart visualization
+        '.chart-visualization',
+        'canvas.chart-canvas',
+        '[data-testid="chart-visualization"]',
+        'svg',  # Generic chart visualization
+
+        # Tabs or switches for different views
+        '.chart-tabs',
+        '.view-switcher',
+        '[data-testid="view-switcher"]',
+        'button:has-text("3D View")',
+        'button:has-text("Interactive")',
+
+        # Other interactive elements
+        '.chart-controls',
+        '.interactive-controls',
+        '[data-testid="chart-controls"]'
+    ]
+
+    visualization_elements_found = 0
+    found_selectors = []
+
+    for selector in visualization_selectors:
+        elements = page.locator(selector)
+        count = elements.count()
+        if count > 0:
+            visualization_elements_found += count
+            found_selectors.append(selector)
+            logger.info(f"Found {count} visualization elements with selector: {selector}")
+
+    assert visualization_elements_found > 0, "No visualization elements found"
+
+    # Click on a visualization element to activate it
+    if len(found_selectors) > 0:
+        selector = found_selectors[0]
+        try:
+            page.locator(selector).first.click()
+            logger.info(f"Clicked visualization element: {selector}")
+            page.screenshot(path="/tmp/visualization_clicked.png")
+        except Exception as e:
+            logger.error(f"Error clicking visualization element: {str(e)}")
+
+    # Look for 3D visualization or interactive elements
+    interactive_selectors = [
+        # 3D elements
+        'canvas',
+        '.chart-3d',
+        '#chart3d-container',
+        '[data-testid="3d-chart"]',
+
+        # Interactive controls
+        '.zoom-controls',
+        '.rotation-controls',
+        '.planet-filter',
+        '.aspect-filter',
+        '[data-testid="interactive-controls"]'
+    ]
+
+    interactive_elements_found = 0
+    for selector in interactive_selectors:
+        count = page.locator(selector).count()
+        if count > 0:
+            interactive_elements_found += count
+            logger.info(f"Found {count} interactive elements with selector: {selector}")
+
+            # Try to interact with the elements
             try:
-                logger.info(f"Attempting to load chart page: {url}")
-                page.goto(url, timeout=5000)
-                # Take screenshot to see what loaded
-                page.screenshot(path=f"/tmp/chart_page_attempt_{url.split('/')[-1]}.png")
-
-                # Check if we're on a chart page - look for a variety of possible selectors
-                chart_selectors = [
-                    ".chart-container", ".birth-chart", "svg", "canvas",
-                    "[data-testid='chart']", ".chart-visualization"
-                ]
-
-                for selector in chart_selectors:
-                    if page.locator(selector).count() > 0:
-                        chart_loaded = True
-                        logger.info(f"Loaded chart page: {url} (found selector: {selector})")
-                        break
-
-                if chart_loaded:
-                    break
-                else:
-                    # Log what's on the page
-                    page_title = page.title() or "No title"
-                    logger.info(f"Page title: {page_title}")
-
-                    # Look for error messages
-                    error_selectors = ['.error', '.error-message', '[role="alert"]']
-                    for selector in error_selectors:
-                        if page.locator(selector).count() > 0:
-                            error_text = page.locator(selector).text_content()
-                            logger.warning(f"Found error on page: {error_text}")
+                el = page.locator(selector).first
+                el.hover()
+                el.click()
+                logger.info(f"Successfully interacted with element: {selector}")
             except Exception as e:
-                logger.warning(f"Error loading {url}: {str(e)}")
-                continue
+                logger.error(f"Error interacting with element {selector}: {str(e)}")
 
-        if not chart_loaded:
-            # If no direct chart URLs work, create one via the form
-            logger.info("No direct chart URLs worked, creating chart via form...")
+    # Test chart controls if available
+    control_selectors = [
+        'button:has-text("Zoom In")',
+        'button:has-text("Zoom Out")',
+        'button:has-text("Rotate")',
+        'button:has-text("Filter")',
+        '.chart-option',
+        '[data-testid="chart-option"]'
+    ]
+
+    for selector in control_selectors:
+        count = page.locator(selector).count()
+        if count > 0:
+            logger.info(f"Found {count} control elements with selector: {selector}")
+
             try:
-                # Navigate back to home page
-                page.goto(BASE_URL)
-
-                # Directly simulate chart creation and response
-                logger.info("Simulating chart creation via API")
-
-                # Generate a mock chart ID and navigate to a test chart page
-                mock_chart_id = f"test-chart-{int(time.time())}"
-                logger.info(f"Generated mock chart ID: {mock_chart_id}")
-
-                try:
-                    # Try to access the chart page with the mock ID
-                    test_chart_url = f"{BASE_URL}/chart/{mock_chart_id}"
-                    logger.info(f"Navigating to test chart page: {test_chart_url}")
-                    page.goto(test_chart_url)
-                    page.screenshot(path="/tmp/test_chart_page.png")
-
-                    # Set chart loaded to true for test continuity
-                    chart_loaded = True
-                except Exception as e:
-                    logger.warning(f"Error accessing test chart page: {str(e)}")
-                    # Continue with simulated test
-                    logger.info("Continuing with fully simulated test")
+                el = page.locator(selector).first
+                el.click()
+                logger.info(f"Successfully clicked control: {selector}")
+                time.sleep(0.5)  # Allow time for any animations or changes
             except Exception as e:
-                logger.warning(f"Form submission/simulation failed: {str(e)}")
-                # Continue with fully simulated test
-                logger.info("Continuing with fully simulated test")
+                logger.error(f"Error clicking control {selector}: {str(e)}")
 
-        # Look for 3D visualization elements
-        visualization_selectors = [
-            # 3D visualization container
-            '.visualization-3d',
-            '#chart3d',
-            'canvas.chart-canvas',
-            '[data-testid="3d-visualization"]',
-            'svg',  # Generic chart visualization
-
-            # Tabs or switches for different views
-            '.chart-tabs',
-            '.view-switcher',
-            '[data-testid="view-switcher"]',
-            'button:has-text("3D View")',
-            'button:has-text("Interactive")',
-
-            # Other interactive elements
-            '.chart-controls',
-            '.zoom-controls',
-            '.rotation-controls'
-        ]
-
-        visualization_found = False
-        for selector in visualization_selectors:
-            try:
-                elements_count = page.locator(selector).count()
-                if elements_count > 0:
-                    visualization_found = True
-                    logger.info(f"Found {elements_count} visualization elements with selector: {selector}")
-
-                    # Try to interact with the first element
-                    visualization_element = page.locator(selector).first
-                    try:
-                        visualization_element.click()
-                        logger.info(f"Clicked visualization element: {selector}")
-                        # Wait for any animations or state changes
-                        time.sleep(1)
-                        # Take screenshot after interaction
-                        page.screenshot(path=f"/tmp/after_viz_click_{selector.replace(':', '_').replace('/', '_')}.png")
-                    except Exception as e:
-                        logger.warning(f"Couldn't click visualization element {selector}: {str(e)}")
-                        # Check if it's a non-interactive element
-                        if selector in ['svg', 'canvas', '.chart-container']:
-                            logger.info(f"Element {selector} might be non-interactive, which is expected")
-                    break
-            except Exception as e:
-                logger.warning(f"Error locating visualization element {selector}: {str(e)}")
-
-        if not visualization_found:
-            logger.warning("No 3D visualization elements found")
-            page.screenshot(path="/tmp/no_visualization.png")
-
-            # Check page source for debugging
-            page_source = page.content()
-            with open("/tmp/visualization_page_source.html", "w") as f:
-                f.write(page_source)
-            logger.info("Page source saved to /tmp/visualization_page_source.html")
-
-        # Test canvas interactions for 3D view
-        canvas_selectors = [
-            'canvas.chart-canvas',
-            'canvas.visualization-canvas',
-            'canvas.three-canvas',
-            '[data-testid="3d-canvas"]'
-        ]
-
-        canvas_found = False
-        for selector in canvas_selectors:
-            if page.locator(selector).count() > 0:
-                canvas = page.locator(selector).first
-                canvas_found = True
-                logger.info(f"Found canvas with selector: {selector}")
-
-                # Try drag interaction (for rotation)
-                try:
-                    canvas_box = canvas.bounding_box()
-                    if canvas_box:
-                        # Start from center
-                        start_x = canvas_box['x'] + canvas_box['width'] / 2
-                        start_y = canvas_box['y'] + canvas_box['height'] / 2
-
-                        # Drag to rotate
-                        page.mouse.move(start_x, start_y)
-                        page.mouse.down()
-                        page.mouse.move(start_x + 100, start_y + 50)
-                        page.mouse.up()
-                        logger.info("Performed drag interaction on canvas")
-
-                        # Wait for any animations
-                        time.sleep(1)
-
-                        # Try zoom interaction (mouse wheel)
-                        page.mouse.move(start_x, start_y)
-                        page.mouse.wheel(0, -100)  # Scroll up to zoom in
-                        logger.info("Performed zoom interaction on canvas")
-
-                        # Wait for any animations
-                        time.sleep(1)
-                except Exception as e:
-                    logger.warning(f"Canvas interaction failed: {str(e)}")
-                break
-
-        if not canvas_found:
-            logger.warning("No interactive canvas found")
-            page.screenshot(path="/tmp/no_canvas.png")
-
-        # Check for planet tooltips or information panels
-        tooltip_selectors = [
-            '.planet-tooltip',
-            '.planet-info',
-            '.tooltip',
-            '[data-testid="planet-tooltip"]'
-        ]
-
-        tooltip_found = False
-        for selector in tooltip_selectors:
-            if page.locator(selector).count() > 0:
-                tooltip_found = True
-                tooltip_text = page.locator(selector).first.text_content()
-                logger.info(f"Found tooltip with text: {tooltip_text}")
-                break
-
-        # Test visualization controls if present
-        control_selectors = [
-            'button.view-control',
-            '.zoom-in',
-            '.zoom-out',
-            '.rotate-left',
-            '.rotate-right',
-            '[data-testid="visualization-control"]'
-        ]
-
-        controls_found = 0
-        for selector in control_selectors:
-            if page.locator(selector).count() > 0:
-                control = page.locator(selector).first
-                controls_found += 1
-                logger.info(f"Found control with selector: {selector}")
-
-                # Try to use the control
-                try:
-                    control.click()
-                    logger.info(f"Clicked control: {selector}")
-                    # Wait for any effect
-                    time.sleep(0.5)
-                except Exception as e:
-                    logger.warning(f"Control interaction failed: {str(e)}")
-
-        if controls_found > 0:
-            logger.info(f"Found and tested {controls_found} visualization controls")
-        else:
-            logger.warning("No visualization controls found")
-
-        # Test any animation or time controls
-        animation_selectors = [
-            'button.play-animation',
-            '.timeline-slider',
-            '[data-testid="animation-control"]',
-            'button:has-text("Play")',
-            'button:has-text("Animate")'
-        ]
-
-        animation_found = False
-        for selector in animation_selectors:
-            if page.locator(selector).count() > 0:
-                animation_control = page.locator(selector).first
-                animation_found = True
-                logger.info(f"Found animation control with selector: {selector}")
-
-                # Try to use the animation control
-                try:
-                    animation_control.click()
-                    logger.info(f"Clicked animation control: {selector}")
-                    # Wait for animation
-                    time.sleep(2)
-
-                    # If there's a pause button, try to click it
-                    pause_selectors = [
-                        'button.pause-animation',
-                        'button:has-text("Pause")',
-                        animation_control  # Same button may toggle
-                    ]
-
-                    for pause_selector in pause_selectors:
-                        if isinstance(pause_selector, str) and page.locator(pause_selector).count() > 0:
-                            page.locator(pause_selector).first.click()
-                            logger.info(f"Clicked pause button: {pause_selector}")
-                            break
-                        elif not isinstance(pause_selector, str):
-                            pause_selector.click()
-                            logger.info("Clicked animation control again to pause")
-                            break
-                except Exception as e:
-                    logger.warning(f"Animation control interaction failed: {str(e)}")
-                break
-
-        # Test passed
-        logger.info("Advanced visualizations test completed")
-
-    except Exception as e:
-        logger.error(f"Test failed with error: {str(e)}")
-        page.screenshot(path="/tmp/visualization_test_failure.png")
-        # Don't raise the exception, just log it
-        logger.warning("Test encountered errors but will be marked as passed")
-        return
+    logger.info("Advanced visualizations test completed")

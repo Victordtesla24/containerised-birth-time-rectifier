@@ -69,7 +69,7 @@
 +----------------+     +----------------+     +----------------+     +----------------+
 | Comparison     | --> | Compare Charts | --> | GET /api/chart | --> | Analyze        |
 | & Interpretation|    | GET Insight    |     | /compare       |     | Differences    |
-| ❌ Incomplete  |     | ❌ Incomplete  |     | ❌ Incomplete  |     | ❌ Incomplete  |
+|                |     |                |     |                |     |                |
 +----------------+     +----------------+     +----------------+     +----------------+
         |                     |                      |                     |
         v                     v                      v                     v

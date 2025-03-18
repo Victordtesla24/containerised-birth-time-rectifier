@@ -5,12 +5,14 @@ This module provides endpoints for validating birth details
 before generating a chart, ensuring data consistency and correctness.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Response
+from fastapi import APIRouter, HTTPException, Query, Body, Response, Depends, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Union
 import logging
 import re
 from datetime import datetime, timezone
+
+from ai_service.api.websocket_events import emit_event, EventType
 
 # Import utilities and models
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
@@ -60,7 +62,11 @@ class ValidationResponse(BaseModel):
     warnings: Optional[Dict[str, str]] = None
 
 @router.post("/validate", response_model=ValidationResponse, operation_id="validate_birth_details_validation")
-async def validate_birth_details(request_data: Dict[str, Any] = Body(...)):
+async def validate_birth_details(
+    background_tasks: BackgroundTasks,
+    request: Request,
+    request_data: Dict[str, Any] = Body(...)
+):
     """
     Validate birth details for chart generation.
 
@@ -126,11 +132,36 @@ async def validate_birth_details(request_data: Dict[str, Any] = Body(...)):
             timezone=bd["timezone"]
         )
 
-        return ValidationResponse(
+        # Prepare response
+        response = ValidationResponse(
             valid=validation_result.get("valid", False),
             errors=validation_result.get("errors"),
             warnings=validation_result.get("warnings")
         )
+
+        # Emit validation completed event if we have a session ID
+        if hasattr(request.state, "session_id"):
+            session_id = request.state.session_id
+            # Send WebSocket event in the background
+            background_tasks.add_task(
+                emit_event,
+                session_id,
+                EventType.VALIDATION_COMPLETED,
+                {
+                    "valid": response.valid,
+                    "has_errors": response.errors is not None,
+                    "has_warnings": response.warnings is not None,
+                    "birth_details": {
+                        "date": bd.get("birth_date"),
+                        "time": bd.get("birth_time"),
+                        "latitude": bd.get("latitude"),
+                        "longitude": bd.get("longitude"),
+                        "timezone": bd.get("timezone")
+                    }
+                }
+            )
+
+        return response
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
@@ -142,7 +173,11 @@ async def validate_birth_details(request_data: Dict[str, Any] = Body(...)):
         )
 
 @router.post("/validate/alt", response_model=ValidationResponse, operation_id="validate_birth_details_alt_validation")
-async def validate_birth_details_alt(request_data: Dict[str, Any] = Body(...)):
+async def validate_birth_details_alt(
+    background_tasks: BackgroundTasks,
+    request: Request,
+    request_data: Dict[str, Any] = Body(...)
+):
     """
     Alternative endpoint for validating birth details (backward compatibility).
 
@@ -185,11 +220,36 @@ async def validate_birth_details_alt(request_data: Dict[str, Any] = Body(...)):
             timezone=birth_details["timezone"]
         )
 
-        return ValidationResponse(
+        # Prepare response
+        response = ValidationResponse(
             valid=validation_result.get("valid", False),
             errors=validation_result.get("errors"),
             warnings=validation_result.get("warnings")
         )
+
+        # Emit validation completed event if we have a session ID
+        if hasattr(request.state, "session_id"):
+            session_id = request.state.session_id
+            # Send WebSocket event in the background
+            background_tasks.add_task(
+                emit_event,
+                session_id,
+                EventType.VALIDATION_COMPLETED,
+                {
+                    "valid": response.valid,
+                    "has_errors": response.errors is not None,
+                    "has_warnings": response.warnings is not None,
+                    "birth_details": {
+                        "date": birth_details.get("birth_date"),
+                        "time": birth_details.get("birth_time"),
+                        "latitude": birth_details.get("latitude"),
+                        "longitude": birth_details.get("longitude"),
+                        "timezone": birth_details.get("timezone")
+                    }
+                }
+            )
+
+        return response
     except HTTPException:
         # Re-raise HTTP exceptions
         raise

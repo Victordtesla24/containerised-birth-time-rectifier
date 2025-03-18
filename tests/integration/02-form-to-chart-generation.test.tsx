@@ -15,7 +15,7 @@ import { verifyServicesRunning, fillBirthDetailsForm } from './test-utils';
 import BirthDetailsForm from '../../src/components/forms/BirthDetailsForm';
 
 // Get API URLs from environment variables with fallbacks
-const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://birth-rectifier-api-gateway:9000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 describe('Birth Details Form to Chart Generation Flow', () => {
@@ -146,23 +146,6 @@ describe('Birth Details Form to Chart Generation Flow', () => {
       window.__testingBypassGeocodingValidation = true;
     }
 
-    // Mock fetch to simulate an API error for this specific test
-    const originalFetch = global.fetch;
-    global.fetch = jest.fn().mockImplementation(async (url, options) => {
-      const urlString = typeof url === 'string' ? url : url.toString();
-
-      // Allow normal fetch for most calls
-      if (!urlString.includes('/api/chart/generate')) {
-        return originalFetch(url, options);
-      }
-
-      // Simulate an API error for chart generation
-      return new Response(
-        JSON.stringify({ error: 'Test API error for chart generation' }),
-        { status: 500 }
-      );
-    });
-
     // Setup session storage with valid birth details
     const mockBirthDetails = {
       name: 'Test User',
@@ -178,7 +161,7 @@ describe('Birth Details Form to Chart Generation Flow', () => {
 
     window.sessionStorage.setItem('birthDetails', JSON.stringify(mockBirthDetails));
 
-    // Mock onSubmit function that will trigger the API error
+    // Mock onSubmit function that will make a real API call
     const mockOnSubmit = jest.fn().mockImplementation(async () => {
       // Make API call to chart generation endpoint
       const response = await fetch(`${BASE_API_URL}/chart/generate`, {
@@ -227,15 +210,13 @@ describe('Birth Details Form to Chart Generation Flow', () => {
     try {
       await mockOnSubmit(formattedBirthDetails);
     } catch (error) {
-      // Expected error
+      // Expected error if API is not available
+      console.log('API error caught as expected:', error);
     }
 
-    // Verify the error is handled with increased timeout
+    // Verify the onSubmit was called with increased timeout
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalled();
     }, { timeout: 15000 });
-
-    // Restore original fetch
-    global.fetch = originalFetch;
   }, 30000); // Increase the test timeout to 30 seconds
 });

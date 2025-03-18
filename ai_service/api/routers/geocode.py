@@ -3,13 +3,15 @@ Geocoding router for the Birth Time Rectifier API.
 Handles all location-related endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, HTTPException, Query, Body, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 import logging
 import httpx
 import os
 from typing import Dict, List, Optional, Any, Union
 import uuid
+
+from ai_service.api.websocket_events import emit_event, EventType
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -123,7 +125,7 @@ def manage_cache_size(cache_dict, max_size=MAX_CACHE_SIZE):
                 cache_dict.pop(next(iter(cache_dict)))
 
 @router.post("", response_model=Dict[str, Any])
-async def geocode_location(geocode_data: GeocodeRequest):
+async def geocode_location(geocode_data: GeocodeRequest, request: Request, background_tasks: BackgroundTasks):
     """
     Geocode a location based on query string.
     This matches the format expected by the sequence diagram test.
@@ -181,9 +183,26 @@ async def geocode_location(geocode_data: GeocodeRequest):
 
                 results.append(location)
 
-        return {
+        response_data = {
             "results": results
         }
+
+        # Emit geocode completed event if we have a session ID
+        if hasattr(request.state, "session_id"):
+            session_id = request.state.session_id
+            # Send WebSocket event in the background
+            background_tasks.add_task(
+                emit_event,
+                session_id,
+                EventType.GEOCODE_COMPLETED,
+                {
+                    "query": query,
+                    "results_count": len(results),
+                    "results": results[:1]  # Send only the first result to keep the event payload small
+                }
+            )
+
+        return response_data
 
     except Exception as e:
         logger.error(f"Error in geocoding: {e}")

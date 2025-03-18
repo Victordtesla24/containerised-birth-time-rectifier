@@ -1,219 +1,125 @@
 # Birth Time Rectifier Scripts
 
-This directory contains utility scripts for managing the Birth Time Rectifier application.
+This directory contains utility scripts for the Birth Time Rectifier project.
 
-## Management Scripts
+## NPM Installation Fix Scripts
 
-The following unified management scripts are available:
+These scripts help fix common npm installation issues, particularly permission problems that can occur on macOS and Linux systems.
 
-### Directory Management
+### fix-npm-permissions.sh
 
-```bash
-./manage-directories.sh [OPTION]
-```
-
-Options:
-- `--cleanup`: Clean up temporary files only (safe)
-- `--consolidate`: Run directory consolidation (use with caution!)
-- `--finalize`: Finalize consolidation (use with caution!)
-- `--help`: Show help message
-
-### Container Management
+This script fixes permission issues with the npm cache directory and project node_modules directory.
 
 ```bash
-./manage-containers.sh [OPTION]
+./fix-npm-permissions.sh
 ```
 
-Options:
-- `--run [dev|prod]`: Build and run containers (dev mode by default)
-- `--test [dev|prod]`: Test containers (dev mode by default)
-- `--stop`: Stop running containers
-- `--clean`: Stop and remove containers, volumes, and images
-- `--help`: Show help message
+### update-package-lock.sh
 
-## Individual Scripts
-
-These scripts are used by the management scripts above, but can also be run individually:
-
-### Directory Management
-
-- `cleanup-temp-files.js`: Cleans up temporary files
-- `consolidate-directories.js`: Consolidates duplicate directories
-- `cleanup-consolidation.js`: Finalizes directory consolidation
-
-### Container Management
-
-- `run_containers.sh`: Builds and runs containers
-- `test_containers.sh`: Tests containers
-- `verify_gpu.py`: Verifies GPU availability
-
-## Development Scripts
-
-- `setup-images.js`: Sets up image assets
-
-## Usage Examples
-
-### Clean up temporary files
+This script updates the package-lock.json file to fix dependency issues.
 
 ```bash
-./manage-directories.sh --cleanup
+./update-package-lock.sh
 ```
 
-### Run containers in development mode
+### fix-npm-installation.sh
+
+This is a comprehensive script that fixes common npm installation issues by addressing permissions, cleaning caches, and updating package-lock.json. It provides an interactive experience with clear prompts and feedback.
 
 ```bash
-./manage-containers.sh --run dev
+./fix-npm-installation.sh
 ```
 
-### Test containers in production mode
+### fix-npm-installation-ci.sh
+
+This is a non-interactive version of the fix-npm-installation.sh script, designed for CI/CD environments or automated scripts. It accepts command-line arguments to control its behavior.
 
 ```bash
-./manage-containers.sh --test prod
+# Basic usage
+./fix-npm-installation-ci.sh
+
+# Update package-lock.json
+./fix-npm-installation-ci.sh --update-package-lock
+
+# Skip npm update
+./fix-npm-installation-ci.sh --skip-npm-update
+
+# Skip permission fixes (for environments without sudo)
+./fix-npm-installation-ci.sh --skip-permissions
+
+# Show help
+./fix-npm-installation-ci.sh --help
 ```
 
-### Stop containers
+## Common NPM Issues and Solutions
+
+### Permission Errors
+
+If you encounter permission errors when running npm commands, such as:
+
+```
+npm error code EACCES
+npm error syscall unlink
+npm error path /Users/username/.npm/_cacache/...
+npm error errno -13
+```
+
+Run the fix-npm-permissions.sh script to fix the permissions:
 
 ```bash
-./manage-containers.sh --stop
+./scripts/fix-npm-permissions.sh
 ```
 
-## Integration with Test Suite
+### Package Lock Issues
 
-The `run_all_tests.sh` script in the `tests` directory can use these scripts with the following options:
+If you encounter issues with package-lock.json, such as:
+
+```
+npm ERR! Invalid dependency type requested: alias
+```
+
+Run the update-package-lock.sh script to regenerate the package-lock.json file:
 
 ```bash
-# Run tests including Docker container tests
-../tests/run_all_tests.sh --docker
-
-# Run tests with Docker in production mode
-../tests/run_all_tests.sh --docker --docker-mode prod
-
-# Run tests and cleanup temporary files after
-../tests/run_all_tests.sh --cleanup
-
-# Detect and analyze duplicate files across the codebase
-../tests/run_all_tests.sh --remove-duplicates
+./scripts/update-package-lock.sh
 ```
 
-### Duplicate File Management
+### Comprehensive Fix
 
-The `run_all_tests.sh` script now includes functionality for detecting and removing duplicate files according to the directory management protocols. This integration leverages the `manage-directories.sh` script for safe consolidation of duplicates:
+If you're experiencing multiple npm issues, run the comprehensive fix script:
 
-1. **Detect Duplicates Only**:
-   ```bash
-   ../tests/run_all_tests.sh --remove-duplicates
-   ```
-   This will scan the codebase for duplicate files and create a detailed report in the test results directory without making any changes.
+```bash
+./scripts/fix-npm-installation.sh
+```
 
-2. **Report Contents**:
-   - Exact duplicate files (identical content in different locations)
-   - JavaScript/TypeScript modules with similar exports
-   - Python modules with similar functions
-   - Shell scripts with similar functionality
+## Test Scripts
 
-3. **Process**:
-   - Creates backups of all files before any changes
-   - Uses `manage-directories.sh --consolidate` to safely merge duplicates
-   - Runs verification tests after consolidation
-   - Generates a detailed report of all actions
+### run_integrated_api_test.sh
 
-4. **Best Practices**:
-   - Always review the report before authorizing changes
-   - Run verification tests after consolidation
-   - Keep backups until you've verified everything works
-   - For major restructuring, consider finalizing in stages
+This script runs the integrated API tests for the Birth Time Rectifier project. It tests the complete flow from session initialization to chart export.
 
-## Available Scripts
+```bash
+# Basic usage
+./run_integrated_api_test.sh
 
-### Directory Management
+# Use random birth data
+./run_integrated_api_test.sh --random-data
 
-- **`consolidate-directories.js`**: Consolidates duplicate directories and files to streamline the project structure.
-  - Merges files from multiple directories into a single target directory
-  - Creates backups of all modified files
-  - Runs a lint check to verify integrity
+# Validate against sequence diagram
+./run_integrated_api_test.sh --validate-sequence
 
-- **`cleanup-consolidation.js`**: Finalizes the consolidation process by safely removing consolidated directories.
-  - Checks if any files remain in source directories
-  - Provides a summary of what will be removed
-  - Creates backups before removing anything
-  - Provides rollback instructions in case of issues
+# Set confidence threshold
+./run_integrated_api_test.sh --confidence-threshold 0.9
 
-### Maintenance
+# Skip frontend tests
+./run_integrated_api_test.sh --skip-frontend
 
-- **`cleanup-temp-files.js`**: Periodically cleans up temporary files and maintains a clean directory structure.
-  - Removes build artifacts and temporary files (like .DS_Store, .pyc files)
-  - Cleans up cache directories like __pycache__ and .pytest_cache
-  - Rotates log files older than 7 days
-  - Automatically creates timestamps for rotated logs
+# Skip backend tests
+./run_integrated_api_test.sh --skip-backend
 
-## Usage
+# Use custom birth data file
+./run_integrated_api_test.sh --birth-data /path/to/birth_data.json
 
-### Directory Consolidation Process
-
-1. **Step 1: Run Consolidation**
-   ```bash
-   node scripts/consolidate-directories.js
-   ```
-   This will merge files from source directories into target directories based on the configuration in the script.
-
-2. **Step 2: Verify Consolidation**
-   - Check that the application functions correctly after consolidation
-   - Review any linting errors and fix them
-   - Make sure all features are working as expected
-
-3. **Step 3: Clean Up**
-   ```bash
-   node scripts/cleanup-consolidation.js
-   ```
-   This will check for any remaining files in the source directories and allow you to safely remove them.
-
-### Maintenance Tasks
-
-1. **Cleaning Temporary Files**
-   ```bash
-   node scripts/cleanup-temp-files.js
-   ```
-   Run this periodically to remove temporary files, caches, and rotate old logs.
-   Consider scheduling this as a cron job for regular maintenance.
-
-## Best Practices
-
-- **Always verify** that the application functions correctly after running any scripts
-- **Check the backups** created in `.backups/consolidation` and `.backups/rollback_consolidation` before making any changes
-- **Never skip the verification step** between consolidation and cleanup
-- **Run maintenance scripts regularly** to keep the project directory clean and optimized
-
-## Adding New Scripts
-
-When adding new scripts to this directory:
-
-1. Make sure to document the script in this README
-2. Add proper error handling and logging
-3. Always create backups before destructive operations
-4. Make scripts executable with `chmod +x script-name.js`
-
-## Lessons Learned From Consolidation
-
-### Directory Structure
-- Keep related files together in logical directories (`/src` for frontend, `/ai_service` for AI)
-- Avoid duplicating code across multiple locations
-- Maintain a clear separation of concerns between services
-
-### Code Quality
-- Consistent code style across the entire codebase is essential
-- Prefer type-safe implementations over any types
-- Use proper logging instead of console statements
-- Keep dependencies updated and consistent across the project
-
-### Process Improvements
-- Always create backups before major restructuring
-- Test thoroughly after any significant changes
-- Document changes and decisions for future reference
-- Use automation scripts for repetitive tasks
-- Run linting checks after changes to ensure quality
-
-### Future Considerations
-- Consider implementing a monorepo structure for better management of multi-service applications
-- Explore using workspaces for package management
-- Implement stricter linting rules to prevent quality regression
-- Add automated tests for critical paths to detect issues early
+# Show help
+./run_integrated_api_test.sh --help
+```

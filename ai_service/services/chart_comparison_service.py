@@ -57,6 +57,10 @@ class ChartComparisonService:
         comparison_id = f"comp_{uuid.uuid4().hex[:12]}"
 
         try:
+            # Log chart structure for debugging
+            logger.info(f"Chart1 structure: {str(type(chart1_id))}")
+            logger.info(f"Chart2 structure: {str(type(chart2_id))}")
+
             # Retrieve both charts using the utils.retrieve_chart function
             try:
                 chart1 = retrieve_chart(chart1_id)
@@ -76,43 +80,86 @@ class ChartComparisonService:
                 logger.error(f"Error retrieving chart2 (ID: {chart2_id}): {str(e)}")
                 raise ValueError(f"Chart not found: {chart2_id}")
 
+            # Log chart structure for debugging
+            logger.info(f"Chart1 structure: {chart1.keys() if isinstance(chart1, dict) else 'Not a dict'}")
+            logger.info(f"Chart2 structure: {chart2.keys() if isinstance(chart2, dict) else 'Not a dict'}")
+
             # Initialize differences list
             differences = []
 
-            # Compare Ascendant
-            ascendant_diff = self._compare_ascendant(chart1, chart2)
-            if ascendant_diff:
-                differences.append(ascendant_diff)
+            # Validate chart data format
+            self._validate_chart_data(chart1)
+            self._validate_chart_data(chart2)
 
-            # Compare Midheaven
-            midheaven_diff = self._compare_midheaven(chart1, chart2)
-            if midheaven_diff:
-                differences.append(midheaven_diff)
+            try:
+                # Compare Ascendant
+                ascendant_diff = self._compare_ascendant(chart1, chart2)
+                if ascendant_diff:
+                    differences.append(ascendant_diff)
+            except Exception as e:
+                logger.error(f"Error comparing ascendants: {str(e)}")
+                # Continue with other comparisons
 
-            # Compare planets by sign and house
-            planet_diffs = self._compare_planets(chart1, chart2)
-            differences.extend(planet_diffs)
+            try:
+                # Compare Midheaven
+                midheaven_diff = self._compare_midheaven(chart1, chart2)
+                if midheaven_diff:
+                    differences.append(midheaven_diff)
+            except Exception as e:
+                logger.error(f"Error comparing midheaven: {str(e)}")
+                # Continue with other comparisons
 
-            # Compare aspects
-            aspect_diffs = self._compare_aspects(chart1, chart2)
-            differences.extend(aspect_diffs)
+            try:
+                # Compare planets by sign and house
+                planet_diffs = self._compare_planets(chart1, chart2)
+                differences.extend(planet_diffs)
+            except Exception as e:
+                logger.error(f"Error comparing planets: {str(e)}")
+                # Continue with other comparisons
 
-            # Compare house cusps
-            house_diffs = self._compare_houses(chart1, chart2)
-            differences.extend(house_diffs)
+            try:
+                # Compare aspects
+                aspect_diffs = self._compare_aspects(chart1, chart2)
+                differences.extend(aspect_diffs)
+            except Exception as e:
+                logger.error(f"Error comparing aspects: {str(e)}")
+                # Continue with other comparisons
 
-            # Calculate overall impact if requested
-            overall_impact = None
-            if include_significance and differences:
-                impact_sum = sum(diff.significance for diff in differences)
-                overall_impact = min(1.0, impact_sum / (len(differences) * 0.8))
+            try:
+                # Compare house cusps
+                house_diffs = self._compare_houses(chart1, chart2)
+                differences.extend(house_diffs)
+            except Exception as e:
+                logger.error(f"Error comparing houses: {str(e)}")
+                # Continue with other comparisons
 
-            # Generate summary if requested
+            # Calculate overall impact based on significance
+            overall_impact = 0.0
+            if differences and include_significance:
+                significance_sum = sum(diff.significance for diff in differences if diff.significance)
+                if significance_sum > 0:
+                    overall_impact = significance_sum / len(differences)
+                    # Normalize to range 0-1
+                    overall_impact = min(max(overall_impact, 0.0), 1.0)
+
+            # Generate summary for comparison types that need it
             summary = None
-            if comparison_type in ["full", "summary"]:
-                summary = self._generate_summary(chart1, chart2, differences, overall_impact)
+            if comparison_type in ["summary", "full"]:
+                try:
+                    summary = self._generate_summary(chart1, chart2, differences, overall_impact)
+                except Exception as e:
+                    logger.error(f"Error generating summary: {str(e)}")
+                    summary = f"Error during chart comparison: {str(e)}"
 
-            # Create and return comparison response
+            # Return the appropriate response based on comparison type
+            if comparison_type == "summary":
+                # For summary, only include the summary text
+                differences = []
+            elif comparison_type == "differences":
+                # For differences, keep all differences but no summary needed
+                summary = None
+            # For "full", keep both differences and summary
+
             return ChartComparisonResponse(
                 comparison_id=comparison_id,
                 chart1_id=chart1_id,
@@ -120,13 +167,11 @@ class ChartComparisonService:
                 comparison_type=comparison_type,
                 differences=differences,
                 summary=summary,
-                overall_impact=overall_impact
+                overall_impact=overall_impact if include_significance else None
             )
         except Exception as e:
-            # Log detailed error
-            logger.error(f"Error comparing charts: {str(e)}", exc_info=True)
-
-            # Return a minimal valid response with error details to avoid 500 errors
+            logger.error(f"Unhandled exception during chart comparison: {str(e)}", exc_info=True)
+            # Return a minimal valid response with error information
             return ChartComparisonResponse(
                 comparison_id=comparison_id,
                 chart1_id=chart1_id,
@@ -137,46 +182,127 @@ class ChartComparisonService:
                 overall_impact=0.0
             )
 
-    def _compare_ascendant(self, chart1: Dict[str, Any], chart2: Dict[str, Any]) -> Optional[ChartDifference]:
-        """Compare Ascendant positions between two charts"""
-        asc1 = chart1.get("ascendant", {})
-        asc2 = chart2.get("ascendant", {})
+    def _validate_chart_data(self, chart: Dict[str, Any]) -> None:
+        """
+        Validate that chart data has the necessary structure
 
-        # If either chart is missing ascendant data, skip comparison
-        if not asc1 or not asc2:
+        Args:
+            chart: The chart data to validate
+
+        Raises:
+            ValueError: If the chart data is missing required fields
+        """
+        if not isinstance(chart, dict):
+            raise ValueError(f"Chart data is not a dictionary: {type(chart)}")
+
+        required_keys = ["birth_details", "planets", "houses"]
+        for key in required_keys:
+            if key not in chart:
+                logger.warning(f"Chart is missing required key: {key}")
+                chart[key] = {} if key == "birth_details" else []
+
+        # Ensure planets and houses are lists
+        if not isinstance(chart.get("planets", []), list):
+            logger.warning("Planets data is not a list, converting to empty list")
+            chart["planets"] = []
+
+        if not isinstance(chart.get("houses", []), list):
+            logger.warning("Houses data is not a list, converting to empty list")
+            chart["houses"] = []
+
+        # Ensure birth_details is a dictionary
+        if not isinstance(chart.get("birth_details", {}), dict):
+            logger.warning("Birth details is not a dictionary, converting to empty dict")
+            chart["birth_details"] = {}
+
+    def _compare_ascendant(self, chart1: Dict[str, Any], chart2: Dict[str, Any]) -> Optional[ChartDifference]:
+        """
+        Compare ascendants between two charts
+
+        Args:
+            chart1: First chart data
+            chart2: Second chart data
+
+        Returns:
+            ChartDifference if there's a difference, None otherwise
+        """
+        try:
+            # Handle case where ascendant might be a key or part of planets array
+            asc1, asc1_sign = self._get_ascendant_data(chart1)
+            asc2, asc2_sign = self._get_ascendant_data(chart2)
+
+            if not asc1 or not asc2:
+                return None
+
+            # Compare signs
+            if asc1_sign != asc2_sign:
+                # Sign change is significant
+                # Ensure we have valid string values for signs
+                safe_asc1_sign = asc1_sign or "Unknown"
+                safe_asc2_sign = asc2_sign or "Unknown"
+
+                return ChartDifference(
+                    type=DifferenceType.ASCENDANT_SHIFT,
+                    description=f"Ascendant has changed from {safe_asc1_sign} to {safe_asc2_sign}",
+                    significance=1.0,  # Ascendant sign change is very significant
+                    chart1_position=PlanetaryPosition(sign=safe_asc1_sign, degree=asc1.get("degree", 0)),
+                    chart2_position=PlanetaryPosition(sign=safe_asc2_sign, degree=asc2.get("degree", 0))
+                )
+
+            # If signs are the same, check for degree difference
+            degree_diff = abs(self._normalize_degree_difference(
+                asc1.get("degree", 0) - asc2.get("degree", 0)
+            ))
+
+            if degree_diff > 1.0:  # More than 1 degree difference
+                # Ensure we have valid string values for signs
+                safe_asc1_sign = asc1_sign or "Unknown"
+                safe_asc2_sign = asc2_sign or "Unknown"
+
+                return ChartDifference(
+                    type=DifferenceType.ASCENDANT_SHIFT,
+                    description=f"Ascendant degree has changed from {asc1.get('degree', 0):.2f}° to {asc2.get('degree', 0):.2f}° in {safe_asc1_sign}",
+                    significance=min(degree_diff / 10, 0.9),  # Scale significance by degree difference
+                    chart1_position=PlanetaryPosition(sign=safe_asc1_sign, degree=asc1.get("degree", 0)),
+                    chart2_position=PlanetaryPosition(sign=safe_asc2_sign, degree=asc2.get("degree", 0))
+                )
+
+            return None
+        except Exception as e:
+            logger.error(f"Error comparing ascendants: {str(e)}")
             return None
 
-        sign1 = asc1.get("sign")
-        sign2 = asc2.get("sign")
-        degree1 = asc1.get("degree", 0)
-        degree2 = asc2.get("degree", 0)
+    def _get_ascendant_data(self, chart: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Get ascendant data from chart
 
-        # Check if signs differ
-        if sign1 != sign2:
-            return ChartDifference(
-                type=DifferenceType.ASCENDANT_SHIFT,
-                description=f"Ascendant has changed from {sign1} to {sign2}",
-                significance=1.0,  # Major change
-                chart1_position=PlanetaryPosition(sign=sign1, degree=degree1),
-                chart2_position=PlanetaryPosition(sign=sign2, degree=degree2)
-            )
+        Args:
+            chart: Chart data
 
-        # Check if degrees differ significantly within same sign
-        degree_diff = abs(degree1 - degree2)
-        if degree_diff > 1.0:
-            # Calculate significance based on degree difference
-            # Anything over 5 degrees is considered very significant
-            significance = min(1.0, degree_diff / 5.0)
+        Returns:
+            Tuple of (ascendant_data, ascendant_sign)
+        """
+        # Check if ascendant is a top-level key
+        if "ascendant" in chart and isinstance(chart["ascendant"], dict):
+            asc = chart["ascendant"]
+            asc_sign = asc.get("sign")
+            return asc, asc_sign
 
-            return ChartDifference(
-                type=DifferenceType.ASCENDANT_SHIFT,
-                description=f"Ascendant has shifted {degree_diff:.2f}° within {sign1}",
-                significance=significance,
-                chart1_position=PlanetaryPosition(sign=sign1, degree=degree1),
-                chart2_position=PlanetaryPosition(sign=sign2, degree=degree2)
-            )
+        # Check in planets array for ascendant
+        if "planets" in chart and isinstance(chart["planets"], list):
+            for planet in chart["planets"]:
+                if isinstance(planet, dict) and planet.get("name", "").lower() == "ascendant":
+                    return planet, planet.get("sign")
 
-        return None
+        return None, None
+
+    def _normalize_degree_difference(self, diff: float) -> float:
+        """Normalize degree difference to handle wrap-around at 360°"""
+        while diff > 180:
+            diff -= 360
+        while diff < -180:
+            diff += 360
+        return abs(diff)
 
     def _compare_midheaven(self, chart1: Dict[str, Any], chart2: Dict[str, Any]) -> Optional[ChartDifference]:
         """Compare Midheaven positions between two charts"""

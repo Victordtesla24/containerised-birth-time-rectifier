@@ -1,4 +1,5 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextRequest } from 'next/server';
+import type { NextResponse } from 'next/server';
 import { withSessionRoute } from '@/lib/session';
 import { logger } from '@/lib/logger';
 import { validateBirthDetails } from '@/lib/validation';
@@ -10,15 +11,21 @@ import { validateBirthDetails } from '@/lib/validation';
  * @param res - The response object
  */
 export default withSessionRoute(async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
+  req: Request,
+  res: Response
 ) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    return new Response(JSON.stringify({ message: 'Method not allowed' }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   }
 
   try {
     // Extract birth details from request body
+    const body = await req.json();
     const {
       birthDate,
       birthTime,
@@ -28,11 +35,16 @@ export default withSessionRoute(async function handler(
       fullName,
       gender,
       options = {}
-    } = req.body;
+    } = body;
 
     // Validate required fields
     if (!birthDate || !birthTime) {
-      return res.status(400).json({ message: 'Birth date and time are required' });
+      return new Response(JSON.stringify({ message: 'Birth date and time are required' }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Validate birth details
@@ -45,7 +57,12 @@ export default withSessionRoute(async function handler(
     });
 
     if (!validationResult.isValid) {
-      return res.status(400).json({ message: validationResult.message });
+      return new Response(JSON.stringify({ message: validationResult.message }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Normalize options with defaults
@@ -65,8 +82,8 @@ export default withSessionRoute(async function handler(
       options: chartOptions
     });
 
-    // Call backend service to generate chart
-    const response = await fetch(`${process.env.BACKEND_API_URL || 'http://localhost:8000'}/api/chart/generate`, {
+    // Call backend service to generate chart with the correct endpoint
+    const response = await fetch(`${process.env.BACKEND_API_URL || 'http://localhost:8000'}/api/v1/chart/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -93,7 +110,12 @@ export default withSessionRoute(async function handler(
       const errorData = await response.json().catch(() => ({}));
       const errorMessage = errorData.message || `Failed to generate chart: ${response.status} ${response.statusText}`;
       logger.error('Chart generation failed', { status: response.status, error: errorMessage });
-      return res.status(response.status).json({ message: errorMessage });
+      return new Response(JSON.stringify({ message: errorMessage }), {
+        status: response.status,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // Parse response data
@@ -105,12 +127,6 @@ export default withSessionRoute(async function handler(
         status: chartData.verification.status,
         confidence: chartData.verification.confidence
       });
-    }
-
-    // Store chart data in session if available
-    if (req.session) {
-      req.session.chartData = chartData;
-      await req.session.save();
     }
 
     // Prepare response based on verification status
@@ -132,13 +148,23 @@ export default withSessionRoute(async function handler(
     }
 
     // Return chart data
-    return res.status(responseStatus).json({
+    return new Response(JSON.stringify({
       message: responseMessage,
       chartId: chartData.chart_id || 'temp-chart',
       chartData
+    }), {
+      status: responseStatus,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   } catch (error) {
     logger.error('Error generating chart', { error: (error as Error).message });
-    return res.status(500).json({ message: 'Failed to generate chart' });
+    return new Response(JSON.stringify({ message: 'Failed to generate chart' }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   }
 });

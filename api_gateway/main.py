@@ -3,9 +3,10 @@ Birth Time Rectifier API Gateway
 --------------------------------
 Main application file for the API Gateway service.
 Acts as a central point for routing requests to appropriate microservices.
+Includes WebSocket proxy functionality for real-time updates.
 """
 
-from fastapi import FastAPI, Request, Depends, HTTPException, status, APIRouter
+from fastapi import FastAPI, Request, Depends, HTTPException, status, APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -13,7 +14,11 @@ import time
 import os
 import sys
 import httpx
+import uuid
 from typing import Optional, Dict, Any
+
+# Import WebSocket proxy
+from api_gateway.websocket_proxy import proxy as websocket_proxy
 
 # Import routers
 from api_gateway.routes.chart import router as chart_router
@@ -48,8 +53,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# AI Service URL
+# AI Service URLs
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
+AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://localhost:8000/ws")
 
 # Add request logging middleware
 @app.middleware("http")
@@ -81,6 +87,46 @@ async def health_check():
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(chart_router, prefix="/chart", tags=["Chart"])
 app.include_router(v1_router)
+
+# WebSocket endpoints
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time updates with session ID.
+    Proxies the connection to the AI service.
+
+    Args:
+        websocket: The WebSocket connection
+        session_id: The session ID to associate with this connection
+    """
+    try:
+        # Connect to the WebSocket proxy
+        await websocket_proxy.connect(websocket, session_id)
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for session {session_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+
+@app.websocket("/ws")
+async def default_websocket_endpoint(websocket: WebSocket):
+    """
+    Default WebSocket endpoint that generates a session ID automatically.
+    Proxies the connection to the AI service.
+
+    Args:
+        websocket: The WebSocket connection
+    """
+    # Generate a unique session ID
+    session_id = f"auto-{uuid.uuid4().hex[:8]}"
+    logger.info(f"Auto-generated session ID for WebSocket connection: {session_id}")
+
+    try:
+        # Connect to the WebSocket proxy
+        await websocket_proxy.connect(websocket, session_id)
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for auto-generated session {session_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for auto-generated session {session_id}: {e}")
 
 # API v1 routes
 @app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])

@@ -5,7 +5,7 @@ This is the consolidated FastAPI application that serves the Birth Time Rectifie
 using a single registration pattern with proper versioning.
 """
 
-from fastapi import FastAPI, Request, APIRouter, HTTPException, Query, Body
+from fastapi import FastAPI, Request, APIRouter, HTTPException, Query, Body, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
@@ -49,6 +49,7 @@ from ai_service.api.routers.health import router as health_router
 from ai_service.api.routers.session import router as session_router
 from ai_service.api.routers.geocode import router as geocode_router
 from ai_service.api.routers.questionnaire import router as questionnaire_router
+from ai_service.api.routers.questionnaire_websocket import router as questionnaire_websocket_router
 
 # Import the consolidated chart router
 from ai_service.api.routers.consolidated_chart import router as consolidated_chart_router
@@ -62,6 +63,10 @@ from ai_service.api.routers.export import router as export_router
 # Import AI integration routers
 from ai_service.api.routers.ai_integration_test import router as ai_integration_test_router
 from ai_service.api.routers.ai_status import router as ai_status_router
+
+# Import WebSocket connection manager and event emitter
+from ai_service.api.websockets import manager
+from ai_service.api.websocket_events import EventType
 
 # Initialize metrics
 REQUESTS = Counter('birth_time_rectifier_requests_total', 'Total requests processed')
@@ -191,6 +196,7 @@ v1_router.include_router(session_router, prefix="/session", tags=["Session"])
 v1_router.include_router(geocode_router, prefix="/geocode", tags=["Geocoding"])
 v1_router.include_router(consolidated_chart_router, prefix="/chart", tags=["Chart"])
 v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
+v1_router.include_router(questionnaire_websocket_router, prefix="/questionnaire/ws", tags=["Questionnaire WebSocket"])
 v1_router.include_router(interpretation_router, tags=["Interpretation"])
 v1_router.include_router(export_router, prefix="/export", tags=["Export"])
 v1_router.include_router(ai_integration_test_router, prefix="/ai", tags=["AI Integration"])
@@ -198,6 +204,72 @@ v1_router.include_router(ai_status_router, prefix="/ai", tags=["AI Status"])
 
 # Include the v1 router in the app
 app.include_router(v1_router)
+
+# WebSocket endpoint for real-time updates with session ID
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time updates during long-running processes.
+
+    Args:
+        websocket: The WebSocket connection
+        session_id: The session ID to associate with this connection
+    """
+    await manager.connect(websocket, session_id)
+    try:
+        while True:
+            # Keep connection alive, wait for client messages
+            data = await websocket.receive_text()
+            # Echo received messages for testing
+            await manager.send_update(session_id, {
+                "type": "echo",
+                "message": f"Echo: {data}",
+                "timestamp": datetime.now().isoformat()
+            })
+    except WebSocketDisconnect:
+        manager.disconnect(session_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        manager.disconnect(session_id)
+
+# Default WebSocket endpoint that generates a session ID
+@app.websocket("/ws")
+async def default_websocket_endpoint(websocket: WebSocket):
+    """
+    Default WebSocket endpoint that generates a session ID automatically.
+
+    Args:
+        websocket: The WebSocket connection
+    """
+    # Generate a unique session ID
+    session_id = f"auto-{uuid.uuid4().hex[:8]}"
+
+    logger.info(f"Auto-generated session ID: {session_id}")
+
+    await manager.connect(websocket, session_id)
+    try:
+        # Send initial message with the auto-generated session ID
+        await manager.send_update(session_id, {
+            "type": "connection_status",
+            "status": "connected",
+            "session_id": session_id,
+            "message": "Connected with auto-generated session ID"
+        })
+
+        while True:
+            # Keep connection alive, wait for client messages
+            data = await websocket.receive_text()
+            # Echo received messages for testing
+            await manager.send_update(session_id, {
+                "type": "echo",
+                "message": f"Echo: {data}",
+                "timestamp": datetime.now().isoformat()
+            })
+    except WebSocketDisconnect:
+        manager.disconnect(session_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        manager.disconnect(session_id)
 
 # Initialize model instance for AI services
 model = None

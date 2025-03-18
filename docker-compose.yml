@@ -59,11 +59,18 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - AI_SERVICE_URL=http://ai_service:8000
+      - AI_SERVICE_WS_URL=ws://ai_service:8000/ws
+      - WS_PING_INTERVAL=${WS_PING_INTERVAL:-20}
+      - WS_PING_TIMEOUT=${WS_PING_TIMEOUT:-20}
+      - WS_MAX_SIZE=${WS_MAX_SIZE:-16777216}
+      - WS_MAX_QUEUE=${WS_MAX_QUEUE:-32}
+      - WS_HEARTBEAT_INTERVAL=${WS_HEARTBEAT_INTERVAL:-30}
     ports:
       - "9000:8000"
-    command: /app/.venv/bin/python -m uvicorn api_gateway.main:app --host 0.0.0.0 --port 8000 --reload
+      - "9001:8000"  # Additional port for WebSocket connections
+    command: /app/.venv/bin/python -m uvicorn api_gateway.main:app --host 0.0.0.0 --port 8000 --reload --ws-ping-interval ${WS_PING_INTERVAL:-20} --ws-ping-timeout ${WS_PING_TIMEOUT:-20} --ws-max-size ${WS_MAX_SIZE:-16777216}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health && echo 'WebSocket check:' && python -c \"import websocket; websocket.create_connection('ws://localhost:8000/ws'); print('WebSocket OK')\" || exit 1"]
       interval: ${HEALTH_CHECK_INTERVAL:-15s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
       retries: ${HEALTH_CHECK_RETRIES:-10}
@@ -117,11 +124,14 @@ services:
       - REQUEST_RETRY_BACKOFF=${REQUEST_RETRY_BACKOFF:-2}
       - TIMEZONE_API_KEY=${TIMEZONE_API_KEY:-Tz7kGn1Kf0aQb2cE3pYz8j6X}
       - GPU_ENABLED=false
+      - WS_PING_INTERVAL=${WS_PING_INTERVAL:-20}
+      - WS_PING_TIMEOUT=${WS_PING_TIMEOUT:-20}
+      - WS_MAX_SIZE=${WS_MAX_SIZE:-16777216}
     ports:
       - "8000:8000"
-    command: /app/.venv/bin/python -m uvicorn ai_service.main:app --host 0.0.0.0 --port 8000 --reload
+    command: /app/.venv/bin/python -m uvicorn ai_service.main:app --host 0.0.0.0 --port 8000 --reload --ws-ping-interval ${WS_PING_INTERVAL:-20} --ws-ping-timeout ${WS_PING_TIMEOUT:-20} --ws-max-size ${WS_MAX_SIZE:-16777216}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "pip install websocket-client && curl -f http://localhost:8000/health && echo 'WebSocket check:' && python -c \"import websocket; websocket.create_connection('ws://localhost:8000/ws'); print('WebSocket OK')\" || exit 1"]
       interval: ${HEALTH_CHECK_INTERVAL:-15s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
       retries: ${HEALTH_CHECK_RETRIES:-10}

@@ -220,16 +220,18 @@ def test_gpu_support():
         gpu_info = data["gpu"]
         assert "device" in gpu_info, "GPU info missing device information"
 
-        # For CPU-only environments, validate the expected structure
-        if gpu_info["device"] == "cpu":
-            assert "message" in gpu_info, "CPU info missing message field"
-            logger.info(f"Running in CPU-only mode: {gpu_info['message']}")
-        else:
-            # Only check these fields if we're actually running on GPU
-            assert "total" in gpu_info, "GPU info missing 'total' field"
-            assert "allocated" in gpu_info, "GPU info missing 'allocated' field"
-            assert "utilization" in gpu_info, "GPU info missing 'utilization' field"
-            logger.info(f"GPU information detected: {gpu_info['device']}")
+        # Require GPU support for the tests - don't accept CPU fallback
+        assert gpu_info["device"] != "cpu", "GPU support is required but system is running in CPU-only mode"
+
+        # Verify all required GPU information is present
+        assert "total" in gpu_info, "GPU info missing 'total' field"
+        assert "allocated" in gpu_info, "GPU info missing 'allocated' field"
+        assert "utilization" in gpu_info, "GPU info missing 'utilization' field"
+
+        # Make sure GPU has enough memory available
+        assert float(gpu_info["total"]) > 0, "No GPU memory available"
+
+        logger.info(f"GPU information verified: {gpu_info['device']} with {gpu_info['total']}GB available")
     except requests.exceptions.ConnectionError as e:
         logger.error(f"AI service connection error: {str(e)}")
         pytest.fail(f"AI service is not available: {str(e)}")

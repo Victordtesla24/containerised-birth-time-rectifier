@@ -6,15 +6,14 @@ echo "Running Next.js entrypoint script..."
 # Create the necessary directories and files
 mkdir -p .next
 touch .next/fallback-build-manifest.json
+echo "{}" > .next/fallback-build-manifest.json
 
-# Ensure proper permissions
-chmod -R 755 .next
+# Ensure proper permissions (allow write access for all)
+chmod -R 777 .next
+chmod -R 777 node_modules 2>/dev/null || true
 
-# Install missing babel dependencies if needed
-if ! node -e "try { require('@babel/plugin-transform-runtime'); console.log('Babel plugin found'); } catch(e) { console.error('Babel plugin missing'); process.exit(1); }"; then
-  echo "Installing missing Babel plugin..."
-  npm install --save-dev @babel/plugin-transform-runtime @babel/core
-fi
+# Skip the Babel plugin check and installation - assume it was installed during build
+echo "Skipping Babel plugin check and installation..."
 
 echo "Next.js directories and files prepared"
 
@@ -22,10 +21,13 @@ echo "Next.js directories and files prepared"
 if [ "$NODE_ENV" = "development" ]; then
     echo "Starting Next.js in development mode..."
 
-    # Ensure the fallback file is properly created with content
+    # Run the dev server with fallback in place
     echo "{}" > .next/fallback-build-manifest.json
 
-    # Run the dev server
+    # Create a minimal babel.config.js file that should work without the transform-runtime plugin
+    echo "module.exports = { presets: ['next/babel'] };" > babel.config.js
+
+    # Start Next.js
     exec npm run dev
 else
     echo "Building Next.js for production..."
@@ -34,6 +36,10 @@ else
     rm -rf .next
     mkdir -p .next
     echo "{}" > .next/fallback-build-manifest.json
+    chmod -R 777 .next
+
+    # Create a minimal babel.config.js file that should work without the transform-runtime plugin
+    echo "module.exports = { presets: ['next/babel'] };" > babel.config.js
 
     # Build the application with retries
     echo "Running Next.js build..."
@@ -47,6 +53,9 @@ else
         if [ $retry_count -ge $max_retries ]; then
             echo "Failed to build after $max_retries attempts. Starting in dev mode as fallback."
             echo "{}" > .next/fallback-build-manifest.json
+            chmod -R 777 .next
+
+            # Try to start in dev mode as a last resort
             exec npm run dev
             break
         fi
@@ -54,6 +63,7 @@ else
         echo "Build failed. Retrying... ($retry_count/$max_retries)"
         # Re-create the fallback file before each retry
         echo "{}" > .next/fallback-build-manifest.json
+        chmod -R 777 .next
         sleep 2
     done
 

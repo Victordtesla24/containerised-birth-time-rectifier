@@ -7,15 +7,5 @@ window.scrollTo = jest.fn();
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
 
-// Import MSW server
-import { server } from './src/mocks/server';
-
-// Establish API mocking before all tests
-beforeAll(() => server.listen({ onUnhandledRequest: 'warn' }));
-
-// Reset any request handlers that we may add during the tests,
-// so they don't affect other tests.
-afterEach(() => server.resetHandlers());
-
-// Clean up after the tests are finished.
-afterAll(() => server.close());
+// MSW server is disabled to allow real API calls
+// If you need to re-enable MSW for specific tests, import and setup the server in those test files

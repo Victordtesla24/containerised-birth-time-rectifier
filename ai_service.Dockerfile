@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # Install development dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir websocket-client
 
 # Keep the container running for development
 EXPOSE 8000
@@ -55,6 +56,7 @@ FROM base as production
 # Install production dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir websocket-client
 
 # Copy application code
 COPY . .

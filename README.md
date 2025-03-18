@@ -19,6 +19,25 @@ The Birth Time Rectifier is a comprehensive tool designed to help astrologers an
 - **User-Friendly Interface**: Intuitive design for both beginners and professional astrologers
 - **Multi-Platform Support**: Works on desktop and mobile devices
 
+## Troubleshooting
+
+### NPM Installation Issues
+
+If you encounter npm installation issues, please refer to the [NPM Installation Fixes](docs/npm-installation-fixes.md) documentation for detailed solutions.
+
+Common issues include:
+- Permission errors with npm cache directory
+- Permission errors with node_modules directory
+
+We've provided several scripts to automatically fix these issues:
+```bash
+# Fix npm permissions
+./scripts/fix-npm-permissions.sh
+
+# Comprehensive fix for npm installation issues
+./scripts/fix-npm-installation.sh
+```
+
 ## Technology Stack
 
 ### Backend

@@ -40,7 +40,7 @@ const QuestionnairePage = () => {
     const fetchInitialQuestions = async () => {
       try {
         setIsLoading(true);
-        const response = await questionnaireApi.initializeQuestionnaire(sessionId);
+        const response = await questionnaireApi.initialize(sessionId);
 
         if (response && response.questions && response.questions.length > 0) {
           setQuestions(response.questions);

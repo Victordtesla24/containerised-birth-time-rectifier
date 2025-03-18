@@ -4,7 +4,7 @@
     "workbench.experimental.cloudChanges.autoStore": "onShutdown",
     "files.autoSave": "afterDelay",
     "cursor.general.enableShadowWorkspace": true,
-    "cursor.composer.collapsePaneInputBoxPills": false,
+    "cursor.composer.collapsePaneInputBoxPills": true,
     "cursor.composer.cmdPFilePicker2": true,
     "editor.experimental.asyncTokenizationLogging": true,
     "editor.experimental.asyncTokenizationVerification": true,

@@ -134,7 +134,7 @@ class AstroCalculator:
         self.ayanamsa = ayanamsa
         self.node_type = node_type
 
-    def calculate_chart(self,
+    async def calculate_chart(self,
                        birth_date: Union[date, datetime, str],
                        birth_time_or_latitude: Union[str, datetime, float, None] = None,
                        longitude_or_house_system: Union[float, str] = 0.0,
@@ -683,3 +683,57 @@ class AstroCalculator:
             }
         ]
         return mock_planets
+
+    async def calculate_aspects(self, planets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Calculate planetary aspects for external usage by services.
+
+        Args:
+            planets: List of planet data including longitude information
+
+        Returns:
+            List of aspect data with planet pairs and aspect types
+        """
+        return self._calculate_aspects(planets)
+
+    async def calculate_houses(self, birth_date: Union[date, datetime, str],
+                         birth_time: Union[str, datetime, float],
+                         latitude: float, longitude: float,
+                         house_system: str = PLACIDUS) -> List[Dict[str, Any]]:
+        """
+        Calculate house cusps and positions for external usage by services.
+
+        Args:
+            birth_date: Birth date
+            birth_time: Birth time
+            latitude: Geographic latitude
+            longitude: Geographic longitude
+            house_system: House system to use (default: Placidus)
+
+        Returns:
+            List of house data with signs and degrees
+        """
+        # Convert birth_date to date object if it's a string
+        if isinstance(birth_date, str):
+            birth_date = datetime.strptime(birth_date, "%Y-%m-%d").date()
+
+        # Get Julian day
+        jd = self._get_julian_day(birth_date, birth_time)
+
+        # Calculate and return houses
+        return self._calculate_houses(jd, latitude, longitude, house_system)
+
+# Singleton instance for AstroCalculator
+_astro_calculator_instance = None
+
+def get_astro_calculator():
+    """
+    Get a singleton instance of the AstroCalculator.
+
+    Returns:
+        AstroCalculator: The astro calculator instance
+    """
+    global _astro_calculator_instance
+    if _astro_calculator_instance is None:
+        _astro_calculator_instance = AstroCalculator()
+    return _astro_calculator_instance

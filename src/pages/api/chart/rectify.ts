@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextRequest } from 'next/server';
+import type { NextResponse } from 'next/server';
 import { QuestionnaireResponse, BirthDetails } from '@/types';
 
 interface RectificationRequest {
@@ -18,12 +19,11 @@ interface RectificationResponse {
 }
 
 export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<RectificationResponse>
+  req: Request
 ) {
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return res.status(405).json({
+    return new Response(JSON.stringify({
       success: false,
       originalTime: '',
       rectifiedTime: '',
@@ -31,16 +31,22 @@ export default async function handler(
       adjustmentMinutes: 0,
       chartId: '',
       error: 'Method not allowed'
+    }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 
   try {
     // Extract request data
-    const { questionnaire, birthDetails } = req.body as RectificationRequest;
+    const body = await req.json();
+    const { questionnaire, birthDetails } = body as RectificationRequest;
 
     // Validate required fields
     if (!questionnaire || !birthDetails) {
-      return res.status(400).json({
+      return new Response(JSON.stringify({
         success: false,
         originalTime: '',
         rectifiedTime: '',
@@ -48,14 +54,19 @@ export default async function handler(
         adjustmentMinutes: 0,
         chartId: '',
         error: 'Missing required data'
+      }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // Check if AI service is available
     const aiServiceUrl = process.env.NEXT_PUBLIC_AI_SERVICE_URL || 'http://localhost:8000';
 
-    // Attempt to call the AI service
-    const response = await fetch(`${aiServiceUrl}/api/chart/rectify`, {
+    // Attempt to call the AI service with the correct endpoint
+    const response = await fetch(`${aiServiceUrl}/api/v1/chart/rectify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -69,7 +80,7 @@ export default async function handler(
 
     if (!response.ok) {
       const errorData = await response.json();
-      return res.status(response.status).json({
+      return new Response(JSON.stringify({
         success: false,
         originalTime: '',
         rectifiedTime: '',
@@ -77,6 +88,11 @@ export default async function handler(
         adjustmentMinutes: 0,
         chartId: '',
         error: errorData.detail || `API responded with status ${response.status}`
+      }), {
+        status: response.status,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
@@ -98,7 +114,7 @@ export default async function handler(
       adjustmentMinutes = 1440 - adjustmentMinutes; // 24 hours - difference
     }
 
-    return res.status(200).json({
+    return new Response(JSON.stringify({
       success: true,
       originalTime,
       rectifiedTime,
@@ -106,10 +122,15 @@ export default async function handler(
       adjustmentMinutes,
       chartId,
       explanation: data.explanation || 'Birth time rectified based on provided questionnaire data.'
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   } catch (error) {
     console.error('Error rectifying chart:', error);
-    return res.status(500).json({
+    return new Response(JSON.stringify({
       success: false,
       originalTime: '',
       rectifiedTime: '',
@@ -117,6 +138,11 @@ export default async function handler(
       adjustmentMinutes: 0,
       chartId: '',
       error: 'Internal server error'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 }

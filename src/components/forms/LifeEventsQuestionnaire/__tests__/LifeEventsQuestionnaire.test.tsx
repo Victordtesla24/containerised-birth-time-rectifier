@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import LifeEventsQuestionnaire from '../index';
 import { BirthDetails } from '@/types';
+import { RouterContext } from 'next/dist/shared/lib/router-context.shared-runtime';
 
 // Disable network requests
 global.fetch = jest.fn(() =>
@@ -25,15 +26,42 @@ const mockBirthDetails: BirthDetails = {
   timezone: 'America/New_York'
 };
 
+// Create a mock router
+const mockRouter = {
+  basePath: '',
+  pathname: '/',
+  route: '/',
+  asPath: '/',
+  query: {},
+  push: jest.fn(),
+  replace: jest.fn(),
+  reload: jest.fn(),
+  back: jest.fn(),
+  prefetch: jest.fn(),
+  beforePopState: jest.fn(),
+  events: {
+    on: jest.fn(),
+    off: jest.fn(),
+    emit: jest.fn()
+  },
+  isFallback: false,
+  isLocaleDomain: false,
+  isReady: true,
+  isPreview: false,
+  forward: jest.fn()
+};
+
 describe('LifeEventsQuestionnaire', () => {
   // Test isLoading state which doesn't require complex mocking
   it('displays processing message when isLoading is true', () => {
     render(
-      <LifeEventsQuestionnaire
-        birthDetails={mockBirthDetails}
-        onSubmit={jest.fn()}
-        isLoading={true}
-      />
+      <RouterContext.Provider value={mockRouter as any}>
+        <LifeEventsQuestionnaire
+          birthDetails={mockBirthDetails}
+          onSubmit={jest.fn()}
+          isLoading={true}
+        />
+      </RouterContext.Provider>
     );
 
     // Check for the precise loading message in the component

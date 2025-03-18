@@ -42,7 +42,7 @@ export class ProgressiveLoader {
     this.logger = logger;
 
     // Subscribe to Docker AI metrics updates
-    if (this.dockerAIService.isDockerAIEnabled()) {
+    if (this.dockerAIService && typeof this.dockerAIService.isDockerAIEnabled === 'function' && this.dockerAIService.isDockerAIEnabled()) {
       this.dockerAIService.on('metrics-updated', this.adjustResourceUsage.bind(this));
     }
   }
@@ -139,7 +139,7 @@ export class ProgressiveLoader {
       qualityMap.forEach((texture) => texture.dispose());
     });
     this.textureCache.clear();
-    if (this.dockerAIService.isDockerAIEnabled()) {
+    if (this.dockerAIService && typeof this.dockerAIService.isDockerAIEnabled === 'function' && this.dockerAIService.isDockerAIEnabled()) {
       this.dockerAIService.removeListener('metrics-updated', this.adjustResourceUsage.bind(this));
     }
   }
@@ -164,9 +164,11 @@ class ResourceMonitor {
 
     this.lastCheck = now;
     try {
-      const metrics = await this.dockerAIService.optimizeContainers();
-      // Resource monitoring logic will be implemented here
-      // based on Docker AI Agent's capabilities
+      if (this.dockerAIService && typeof this.dockerAIService.optimizeContainers === 'function') {
+        const metrics = await this.dockerAIService.optimizeContainers();
+        // Resource monitoring logic will be implemented here
+        // based on Docker AI Agent's capabilities
+      }
     } catch (error) {
       this.logger.error('Failed to check resources:', error);
     }

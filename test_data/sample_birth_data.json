@@ -1,0 +1,10 @@
+{
+  "name": "Oliver",
+  "birth_date": "1985-10-24",
+  "birth_time": "14:30:00",
+  "city": "Pune",
+  "country": "India",
+  "latitude": 18.5204,
+  "longitude": 73.8567,
+  "timezone": "Asia/Kolkata"
+}

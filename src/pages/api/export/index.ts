@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextRequest } from 'next/server';
+import type { NextResponse } from 'next/server';
 
 type ExportResponse = {
   success?: boolean;
@@ -15,38 +16,48 @@ type ExportResponse = {
  * and birth time rectification results.
  */
 export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ExportResponse>
+  req: Request
 ) {
   // We only support GET requests for export
   if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).json({
+    return new Response(JSON.stringify({
       success: false,
       error: 'Method not allowed'
+    }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 
   try {
-    // Get chart ID from query params or body
-    const chartId = req.method === 'GET'
-      ? req.query.chartId as string
-      : req.body.chartId;
+    const url = new URL(req.url);
+    let chartId, comparisonId, exportType;
 
-    // Get comparison ID from query params or body (optional)
-    const comparisonId = req.method === 'GET'
-      ? req.query.comparisonId as string
-      : req.body.comparisonId;
-
-    // Get export type from query params or body (optional)
-    const exportType = req.method === 'GET'
-      ? (req.query.type as string) || 'pdf'
-      : req.body.type || 'pdf';
+    if (req.method === 'GET') {
+      // Get parameters from URL
+      chartId = url.searchParams.get('chartId');
+      comparisonId = url.searchParams.get('comparisonId');
+      exportType = url.searchParams.get('type') || 'pdf';
+    } else {
+      // Get parameters from body
+      const body = await req.json();
+      chartId = body.chartId;
+      comparisonId = body.comparisonId;
+      exportType = body.type || 'pdf';
+    }
 
     // Validate required fields
     if (!chartId && !comparisonId) {
-      return res.status(400).json({
+      return new Response(JSON.stringify({
         success: false,
         message: 'Either chart ID or comparison ID is required'
+      }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
@@ -58,10 +69,10 @@ export default async function handler(
     let requestBody = {};
 
     if (chartId) {
-      endpoint = `/api/chart/export/${chartId}?type=${exportType}`;
+      endpoint = `/api/v1/chart/export/${chartId}?type=${exportType}`;
       requestBody = { chart_id: chartId, export_type: exportType };
     } else if (comparisonId) {
-      endpoint = `/api/chart/export-comparison/${comparisonId}?type=${exportType}`;
+      endpoint = `/api/v1/chart/export-comparison/${comparisonId}?type=${exportType}`;
       requestBody = { comparison_id: comparisonId, export_type: exportType };
     }
 
@@ -70,7 +81,7 @@ export default async function handler(
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
-        'X-Session-Token': req.headers['x-session-token'] as string || '',
+        'X-Session-Token': req.headers.get('x-session-token') || '',
       },
       ...(req.method === 'POST' && { body: JSON.stringify(requestBody) }),
     });
@@ -87,27 +98,42 @@ export default async function handler(
 
       console.error('Export service error:', errorMessage);
 
-      return res.status(statusCode).json({
+      return new Response(JSON.stringify({
         success: false,
         error: errorMessage
+      }), {
+        status: statusCode,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // Successfully got data from backend service
     const data = await response.json();
 
-    return res.status(200).json({
+    return new Response(JSON.stringify({
       success: true,
       url: data.url,
       export_id: data.export_id,
       message: data.message || 'Export generated successfully'
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
 
   } catch (error) {
     console.error('Error exporting chart:', error);
-    return res.status(500).json({
+    return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error ? error.message : 'Internal server error'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 }

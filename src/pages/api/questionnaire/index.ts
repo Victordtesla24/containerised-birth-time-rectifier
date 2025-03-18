@@ -1,4 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextRequest } from 'next/server';
+import type { NextResponse } from 'next/server';
 import { BirthDetails, QuestionnaireResponse } from '@/types';
 
 type ResponseData = {
@@ -17,34 +18,45 @@ type ResponseData = {
 const CONFIDENCE_THRESHOLD = 90;
 
 export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<ResponseData>
+  req: Request,
+  res: Response
 ) {
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return res.status(405).json({
+    return new Response(JSON.stringify({
       success: false,
       error: 'Method not allowed'
+    }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 
   try {
     // Extract request data
-    const { birthDetails, answers, confidenceScore } = req.body;
+    const body = await req.json();
+    const { birthDetails, answers, confidenceScore } = body;
 
     // Validate required fields
     if (!birthDetails) {
-      return res.status(400).json({
+      return new Response(JSON.stringify({
         success: false,
         error: 'Missing required questionnaire data'
+      }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // Check if AI service is available
     const aiServiceUrl = process.env.NEXT_PUBLIC_AI_SERVICE_URL || 'http://localhost:8000';
 
-    // Attempt to call the AI service
-    const response = await fetch(`${aiServiceUrl}/api/questionnaire`, {
+    // Attempt to call the AI service with the correct endpoint
+    const response = await fetch(`${aiServiceUrl}/api/v1/questionnaire`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -58,9 +70,14 @@ export default async function handler(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error response' }));
-      return res.status(response.status).json({
+      return new Response(JSON.stringify({
         success: false,
         error: errorData.detail || `AI service responded with status ${response.status}`
+      }), {
+        status: response.status,
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
     }
 
@@ -73,7 +90,7 @@ export default async function handler(
     // If the AI response includes rectification suggestions, include them in our response
     const rectificationSuggestions = data.rectification_suggestions || data.rectificationSuggestions || [];
 
-    return res.status(200).json({
+    return new Response(JSON.stringify({
       success: true,
       questions: data.questions || [],
       confidenceScore: currentConfidenceScore,
@@ -81,14 +98,24 @@ export default async function handler(
       meetsThreshold,
       requestMoreQuestions: !meetsThreshold,
       rectificationSuggestions
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   } catch (error) {
     console.error('Error processing questionnaire:', error);
 
     // Return a proper error response with the actual error message
-    return res.status(500).json({
+    return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error processing questionnaire'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
   }
 }

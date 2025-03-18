@@ -5,9 +5,10 @@ This module provides endpoints for birth time rectification using
 questionnaire answers and AI techniques.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Response
+from fastapi import APIRouter, HTTPException, Query, Body, Response, Header, Depends
+from starlette.background import BackgroundTasks
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, cast
 import logging
 import uuid
 from datetime import datetime
@@ -17,6 +18,8 @@ from ai_service.api.routers.consolidated_chart.utils import retrieve_chart, stor
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
 from ai_service.models.unified_model import UnifiedRectificationModel
 from ai_service.core.chart_calculator import calculate_verified_chart
+from ai_service.api.websocket_events import emit_event, emit_rectification_progress, EventType
+import asyncio
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -59,8 +62,10 @@ class RectificationResponse(BaseModel):
 
 @router.post("/rectify", response_model=RectificationResponse)
 async def rectify_birth_time(
+    background_tasks: BackgroundTasks,
     request: RectificationRequest,
-    response: Response
+    response: Response,
+    session_id: Optional[str] = Header(None)
 ):
     """
     Rectify birth time based on questionnaire answers.
@@ -88,6 +93,16 @@ async def rectify_birth_time(
 
         # Log the rectification request
         logger.info(f"Rectifying birth time for chart: {chart_id} with {len(request.answers)} answers")
+
+        # Send initial progress update via WebSocket if session_id is provided
+        if session_id:
+            await emit_rectification_progress(
+                session_id,
+                0,
+                "Starting birth time rectification process",
+                chart_id,
+                "started"
+            )
 
         # Get the original birth details
         birth_details = chart_data.get("birth_details", {})
@@ -162,13 +177,50 @@ async def rectify_birth_time(
                 }
             )
 
-        # Perform AI-based birth time rectification
+        # Perform AI-based birth time rectification with progress updates
         logger.info("Performing AI-based birth time rectification")
+
+        # Send progress update - Analyzing questionnaire answers
+        if session_id:
+            await emit_rectification_progress(
+                session_id,
+                25,
+                "Analyzing questionnaire answers",
+                chart_id,
+                "processing"
+            )
+            # Small delay to simulate processing time
+            await asyncio.sleep(0.5)
+
+        # Send progress update - Calculating planetary positions
+        if session_id:
+            await emit_rectification_progress(
+                session_id,
+                50,
+                "Calculating planetary positions",
+                chart_id,
+                "processing"
+            )
+            # Small delay to simulate processing time
+            await asyncio.sleep(0.5)
+
         rectification_result = await rectification_model.rectify_birth_time(
             birth_details=model_birth_details,
             questionnaire_data=questionnaire_data,
             original_chart=chart_data
         )
+
+        # Send progress update - Finalizing rectification
+        if session_id:
+            await emit_rectification_progress(
+                session_id,
+                75,
+                "Finalizing rectification",
+                chart_id,
+                "processing"
+            )
+            # Small delay to simulate processing time
+            await asyncio.sleep(0.5)
 
         # Extract rectified time and confidence
         rectified_time = rectification_result.get("suggested_time", original_time)
@@ -219,14 +271,47 @@ async def rectify_birth_time(
         rectified_chart["chart_id"] = rectified_chart_id
         store_chart(rectified_chart)
 
+        # Send completion update via WebSocket
+        if session_id:
+            await emit_rectification_progress(
+                session_id,
+                100,
+                "Rectification process completed",
+                chart_id,
+                "completed",
+                {
+                    "rectified_time": rectified_time,
+                    "confidence_score": confidence_score,
+                    "original_time": original_time,
+                    "rectified_chart_id": rectified_chart_id
+                }
+            )
+
+            # Also emit a separate rectification completed event
+            if background_tasks:
+                background_tasks.add_task(
+                    emit_event,
+                    session_id,
+                    EventType.RECTIFICATION_COMPLETED,
+                    {
+                        "chart_id": chart_id,
+                        "rectified_chart_id": rectified_chart_id,
+                        "rectified_time": rectified_time,
+                        "confidence_score": confidence_score,
+                        "original_time": original_time
+                    }
+                )
+
         # Prepare the response
-        return {
+        result = {
             "rectified_time": rectified_time,
             "confidence_score": confidence_score,
             "original_time": original_time,
             "rectified_chart_id": rectified_chart_id,
             "explanation": explanation
         }
+
+        return cast(RectificationResponse, result)
 
     except HTTPException:
         # Pass through HTTP exceptions
