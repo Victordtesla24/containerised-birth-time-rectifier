@@ -86,11 +86,7 @@ def get_questionnaire_engine():
 # Dependency to get UnifiedRectificationModel instance
 def get_rectification_model():
     """Get rectification model instance"""
-    from ai_service.main import model
-    if model is None:
-        # If the model is not available in main, initialize a new one
-        return UnifiedRectificationModel()
-    return model
+    return UnifiedRectificationModel()
 
 # Dependency to get AstroCalculator instance
 def get_astro_calculator():
