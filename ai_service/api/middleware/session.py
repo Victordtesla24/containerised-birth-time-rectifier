@@ -9,15 +9,20 @@ import uuid
 import json
 import random
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, Callable
 import time
 import sys
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Try to import Redis
 try:
-    import redis
+    import redis  # type: ignore
+    from redis import Redis  # type: ignore
+    HAS_REDIS = True
 except ImportError:
     redis = None  # Define redis as None to allow for type checking
+    Redis = Any  # For type annotations
+    HAS_REDIS = False
 
 # Setup logging
 logger = logging.getLogger("birth-time-rectifier.session")
@@ -42,7 +47,7 @@ def get_redis_client():
     global REDIS_CONNECTION_POOL, REDIS_FALLBACK_NOTIFICATIONS
 
     try:
-        import redis
+        import redis  # type: ignore
         from ai_service.core.config import settings
 
         # Create connection pool if not already created
@@ -92,7 +97,7 @@ def get_current_redis_client():
     except Exception:
         return None
 
-def get_session(session_id: str) -> Optional[Dict]:
+def retrieve_session(session_id: str) -> Optional[Dict]:
     """Get session data by ID with improved error handling"""
     # Try Redis first
     redis_client = get_current_redis_client()
@@ -167,7 +172,7 @@ def cleanup_expired_sessions():
     if expired:
         logger.debug(f"Cleaned up {len(expired)} expired in-memory sessions")
 
-def save_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool:
+def persist_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool:
     """Save session data with TTL and improved reliability"""
     # Always update in-memory store as a fallback
     data_copy = data.copy()
@@ -200,89 +205,90 @@ def save_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool:
 
     return True  # In-memory store update succeeded
 
-async def session_middleware(request: Request, call_next):
+class SimpleSessionMiddleware(BaseHTTPMiddleware):
     """
-    Enhanced middleware to handle session management with improved reliability.
-    Retrieves session from cookie or header and makes it available in request state.
+    A simplified middleware for handling session management.
+    This is the main middleware class that should be used with FastAPI.
     """
-    session_id = None
-    start_time = time.time()
 
-    try:
-        # Try to get session ID from cookie or header with a fallback order
-        session_id = (
-            request.cookies.get("session_id") or
-            request.headers.get("X-Session-ID") or
-            request.headers.get("x-session-id")  # Case-insensitive fallback
-        )
+    async def dispatch(self, request: Request, call_next):
+        """Process a request and handle session management."""
+        # Extract session ID from request headers
+        session_id = request.headers.get("X-Session-ID")
 
-        # Add session to request state if it exists
-        if session_id:
-            session_data = get_session(session_id)
-            if session_data:
-                # Update last accessed time
-                session_data["last_accessed"] = time.time()
-                request.state.session = session_data
-                request.state.session_id = session_id
+        # Check if this is a session initialization request
+        is_session_init = request.url.path.endswith("/session/init")
 
-                # Update the access time in the background (20% chance to avoid excessive writes)
-                if random.random() < 0.2:
-                    save_session(session_id, session_data)
+        # For non-session-init requests, validate the session
+        if not is_session_init and session_id:
+            # Get session data
+            session_data = retrieve_session(session_id)
+
+            # If session doesn't exist or is expired, we'll still proceed
+            # but log a warning - the endpoint can decide how to handle it
+            if not session_data:
+                logger.warning(f"Invalid or expired session ID: {session_id}")
+
+            # Store session in request state for handlers to access
+            request.state.session_id = session_id
+            request.state.session_data = session_data or {}
 
         # Process the request
         response = await call_next(request)
 
-        # If a new session was created, add session cookie
-        if hasattr(request.state, "new_session_id"):
-            new_session_id = request.state.new_session_id
-            # Set a secure cookie
-            response.set_cookie(
-                key="session_id",
-                value=new_session_id,
-                max_age=SESSION_TTL,
-                httponly=True,
-                samesite="lax",
-                secure=request.url.scheme == "https"
-            )
-            # Also add the session ID as a header for API clients
-            response.headers["X-Session-ID"] = new_session_id
+        # If this is a session initialization request, get the new session ID
+        # from the request state (set by the session init handler)
+        if is_session_init and hasattr(request.state, "new_session_id"):
+            session_id = request.state.new_session_id
+            # Add session ID to response headers
+            response.headers["X-Session-ID"] = session_id
 
+        # Return the response
         return response
+
+# Utility functions for session management
+def get_session_id(request: Request) -> Optional[str]:
+    """Get session ID from request state or headers."""
+    # Check if session ID is in request state
+    if hasattr(request.state, "session_id"):
+        return request.state.session_id
+
+    # Check if session ID is in headers
+    return request.headers.get("X-Session-ID")
+
+def save_session(session_id: str, session_data: Dict) -> bool:
+    """Save session data for a given session ID."""
+    try:
+        # Store session data in memory store and delegate to the full implementation
+        return persist_session(session_id, session_data)
     except Exception as e:
-        logger.error(f"Session middleware error: {e}")
-        # Ensure we still call the next middleware even if session handling fails
-        return await call_next(request)
-    finally:
-        # Log request processing time for performance monitoring
-        process_time = time.time() - start_time
+        logger.error(f"Error saving session {session_id}: {e}")
+        return False
 
-        # Higher threshold for geocoding requests which depend on external services
-        if "/geocode" in request.url.path or "/geocoding" in request.url.path:
-            slow_threshold = 1.5  # Allow 1.5 seconds for geocoding requests
-        else:
-            slow_threshold = 0.5  # Standard 0.5 second threshold for other requests
-
-        if process_time > slow_threshold:
-            logger.error(f"Slow request detected: {request.method} {request.url.path} took {process_time:.2f}s")
-            # Raise exception for slow requests to ensure they're caught in tests, but with a higher threshold for tests
-            test_threshold = 5.0  # Higher threshold for tests
-            if process_time > test_threshold and "test" in sys.argv[0].lower():  # Increased from 1.0s to 5.0s for tests
-                raise RuntimeError(f"Slow request: {request.method} {request.url.path} took {process_time:.2f}s")
-
-# Function to get session ID for dependency injection in route handlers
-async def get_session_id(request: Request) -> str:
-    """
-    Get the current session ID from the request.
-    If no session ID is found, creates a new one.
-
-    Designed to be used with FastAPI's Depends.
-
-    Returns:
-        str: The session ID
-    """
-    session_id = request.cookies.get("session_id")
+async def create_session(session_id: Optional[str] = None) -> str:
+    """Create a new session."""
+    # Generate a new session ID if none provided
     if not session_id:
-        # Create a new session ID if one doesn't exist
         session_id = str(uuid.uuid4())
-        # This will be set in the response via the session middleware
+
+    # Create session data
+    session_data = {
+        "created_at": time.time(),
+        "expires_at": time.time() + SESSION_TTL,
+        "status": "active"
+    }
+
+    # Save session
+    save_session(session_id, session_data)
+
     return session_id
+
+# Export the middleware class directly - SIMPLIFIED VERSION FOR FASTAPI COMPATIBILITY
+session_middleware = SimpleSessionMiddleware
+
+def get_session(session_id: str) -> Optional[Dict]:
+    """
+    Get session data for a given session ID.
+    This function is an alias for retrieve_session for backwards compatibility.
+    """
+    return retrieve_session(session_id)

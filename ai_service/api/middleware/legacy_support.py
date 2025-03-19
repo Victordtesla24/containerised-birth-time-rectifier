@@ -6,8 +6,8 @@ This module provides middleware to maintain backward compatibility with old API 
 
 from fastapi import Request
 import re
-from starlette.middleware.base import BaseHTTPMiddleware
 import logging
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -30,22 +30,21 @@ class PathRewriterMiddleware(BaseHTTPMiddleware):
         self.add_deprecation_warnings = add_deprecation_warnings
 
         # Define path mapping rules - from legacy paths to standardized v1 paths
+        # Based on the sequence diagram endpoints
         self.path_mappings = [
             # Root level legacy routes
             (r"^/health$", "/api/v1/health"),
             (r"^/geocode$", "/api/v1/geocode"),
             (r"^/chart/(.*)$", r"/api/v1/chart/\1"),
             (r"^/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
-            (r"^/questionnaire$", "/api/v1/questionnaire"),
-            (r"^/export/(.*)$", r"/api/v1/export/\1"),
+            (r"^/session/(.*)$", r"/api/v1/session/\1"),
 
             # Unversioned /api/ routes
             (r"^/api/health$", "/api/v1/health"),
             (r"^/api/geocode$", "/api/v1/geocode"),
             (r"^/api/chart/(.*)$", r"/api/v1/chart/\1"),
             (r"^/api/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
-            (r"^/api/questionnaire$", "/api/v1/questionnaire"),
-            (r"^/api/export/(.*)$", r"/api/v1/export/\1"),
+            (r"^/api/session/(.*)$", r"/api/v1/session/\1"),
         ]
 
     async def dispatch(self, request: Request, call_next):
@@ -59,35 +58,30 @@ class PathRewriterMiddleware(BaseHTTPMiddleware):
         Returns:
             Response from the next middleware/handler
         """
-        # Save original path for logging
+        # Get the original path
         original_path = request.url.path
 
-        # Apply path rewriting
+        # Check if the path matches any of our mapping rules
+        rewritten = False
         for pattern, replacement in self.path_mappings:
             if re.match(pattern, original_path):
                 # Rewrite the path
-                rewritten_path = re.sub(pattern, replacement, original_path)
+                new_path = re.sub(pattern, replacement, original_path)
+                request.scope["path"] = new_path
+                rewritten = True
 
-                # Update the request's scope with the new path
-                request.scope["path"] = rewritten_path
+                # Log the rewrite for debugging
+                logger.debug(f"Rewriting path from {original_path} to {new_path}")
+                break
 
-                # Log the path rewriting
-                logger.debug(f"Rewrote path: {original_path} -> {rewritten_path}")
+        # Process the request with next middleware
+        response = await call_next(request)
 
-                # Process the request with next middleware
-                response = await call_next(request)
+        # Add deprecation warning header if needed
+        if rewritten and self.add_deprecation_warnings:
+            response.headers["X-API-Warning"] = "This endpoint is deprecated. Please use the /api/v1/ prefix in future requests."
 
-                # Add deprecation warning if enabled
-                if self.add_deprecation_warnings:
-                    response.headers["X-Deprecation-Warning"] = (
-                        f"The path '{original_path}' is deprecated. "
-                        f"Please use '{rewritten_path}' instead."
-                    )
+        return response
 
-                return response
-
-        # If no rewriting occurred, just pass the request through
-        return await call_next(request)
-
-# Export the middleware for use in FastAPI app
+# Export the middleware class directly
 legacy_path_middleware = PathRewriterMiddleware

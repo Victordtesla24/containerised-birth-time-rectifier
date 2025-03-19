@@ -1,110 +1,100 @@
 """
-AI status router for the Birth Time Rectifier API.
-Provides endpoints for checking AI service health and status.
+AI Status Router.
+
+This module provides endpoints for monitoring the AI service status.
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Dict, Any, Optional
+from datetime import datetime
+from typing import Dict, Any
+from fastapi import APIRouter, HTTPException
 
-# Import OpenAI service
-from ai_service.api.services.openai import get_openai_service
+from ai_service.api.services.openai.service import get_openai_service
 
-# Setup logging
-logger = logging.getLogger("birth-time-rectifier.ai-status")
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # Create router
-router = APIRouter(tags=["AI Status"])
+router = APIRouter()
 
-@router.get("/status", summary="Check AI Service Status")
-async def check_ai_status() -> Dict[str, Any]:
+
+@router.get("/status", tags=["AI Status"])
+async def get_ai_status() -> Dict[str, Any]:
     """
-    Check if the AI service is healthy and ready to handle requests.
+    Get the status of the AI services including OpenAI API usage.
 
     Returns:
-        Dict with status information about the OpenAI service.
+        AI service status information
     """
     try:
-        # Get real OpenAI service instance
+        # Get OpenAI service
         openai_service = get_openai_service()
 
-        # Verify service is initialized
-        if not openai_service:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI service not available"
-            )
+        # Get usage statistics
+        usage_stats = openai_service.get_usage_statistics()
 
-        # Get API key status (redacted for security)
-        api_key_available = bool(openai_service.api_key)
-
-        if not api_key_available:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="OpenAI API key not configured"
-            )
-
-        # Return real service status
-        status_info = {
+        return {
             "status": "healthy",
-            "message": "AI service is operational",
-            "initialized": True,
-            "available": True,
-            "cache_enabled": hasattr(openai_service, "cache_expiry") and openai_service.cache_expiry > 0,
-            "timeout": getattr(openai_service, "timeout", 30),
-            "usage_stats": {
-                "calls_made": openai_service.usage_stats.get("calls_made", 0),
-                "total_tokens": openai_service.usage_stats.get("total_tokens", 0)
+            "timestamp": datetime.now().isoformat(),
+            "services": {
+                "openai": {
+                    "status": "connected",
+                    "usage": usage_stats
+                }
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting AI status: {e}")
+        return {
+            "status": "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e),
+            "services": {
+                "openai": {
+                    "status": "error",
+                    "message": f"Failed to connect: {str(e)}"
+                }
             }
         }
 
-        return status_info
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        logger.error(f"Error checking AI status: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error checking AI status: {str(e)}"
-        )
 
-@router.get("/usage_statistics", summary="Get AI Usage Statistics")
-async def get_usage_statistics() -> Dict[str, Any]:
+@router.post("/test", tags=["AI Status"])
+async def test_ai_connection(prompt: str = "Hello, how are you today?") -> Dict[str, Any]:
     """
-    Get usage statistics for the OpenAI service.
+    Test the connection to the OpenAI API by sending a simple prompt.
+
+    Args:
+        prompt: Test prompt to send (defaults to a simple greeting)
 
     Returns:
-        Dict with token usage counts and estimated costs.
+        Test results including the model response
     """
     try:
-        # Get real OpenAI service instance
+        # Get OpenAI service
         openai_service = get_openai_service()
 
-        # Verify service is initialized
-        if not openai_service:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenAI service not available"
-            )
-
-        # Get real usage statistics from the service
-        usage_stats = openai_service.get_usage_statistics()
-
-        # Validate we have actual stats
-        if not usage_stats:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve usage statistics"
-            )
-
-        return usage_stats
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except Exception as e:
-        logger.error(f"Error getting usage statistics: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting usage statistics: {str(e)}"
+        # Send a test prompt
+        start_time = datetime.now()
+        response = await openai_service.generate_completion(
+            prompt=prompt,
+            task_type="test",
+            max_tokens=50,
+            temperature=0.7
         )
+        end_time = datetime.now()
+        elapsed_time = (end_time - start_time).total_seconds()
+
+        return {
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "test_results": {
+                "prompt": prompt,
+                "response": response.get("content", ""),
+                "model": response.get("model", "unknown"),
+                "tokens": response.get("tokens", {}),
+                "elapsed_time_seconds": elapsed_time
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error testing AI connection: {e}")
+        raise HTTPException(status_code=500, detail=f"Error testing AI connection: {str(e)}")

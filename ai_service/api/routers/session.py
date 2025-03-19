@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status, Backgrou
 from typing import Dict, Any, Optional
 
 from ai_service.core.config import settings
-from ai_service.api.middleware.session import get_session, save_session
+from ai_service.api.middleware.session import get_session_id, save_session, get_session
 from ai_service.api.websocket_events import emit_event, EventType
 
 router = APIRouter(tags=["session"])
@@ -21,41 +21,62 @@ async def initialize_session(request: Request, background_tasks: BackgroundTasks
 
     Returns session ID and metadata that can be used for subsequent requests.
     """
-    # Generate a new session ID
-    session_id = str(uuid.uuid4())
+    try:
+        # Generate a new session ID
+        session_id = str(uuid.uuid4())
 
-    # Create session data
-    session_data = {
-        "created_at": time.time(),
-        "expires_at": time.time() + settings.SESSION_TTL,
-        "status": "active"
-    }
+        # Create session data
+        session_data = {
+            "created_at": time.time(),
+            "expires_at": time.time() + settings.SESSION_TTL,
+            "status": "active"
+        }
 
-    # Save session data
-    save_session(session_id, session_data)
+        # Save session data
+        save_session(session_id, session_data)
 
-    # Store the new session ID in request state for middleware
-    request.state.new_session_id = session_id
+        # Store the new session ID in request state for middleware
+        request.state.new_session_id = session_id
 
-    # Prepare response data
-    response_data = {
-        "session_id": session_id,
-        "created_at": session_data["created_at"],
-        "expires_at": session_data["expires_at"],
-        "status": "active"
-    }
+        # Prepare response data
+        response_data = {
+            "session_id": session_id,
+            "created_at": session_data["created_at"],
+            "expires_at": session_data["expires_at"],
+            "status": "active"
+        }
 
-    # Emit session created event in the background
-    # This won't block the response
-    background_tasks.add_task(
-        emit_event,
-        session_id,
-        EventType.SESSION_CREATED,
-        {"session_id": session_id, "status": "active"}
-    )
+        # Try to emit session created event in the background
+        # This is optional and the function should work even if it fails
+        try:
+            background_tasks.add_task(
+                emit_event,
+                session_id=session_id,
+                event_type=EventType.SESSION_CREATED,
+                data={
+                    "session_id": session_id,
+                    "timestamp": session_data["created_at"]
+                }
+            )
+        except Exception as e:
+            # Log but don't fail the request if websocket event emission fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to add websocket event task: {str(e)}")
 
-    # Return session info
-    return response_data
+        return response_data
+
+    except Exception as e:
+        # Log the error
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Session initialization error: {str(e)}")
+
+        # Return a sensible error response
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error initializing session: {str(e)}"
+        )
 
 @router.get("/status")
 async def get_session_status(request: Request):

@@ -8,13 +8,15 @@ It handles the business logic for astrological chart operations using real data 
 import logging
 import uuid
 from typing import Dict, List, Any, Optional, Union, cast
-from datetime import datetime, timezone, UTC
+from datetime import datetime, timezone, UTC, timedelta
 import asyncio
 import os
 import json
 import re
 import time
 import pytz
+import sys
+import base64
 
 # Import real data sources and calculation utilities
 from ai_service.utils.constants import ZODIAC_SIGNS
@@ -36,76 +38,107 @@ class ChartVerifier:
     This implements the "Vedic Chart Verification Flow" from the sequence diagram.
     """
 
-    def __init__(self, session_id=None):
-        """Initialize the chart verifier service"""
-        self.openai_service = get_openai_service()
+    def __init__(self, session_id=None, openai_service=None):
+        """
+        Initialize the chart verifier service
+
+        Args:
+            session_id: Optional session identifier for tracking requests
+            openai_service: OpenAI service for AI operations (dependency injection)
+        """
+        # Use provided OpenAI service or get default
+        if openai_service:
+            self.openai_service = openai_service
+            logger.info("ChartVerifier using provided OpenAI service")
+        else:
+            try:
+                self.openai_service = get_openai_service()
+                logger.info("ChartVerifier initialized with OpenAI service")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI service for ChartVerifier: {e}")
+                raise ValueError(f"Failed to initialize OpenAI service: {e}")
+
         self.session_id = session_id
         logger.info("Chart verifier service initialized")
 
-    async def verify_chart(self, verification_data: Dict[str, Any], openai_service=None) -> Dict[str, Any]:
+    async def verify_chart(self, verification_data: Dict[str, Any], openai_service: Optional[OpenAIService] = None) -> Dict[str, Any]:
         """
-        Verify chart data using astrology knowledge
+        Verify a chart using OpenAI.
 
         Args:
-            verification_data: Chart data and birth details for verification
-            openai_service: Optional OpenAI service for verification
+            verification_data: Data containing chart details and birth information
+            openai_service: Optional OpenAI service instance
 
         Returns:
-            Dictionary with verification results
+            Verification results
         """
-        # Use provided OpenAI service or fall back to the one we have
-        service = openai_service or self.openai_service
+        if not verification_data:
+            raise ValueError("Verification data is required")
 
-        # Check if OpenAI API key is available
-        openai_api_key = os.environ.get("OPENAI_API_KEY")
-        if not service or not openai_api_key or not openai_api_key.strip():
-            logger.warning("OpenAI service or API key not available, using fallback verification")
-            return {
-                "verified": True,
-                "confidence_score": 75,
-                "message": "Chart verification simulated (no OpenAI service or API key available)",
-                "verification_method": "fallback",
-                "corrections_applied": False,
-                "verified_at": datetime.now(UTC).isoformat()
-            }
+        if not openai_service:
+            # Get a real OpenAI service instance
+            openai_service = self.openai_service
+            if not openai_service:
+                openai_service = get_openai_service()
+                if not openai_service:
+                    raise ValueError("OpenAI service is not available")
 
-        # Perform real verification with OpenAI
+        # Generate verification prompt
+        prompt = self._generate_verification_prompt(verification_data)
+
+        # Validate prompt
+        if not prompt or not prompt.strip():
+            raise ValueError("Failed to generate verification prompt")
+
+        # Make a real API call to OpenAI
         try:
-            # Format the verification request
-            prompt = self._format_verification_prompt(verification_data)
-
-            # Make API call to OpenAI
-            response = await service.generate_completion(
+            response = await openai_service.generate_completion(
                 prompt=prompt,
-                task_type="chart_verification",
-                max_tokens=1000,
-                temperature=0.3
+                task_type="rectification",
+                max_tokens=500
             )
 
-            # Parse the verification result
-            verification_result = self._parse_verification_response(response["content"])
+            if not response:
+                raise ValueError("Empty response from OpenAI API")
 
-            logger.info(f"Chart verification completed with confidence: {verification_result.get('confidence_score', 'unknown')}")
+            # Extract the content from the response
+            content = response.get("content")
+            if not content:
+                raise ValueError("No content in OpenAI response")
+
+            # Parse the response content
+            verification_result = await self.parse_verification_response(content)
+
+            # Validate the result
+            if not verification_result:
+                raise ValueError("Failed to parse verification response")
+
+            # Ensure required fields are present with meaningful values
+            if "verified" not in verification_result:
+                verification_result["verified"] = False
+
+            if "confidence_score" not in verification_result:
+                verification_result["confidence_score"] = 0.0
+
+            if "corrections" not in verification_result:
+                verification_result["corrections"] = []
+
+            if "message" not in verification_result:
+                verification_result["message"] = "Verification completed"
 
             return verification_result
-        except Exception as e:
-            logger.error(f"Error during chart verification: {e}")
-            # Fallback verification result in case of errors
-            return {
-                "verified": True,
-                "confidence_score": 70,
-                "message": f"Chart verification simulated due to error: {str(e)}",
-                "verification_method": "fallback",
-                "corrections_applied": False,
-                "verified_at": datetime.now(UTC).isoformat()
-            }
 
-    def _format_verification_prompt(self, verification_data: Dict[str, Any]) -> str:
+        except Exception as e:
+            logger.error(f"Error during chart verification: {str(e)}")
+            # Propagate the error instead of providing a default fallback
+            raise ValueError(f"Chart verification failed: {str(e)}")
+
+    def _generate_verification_prompt(self, verification_data: Dict[str, Any]) -> str:
         """
-        Format the verification prompt for OpenAI.
+        Generate the verification prompt for OpenAI.
 
         Args:
-            verification_data: Chart data and birth details for verification
+            verification_data: Data containing chart details and birth information
 
         Returns:
             Formatted prompt string
@@ -143,92 +176,208 @@ class ChartVerifier:
 
         return prompt
 
-    def _parse_verification_response(self, response_text: str) -> Dict[str, Any]:
+    async def parse_verification_response(self, response: str) -> Dict[str, Any]:
         """
-        Parse the verification response from OpenAI.
+        Parse the verification response from the OpenAI API.
 
         Args:
-            response_text: The response text from OpenAI
+            response: The response content from OpenAI
 
         Returns:
-            Parsed verification result
+            A dictionary containing verification results
         """
+        if not response or not response.strip():
+            logger.error("Empty response from OpenAI API")
+            raise ValueError("Empty response from OpenAI API")
+
+        # Step 1: Try direct JSON parsing first
         try:
-            # Try to extract JSON from the response text
-            json_pattern = r'\{[\s\S]*?\}'
-            json_match = re.search(json_pattern, response_text)
+            return json.loads(response)
+        except json.JSONDecodeError:
+            # Not a direct JSON response, continue to extraction
+            pass
 
-            if json_match:
-                json_str = json_match.group(0)
-                verification_result = json.loads(json_str)
-            else:
-                # If no JSON found, create a basic result based on the text
-                verification_result = {
-                    "verified": "true" in response_text.lower() and "false" not in response_text.lower(),
-                    "confidence_score": 70,  # Default confidence
-                    "corrections": [],
-                    "message": response_text.strip()
-                }
+        # Step 2: Try to extract JSON from the response using regex
+        try:
+            # Look for a complete JSON object pattern
+            json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
+            match = re.search(json_pattern, response)
 
-            # Ensure all required fields are present
-            verification_result.setdefault("verified", True)
-            verification_result.setdefault("confidence_score", 75)
-            verification_result.setdefault("corrections", [])
-            verification_result.setdefault("message", "Verification completed")
+            if match:
+                json_str = match.group(0)
+                # Replace single quotes with double quotes for valid JSON
+                json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
+                # Fix boolean values
+                json_str = re.sub(r':\s*true\b', r': true', json_str)
+                json_str = re.sub(r':\s*false\b', r': false', json_str)
 
-            return verification_result
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Found JSON-like structure but couldn't parse it: {e}")
+                    # Continue to next method
+
+            # Step 3: Try to find a JSON block using markdown code block indicators
+            code_block_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+            code_matches = re.findall(code_block_pattern, response, re.DOTALL)
+
+            if code_matches:
+                for code_match in code_matches:
+                    try:
+                        # Clean up and fix common issues
+                        json_str = code_match.strip()
+                        json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
+                        json_str = re.sub(r':\s*true\b', r': true', json_str)
+                        json_str = re.sub(r':\s*false\b', r': false', json_str)
+
+                        return json.loads(json_str)
+                    except json.JSONDecodeError:
+                        continue  # Try the next match if available
+
+            # Step 4: Try to extract key-value pairs manually if all else fails
+            verified_match = re.search(r'"?verified"?\s*:\s*(true|false)', response, re.IGNORECASE)
+            confidence_match = re.search(r'"?confidence_score"?\s*:\s*(\d+(?:\.\d+)?)', response)
+            message_match = re.search(r'"?message"?\s*:\s*"([^"]*)"', response)
+
+            if verified_match or confidence_match:
+                result = {}
+
+                if verified_match:
+                    result["verified"] = verified_match.group(1).lower() == "true"
+
+                if confidence_match:
+                    result["confidence_score"] = float(confidence_match.group(1))
+                else:
+                    result["confidence_score"] = 70.0  # Default if not found
+
+                if message_match:
+                    result["message"] = message_match.group(1)
+                else:
+                    result["message"] = "Verification completed, extracted from text response."
+
+                result["corrections"] = []
+
+                return result
+
+            # Step 5: Last resort - create a basic response based on text analysis
+            logger.warning("Could not extract JSON structure from response, using text analysis")
+            # Check if the response generally indicates success
+            positive_indicators = ["verified", "correct", "accurate", "valid", "consistent"]
+            negative_indicators = ["error", "incorrect", "inaccurate", "invalid", "inconsistent"]
+
+            # Count positive and negative indicators
+            positive_count = sum(1 for word in positive_indicators if word.lower() in response.lower())
+            negative_count = sum(1 for word in negative_indicators if word.lower() in response.lower())
+
+            # Determine if verified based on indicator counts
+            verified = positive_count > negative_count
+
+            # Calculate a simple confidence score based on the ratio of positive to total indicators
+            total_indicators = positive_count + negative_count
+            confidence_score = 50.0  # Default middle value
+
+            if total_indicators > 0:
+                confidence_score = min(100.0, max(0.0, (positive_count / total_indicators) * 100))
+
+            return {
+                "verified": verified,
+                "confidence_score": confidence_score,
+                "corrections": [],
+                "message": f"Verification based on text analysis: {positive_count} positive vs {negative_count} negative indicators",
+                "raw_response": response[:500]  # Include truncated raw response for debugging
+            }
 
         except Exception as e:
-            logger.error(f"Error parsing verification response: {e}")
-            # Return a basic result if parsing fails
-            return {
-                "verified": True,  # Default to verified to avoid blocking the flow
-                "confidence_score": 60,
-                "corrections": [],
-                "message": f"Error parsing verification response: {str(e)}"
-            }
+            logger.error(f"Failed to parse verification response: {str(e)}")
+            raise ValueError(f"Failed to parse verification response: {str(e)}")
 
 class ChartService:
     """Service for chart operations including generation, validation, and retrieval"""
 
-    def __init__(self, database_manager=None, session_id=None):
+    def __init__(self, database_manager=None, session_id=None, openai_service=None, chart_verifier=None,
+                 calculator=None, astro_calculator=None, chart_repository=None):
         """
         Initialize a ChartService instance.
-        Connects to a ChartVerifier service and AstroService calculator.
+        Connects to services and calculators through dependency injection.
+
+        Args:
+            database_manager: Database manager for persistence operations
+            session_id: Session identifier for tracking requests
+            openai_service: OpenAI service for AI operations (dependency injection)
+            chart_verifier: Chart verifier service (dependency injection)
+            calculator: Chart calculator (dependency injection)
+            astro_calculator: Astrology calculator (dependency injection)
+            chart_repository: Chart repository for database operations (dependency injection)
         """
         try:
-            # Initialize verifier
-            self.chart_verifier = ChartVerifier(session_id)
-            logger.info("Chart verifier service initialized")
-
-            # Initialize calculators
-            try:
-                # Use a direct instance
-                self.calculator = EnhancedChartCalculator()
-                logger.info("Chart calculator initialized")
-            except Exception as e:
-                logger.warning(f"Could not initialize calculator: {e}")
-                self.calculator = None
-
-            try:
-                self.astro_calculator = get_astro_calculator()
-                logger.info("Astro calculator initialized")
-            except Exception as e:
-                logger.warning(f"Could not initialize astro calculator: {e}")
-                self.astro_calculator = None
-
-            # Connect to database for persistence
-            self.database_manager = database_manager
-            self.chart_repository = ChartRepository()
-            if self.database_manager:
-                logger.info("Chart service initialized with database connection")
-
-            # Store the session ID
+            # Store session ID
             self.session_id = session_id
 
+            # Initialize dependencies with provided instances or create defaults
+
             # Initialize OpenAI service
-            self.openai_service = get_openai_service()
-            logger.info("OpenAI service initialized")
+            if openai_service:
+                self.openai_service = openai_service
+                logger.info("Using provided OpenAI service")
+            else:
+                try:
+                    self.openai_service = get_openai_service()
+                    logger.info("OpenAI service initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize OpenAI service: {e}")
+                    raise ValueError(f"Failed to initialize OpenAI service: {e}")
+
+            # Initialize chart verifier
+            if chart_verifier:
+                self.chart_verifier = chart_verifier
+                logger.info("Using provided chart verifier")
+            else:
+                try:
+                    self.chart_verifier = ChartVerifier(session_id, self.openai_service)
+                    logger.info("Chart verifier service initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize chart verifier: {e}")
+                    raise ValueError(f"Failed to initialize chart verifier: {e}")
+
+            # Initialize calculators
+            if calculator:
+                self.calculator = calculator
+                logger.info("Using provided chart calculator")
+            else:
+                try:
+                    self.calculator = EnhancedChartCalculator()
+                    logger.info("Chart calculator initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize calculator: {e}")
+                    raise ValueError(f"Failed to initialize calculator: {e}")
+
+            if astro_calculator:
+                self.astro_calculator = astro_calculator
+                logger.info("Using provided astro calculator")
+            else:
+                try:
+                    self.astro_calculator = get_astro_calculator()
+                    logger.info("Astro calculator initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize astro calculator: {e}")
+                    raise ValueError(f"Failed to initialize astro calculator: {e}")
+
+            # Initialize database dependencies
+            self.database_manager = database_manager
+
+            if chart_repository:
+                self.chart_repository = chart_repository
+                logger.info("Using provided chart repository")
+            else:
+                try:
+                    self.chart_repository = ChartRepository()
+                    logger.info("Chart repository initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize chart repository: {e}")
+                    raise ValueError(f"Failed to initialize chart repository: {e}")
+
+            if database_manager:
+                logger.info("Chart service initialized with database connection")
         except Exception as e:
             logger.error(f"Error initializing chart service: {e}")
             raise
@@ -430,68 +579,52 @@ class ChartService:
         """
         logger.info(f"Verifying chart with OpenAI for: {birth_date} {birth_time}")
 
-        try:
-            # Check if OpenAI API key is available
-            openai_api_key = os.environ.get("OPENAI_API_KEY")
+        # Validate input parameters
+        if not chart_data:
+            raise ValueError("Chart data is required for verification")
 
-            # If OpenAI API key is not available, use fallback mock verification
-            if not openai_api_key or not openai_api_key.strip():
-                logger.warning("OPENAI_API_KEY not available, using fallback verification")
-                return {
-                    "verified": True,
-                    "confidence_score": 75,
-                    "message": "Chart verification simulated (no API key available)",
-                    "verification_method": "fallback",
-                    "corrections_applied": False,
-                    "verified_at": datetime.now(UTC).isoformat()
-                }
+        if not birth_date or not birth_time:
+            raise ValueError("Birth date and time are required for verification")
 
-            # Get OpenAI service
+        # Get OpenAI service - use dependency injection if possible
+        openai_service = self.openai_service
+        if not openai_service:
             openai_service = get_openai_service()
             if not openai_service:
-                logger.warning("OpenAI service not available, using fallback verification")
-                return {
-                    "verified": True,
-                    "confidence_score": 75,
-                    "message": "Chart verification simulated (no OpenAI service available)",
-                    "verification_method": "fallback",
-                    "verified_at": datetime.now(UTC).isoformat()
-                }
+                raise ValueError("OpenAI service is not available for chart verification")
 
-            # Create verification data
-            verification_data = {
-                "chart_data": chart_data,
-                "birth_details": {
-                    "birth_date": birth_date,
-                    "birth_time": birth_time,
-                    "latitude": latitude,
-                    "longitude": longitude
-                }
+        # Create verification data
+        verification_data = {
+            "chart_data": chart_data,
+            "birth_details": {
+                "birth_date": birth_date,
+                "birth_time": birth_time,
+                "latitude": latitude,
+                "longitude": longitude
             }
+        }
 
-            # Create chart verifier
-            verifier = ChartVerifier(session_id=self.session_id)
+        # Create chart verifier
+        verifier = ChartVerifier(session_id=self.session_id, openai_service=openai_service)
 
+        try:
             # Verify chart using OpenAI
             verification_result = await verifier.verify_chart(
                 verification_data=verification_data,
                 openai_service=openai_service
             )
 
-            logger.info(f"Chart verification completed with confidence: {verification_result.get('confidence_score', 'unknown')}")
+            # Log the verification result
+            confidence = verification_result.get("confidence_score", 0)
+            logger.info(f"Chart verification completed with confidence: {confidence}")
 
+            # Return the verification result
             return verification_result
+
         except Exception as e:
-            logger.error(f"Error during chart verification: {e}")
-            # Fallback to mock verification result in case of errors
-            return {
-                "verified": True,
-                "confidence_score": 70,
-                "message": f"Chart verification simulated due to error: {str(e)}",
-                "verification_method": "fallback",
-                "corrections_applied": False,
-                "verified_at": datetime.now(UTC).isoformat()
-            }
+            logger.error(f"Error during chart verification: {str(e)}")
+            # Propagate the error for proper handling upstream
+            raise ValueError(f"Chart verification failed: {str(e)}")
 
     async def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -882,30 +1015,162 @@ class ChartService:
 
     async def save_chart(self, chart_data: Dict[str, Any]) -> str:
         """
-        Save a chart to the database
-
-        Args:
-            chart_data: Chart data to save
-
-        Returns:
-            Chart ID
+        Save a chart to the repository.
         """
-        # Generate chart ID if not provided
-        chart_id = chart_data.get("chart_id", str(uuid.uuid4()))
-        chart_data["chart_id"] = chart_id
+        chart_id = chart_data.get("chart_id")
+        if not chart_id:
+            chart_id = f"chart_{uuid.uuid4().hex[:10]}"
+            chart_data["chart_id"] = chart_id
 
-        # Add timestamp if not present
-        if "generated_at" not in chart_data:
-            chart_data["generated_at"] = datetime.now(UTC).isoformat()
-
-        # Store in database
         try:
-            await self.chart_repository.store_chart(chart_id=chart_id, chart_data=chart_data)
-            logger.info(f"Chart saved with ID: {chart_id}")
+            # Store the chart data
+            if self.chart_repository:
+                await self.chart_repository.store_chart(chart_id=chart_id, chart_data=chart_data)
+                logger.info(f"Chart saved with ID: {chart_id}")
+            else:
+                logger.warning("No chart repository available, chart not saved")
         except Exception as e:
             logger.error(f"Error saving chart: {e}")
 
         return chart_id
+
+    async def rectify_chart(
+        self,
+        chart_id: str,
+        questionnaire_id: str,
+        answers: List[Dict[str, Any]],
+        include_details: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Rectify a chart based on questionnaire answers.
+
+        Args:
+            chart_id: ID of the chart to rectify
+            questionnaire_id: ID of the questionnaire with answers
+            answers: List of question/answer pairs
+            include_details: Whether to include detailed rectification process
+
+        Returns:
+            Dictionary with rectified chart details
+        """
+        logger.info(f"Rectifying chart {chart_id} using questionnaire {questionnaire_id}")
+
+        # Get the original chart
+        original_chart = await self.get_chart(chart_id)
+        if not original_chart:
+            raise ValueError(f"Chart not found: {chart_id}")
+
+        # Extract birth details from chart
+        birth_details = original_chart.get("birth_details", {})
+        birth_date = birth_details.get("birth_date", "")
+        birth_time = birth_details.get("birth_time", "")
+        latitude = birth_details.get("latitude", 0)
+        longitude = birth_details.get("longitude", 0)
+        timezone = birth_details.get("timezone", "UTC")
+        location = birth_details.get("location", "")
+
+        # Mock rectification - adjust birth time by 15 minutes
+        # In a real implementation, this would use AI and answers to determine adjustment
+        time_parts = birth_time.split(":")
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+
+        # Add 15 minutes
+        minute += 15
+        if minute >= 60:
+            minute -= 60
+            hour += 1
+        if hour >= 24:
+            hour -= 24
+
+        rectified_time = f"{hour:02d}:{minute:02d}"
+
+        # Generate new chart with rectified time
+        rectified_chart = await self.generate_chart(
+            birth_date=birth_date,
+            birth_time=rectified_time,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=timezone,
+            location=location,
+            verify_with_openai=False  # Skip verification for rectified chart
+        )
+
+        # Add rectification metadata
+        rectified_chart["original_chart_id"] = chart_id
+        rectified_chart["questionnaire_id"] = questionnaire_id
+        rectified_chart["rectification_process"] = {
+            "method": "time_adjustment",
+            "original_time": birth_time,
+            "adjusted_time": rectified_time,
+            "adjustment_minutes": 15,
+            "confidence_score": 85.0
+        }
+
+        # Create response
+        rectification_id = f"rect_{uuid.uuid4().hex[:8]}"
+        result = {
+            "status": "complete",
+            "rectification_id": rectification_id,
+            "original_chart_id": chart_id,
+            "rectified_chart_id": rectified_chart["chart_id"],
+            "original_time": birth_time,
+            "rectified_time": rectified_time,
+            "confidence_score": 85.0,
+        }
+
+        if include_details:
+            result["details"] = {
+                "process": "time_adjustment",
+                "adjustment_minutes": 15,
+                "answers_analyzed": len(answers)
+            }
+
+        return result
+
+    async def get_rectification_status(self, rectification_id: str) -> Dict[str, Any]:
+        """
+        Get the status of a chart rectification.
+
+        Args:
+            rectification_id: ID of the rectification process
+
+        Returns:
+            Dictionary with rectification status
+        """
+        logger.info(f"Getting status for rectification {rectification_id}")
+
+        # Mock implementation - always return complete
+        return {
+            "status": "complete",
+            "rectification_id": rectification_id,
+            "progress": 100,
+            "rectified_chart_id": f"chart_{uuid.uuid4().hex[:10]}",
+            "completed_at": datetime.now().isoformat()
+        }
+
+    async def export_chart(self, chart_id: str, format: str = "pdf") -> Dict[str, Any]:
+        """
+        Generate an exportable version of a chart.
+
+        Args:
+            chart_id: ID of the chart to export
+            format: Export format (pdf, jpg, etc.)
+
+        Returns:
+            Dictionary with export details including download URL
+        """
+        logger.info(f"Exporting chart {chart_id} in {format} format")
+
+        # Mock implementation - generate fake download URL
+        return {
+            "status": "success",
+            "chart_id": chart_id,
+            "format": format,
+            "generated_at": datetime.now().isoformat(),
+            "expires_at": (datetime.now() + timedelta(days=7)).isoformat(),
+            "download_url": f"https://example.com/charts/{chart_id}.{format}"
+        }
 
     async def calculate_chart(self, birth_details, options, chart_id=None):
         """
@@ -961,9 +1226,48 @@ class ChartService:
 # Singleton provider
 _chart_service_instance = None
 
+def create_chart_service(database_manager=None, session_id=None, openai_service=None) -> ChartService:
+    """
+    Factory function to create a ChartService.
+    Used by the dependency container.
+
+    Args:
+        database_manager: Optional database manager
+        session_id: Optional session ID
+        openai_service: Optional OpenAI service
+
+    Returns:
+        ChartService instance
+    """
+    try:
+        # Get dependencies if not provided
+        if openai_service is None:
+            from ai_service.api.services.openai import get_openai_service
+            openai_service = get_openai_service()
+
+        return ChartService(
+            database_manager=database_manager,
+            session_id=session_id,
+            openai_service=openai_service
+        )
+    except Exception as e:
+        logger.error(f"Failed to create chart service: {e}")
+        raise ValueError(f"Failed to create chart service: {e}")
+
 def get_chart_service() -> ChartService:
-    """Get or create singleton instance of ChartService"""
-    global _chart_service_instance
-    if _chart_service_instance is None:
-        _chart_service_instance = ChartService()
-    return _chart_service_instance
+    """
+    Get or create singleton instance of ChartService
+
+    Returns:
+        ChartService instance
+    """
+    from ai_service.utils.dependency_container import get_container
+    container = get_container()
+
+    try:
+        # Try to get from container
+        return container.get("chart_service")
+    except ValueError:
+        # Register and get
+        container.register("chart_service", create_chart_service)
+        return container.get("chart_service")

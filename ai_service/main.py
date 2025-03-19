@@ -1,332 +1,124 @@
 """
-Birth Time Rectifier API - Unified Main Application
+Main application entry point for the AI Service.
 
-This is the consolidated FastAPI application that serves the Birth Time Rectifier API
-using a single registration pattern with proper versioning.
+This module initializes the FastAPI application and includes routers.
+Following the Consolidated Single-Registration Architecture with Path Rewriting.
 """
 
-from fastapi import FastAPI, Request, APIRouter, HTTPException, Query, Body, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.exceptions import RequestValidationError
-import logging
-import time
-from datetime import datetime
 import os
-import uuid
-import json
-import tempfile
-from contextlib import asynccontextmanager
-from typing import cast, Any, Callable, Tuple, Optional
+import sys
+import logging
+from typing import Dict, Any, List, Tuple, Type, Callable, Optional
+from datetime import datetime
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
-try:
-    from prometheus_client import Counter, Histogram, Gauge, CollectorRegistry
-    REGISTRY = CollectorRegistry()
-    METRICS_AVAILABLE = True
-except ImportError:
-    # Allow execution without Prometheus for development
-    print("Warning: Prometheus client not installed, metrics will be disabled")
-    METRICS_AVAILABLE = False
-
-    # Create dummy classes
-    class DummyMetric:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    Counter = lambda *args, **kwargs: DummyMetric()
-    Histogram = lambda *args, **kwargs: DummyMetric()
-    Gauge = lambda *args, **kwargs: DummyMetric()
-    REGISTRY = None
-
-# Configure logging
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    filename=os.path.join("logs", "ai_service.log") if os.path.exists("logs") else None,
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
-logger = logging.getLogger("birth-time-rectifier")
 
-# Import middleware
-from ai_service.api.middleware.error_handling import validation_exception_handler, http_exception_handler
-from ai_service.api.middleware.session import session_middleware
-from ai_service.api.middleware.path_rewriter import PathRewriterMiddleware
+logger = logging.getLogger(__name__)
 
-# Import core configuration
-from ai_service.core.config import settings
+# Local imports
+from ai_service.utils.env_loader import load_env_file
+from ai_service.app_startup import initialize_application
 
-# Import routers
-from ai_service.api.routers.health import router as health_router
-from ai_service.api.routers.session import router as session_router
-from ai_service.api.routers.geocode import router as geocode_router
-from ai_service.api.routers.questionnaire import router as questionnaire_router
-from ai_service.api.routers.questionnaire_websocket import router as questionnaire_websocket_router
+# Load environment variables
+load_env_file()
 
-# Import the consolidated chart router
-from ai_service.api.routers.consolidated_chart import router as consolidated_chart_router
-
-# Import interpretation router
-from ai_service.api.routers.interpretation import router as interpretation_router
-
-# Import export router
-from ai_service.api.routers.export import router as export_router
-
-# Import AI integration routers
-from ai_service.api.routers.ai_integration_test import router as ai_integration_test_router
-from ai_service.api.routers.ai_status import router as ai_status_router
-
-# Import WebSocket connection manager and event emitter
-from ai_service.api.websockets import manager
-from ai_service.api.websocket_events import EventType
-
-# Initialize metrics - using a function to handle potential duplicates
-def init_metrics() -> Tuple[Optional[Any], Optional[Any], Optional[Any], Optional[Any]]:
-    """Initialize Prometheus metrics with duplication handling"""
-    if not METRICS_AVAILABLE:
-        return None, None, None, None
-
-    try:
-        # Create metrics with a safer approach to avoid duplicates
-        metric_keys = ['birth_time_rectifier_requests_total',
-                      'birth_time_rectifier_processing_seconds',
-                      'birth_time_rectifier_gpu_memory_mb',
-                      'birth_time_rectifier_model_inference_seconds']
-
-        metrics = {}
-        for key in metric_keys:
-            try:
-                if key == 'birth_time_rectifier_requests_total':
-                    metrics[key] = Counter(key, 'Total requests processed', registry=REGISTRY)
-                elif key == 'birth_time_rectifier_processing_seconds':
-                    metrics[key] = Histogram(key, 'Time spent processing request', registry=REGISTRY)
-                elif key == 'birth_time_rectifier_gpu_memory_mb':
-                    metrics[key] = Gauge(key, 'GPU memory usage in MB', registry=REGISTRY)
-                elif key == 'birth_time_rectifier_model_inference_seconds':
-                    metrics[key] = Histogram(key, 'Time spent on model inference', registry=REGISTRY)
-            except Exception as e:
-                logger.warning(f"Could not create metric {key}: {e}")
-                metrics[key] = None
-
-        return (metrics.get('birth_time_rectifier_requests_total'),
-               metrics.get('birth_time_rectifier_processing_seconds'),
-               metrics.get('birth_time_rectifier_gpu_memory_mb'),
-               metrics.get('birth_time_rectifier_model_inference_seconds'))
-
-    except Exception as e:
-        logger.error(f"Error initializing metrics: {e}")
-        # Return None for all metrics if initialization fails
-        return None, None, None, None
-
-# Initialize metrics
-REQUESTS, PROCESSING_TIME, GPU_MEMORY_USAGE, MODEL_INFERENCE_TIME = init_metrics()
-
-# Define lifespan context manager for proper setup/cleanup
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Setup: initialize code on startup
-    logger.info("Application starting up")
-
-    # Initialize GPU manager
-    try:
-        from ai_service.utils.gpu_manager import GPUMemoryManager
-        # Initialize GPU manager if available
-        gpu_manager = GPUMemoryManager(model_allocation=float(os.getenv("GPU_MEMORY_FRACTION", 0.7)))
-        app.state.gpu_manager = gpu_manager
-        logger.info("GPU memory manager initialized")
-    except ImportError:
-        logger.info("GPU memory manager not available")
-        app.state.gpu_manager = None
-    except Exception as e:
-        logger.error(f"Error initializing GPU manager: {e}")
-        app.state.gpu_manager = None
-
-    # Preload AI models
-    try:
-        from ai_service.models.unified_model import UnifiedRectificationModel
-        logger.info("Preloading AI models for continuous operation...")
-        app.state.rectification_model = UnifiedRectificationModel()
-        logger.info("AI models preloaded successfully")
-
-        # Initialize global model reference for backward compatibility
-        global model
-        model = app.state.rectification_model
-    except Exception as e:
-        logger.error(f"Error preloading AI models: {e}")
-        app.state.rectification_model = None
-
-    yield
-
-    # Cleanup: shutdown code on app exit
-    logger.info("Application shutdown, cleaning up resources")
-    if hasattr(app.state, 'gpu_manager') and app.state.gpu_manager:
-        logger.info("Cleaning up GPU resources")
-        app.state.gpu_manager.cleanup()
-
-# Create FastAPI application with lifespan
+# Initialize a clean FastAPI application
 app = FastAPI(
-    title="Birth Time Rectifier API",
-    description="API for astrological chart generation and birth time rectification",
+    title="Birth Time Rectifier AI Service",
+    description="AI service for astrological birth time rectification",
     version="1.0.0",
-    lifespan=lifespan,
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json"
 )
 
-# Configure CORS
+# Root path handler
+@app.get("/")
+async def root():
+    return {"message": "Welcome to Birth Time Rectifier AI Service", "version": "1.0.0"}
+
+# Add a direct health endpoint for the healthcheck
+# This endpoint is not used by the wrapper but kept for compatibility
+@app.get("/health")
+async def health_check():
+    """
+    Simple health check endpoint for the healthcheck mechanism.
+    Note: This is a fallback. Health checks should go through the ASGI wrapper.
+    """
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "ai_service",
+        "wrapper_bypassed": True
+    }
+
+# Initialize app on startup
+@app.on_event("startup")
+async def startup_event():
+    try:
+        logger.info("Starting AI Service application")
+        initialize_application()
+        logger.info("AI Service initialized successfully")
+    except Exception as e:
+        logger.critical(f"Failed to initialize application: {e}")
+        # Log the full error trace
+        import traceback
+        logger.critical(traceback.format_exc())
+
+# Include routers
+from ai_service.api.routers import router
+app.include_router(router)
+
+# Define CORS settings
+cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Add test middleware
-from ai_service.api.middleware import TestMiddleware
-app.add_middleware(TestMiddleware)
-
-# Add path rewriter middleware (must be added before other middleware)
+# Import and add path rewriter middleware
+from ai_service.api.middleware.legacy_support import PathRewriterMiddleware
 app.add_middleware(PathRewriterMiddleware)
 
-# Request timing middleware
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    """Add processing time to response headers"""
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
+# Import and add session middleware
+from ai_service.api.middleware.session import session_middleware
+app.add_middleware(session_middleware)
 
-    # Use response.headers.update() which has proper typing
-    response.headers.update({"X-Process-Time": str(process_time)})
-    return response
-
-# Add session middleware
-app.middleware("http")(session_middleware)
-
-# Error handling middleware
+# Error handlers
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+async def generic_exception_handler(request, exc):
+    logger.error(f"Unhandled exception: {exc}")
+    # Log detailed error trace
+    import traceback
+    logger.error(traceback.format_exc())
     return JSONResponse(
         status_code=500,
-        content={"detail": "An unexpected error occurred. Please try again later."},
+        content={"detail": "Internal server error", "message": str(exc)},
     )
 
-# Add exception handlers - using explicit type casting to satisfy type checker
-app.add_exception_handler(
-    RequestValidationError,
-    cast(Callable[[Request, Any], Any], validation_exception_handler)
-)
-app.add_exception_handler(
-    HTTPException,
-    cast(Callable[[Request, Any], Any], http_exception_handler)
-)
-
-# Root endpoint for basic service information
-@app.get("/")
-async def root():
-    """Root endpoint returning basic service information"""
-    return {
-        "service": "Birth Time Rectifier API",
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0",
-        "endpoints": {
-            "api_docs": "/docs",
-            "health": "/api/v1/health",
-            "api_base": "/api/v1"
-        }
-    }
-
-# Create the v1 API router with proper prefix
-v1_router = APIRouter(prefix="/api/v1")
-
-# Register all routers with the v1 API router
-v1_router.include_router(health_router, tags=["Health"])
-v1_router.include_router(session_router, prefix="/session", tags=["Session"])
-v1_router.include_router(geocode_router, prefix="/geocode", tags=["Geocoding"])
-v1_router.include_router(consolidated_chart_router, prefix="/chart", tags=["Chart"])
-v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
-v1_router.include_router(questionnaire_websocket_router, prefix="/questionnaire/ws", tags=["Questionnaire WebSocket"])
-v1_router.include_router(interpretation_router, tags=["Interpretation"])
-v1_router.include_router(export_router, prefix="/export", tags=["Export"])
-v1_router.include_router(ai_integration_test_router, prefix="/ai", tags=["AI Integration"])
-v1_router.include_router(ai_status_router, prefix="/ai", tags=["AI Status"])
-
-# Include the v1 router in the app
-app.include_router(v1_router)
-
-# WebSocket endpoint for real-time updates with session ID
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """
-    WebSocket endpoint for real-time updates during long-running processes.
-
-    Args:
-        websocket: The WebSocket connection
-        session_id: The session ID to associate with this connection
-    """
-    await manager.connect(websocket, session_id)
-    try:
-        while True:
-            # Keep connection alive, wait for client messages
-            data = await websocket.receive_text()
-            # Echo received messages for testing
-            await manager.send_update(session_id, {
-                "type": "echo",
-                "message": f"Echo: {data}",
-                "timestamp": datetime.now().isoformat()
-            })
-    except WebSocketDisconnect:
-        manager.disconnect(session_id)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        manager.disconnect(session_id)
-
-# Default WebSocket endpoint that generates a session ID
-@app.websocket("/ws")
-async def default_websocket_endpoint(websocket: WebSocket):
-    """
-    Default WebSocket endpoint that generates a session ID automatically.
-
-    Args:
-        websocket: The WebSocket connection
-    """
-    # Generate a unique session ID
-    session_id = f"auto-{uuid.uuid4().hex[:8]}"
-
-    logger.info(f"Auto-generated session ID: {session_id}")
-
-    await manager.connect(websocket, session_id)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            # Echo received messages with session ID
-            await manager.send_update(session_id, {
-                "type": "echo",
-                "message": f"Echo from auto-session: {data}",
-                "session_id": session_id,
-                "timestamp": datetime.now().isoformat()
-            })
-    except WebSocketDisconnect:
-        manager.disconnect(session_id)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        manager.disconnect(session_id)
-
-# Initialize model for backward compatibility
-model = None
-
-# Make sure the API reads the correct port from environment variables
+# This will only be invoked if running this file directly
 if __name__ == "__main__":
     import uvicorn
-
-    # Get port from environment variable with fallback to default 8000
-    port = int(os.environ.get("API_PORT", 8000))
-    host = os.environ.get("API_HOST", "0.0.0.0")
-
-    logger.info(f"Starting API service on {host}:{port}")
-
+    # Note: In production, the app_wrapper ASGI function is used as the entry point
+    # which provides health check endpoints that bypass middleware
     uvicorn.run(
         "ai_service.main:app",
-        host=host,
-        port=port,
-        reload=True if os.environ.get("DEBUG", "False").lower() in ["true", "1", "t"] else False
+        host="0.0.0.0",
+        port=8000,
+        reload=False  # Disable auto-reload to prevent middleware corruption
     )

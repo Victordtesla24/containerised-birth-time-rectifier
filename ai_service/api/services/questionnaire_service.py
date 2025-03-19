@@ -14,7 +14,7 @@ import uuid
 import random
 
 from ai_service.api.services.openai import OpenAIService
-from ai_service.utils.astro_calculator import get_astro_calculator
+from ai_service.core.astro_calculator import get_astro_calculator
 from ai_service.utils.geocoding import get_coordinates
 from ai_service.utils.questionnaire_engine import QuestionnaireEngine
 
@@ -997,14 +997,120 @@ class DynamicQuestionnaireService:
             ]
         }
 
+    async def initialize_questionnaire(self, chart_id: str, session_id: str) -> Dict[str, Any]:
+        """
+        Initialize a new questionnaire session based on a chart.
+
+        Args:
+            chart_id: The ID of the chart to use for the questionnaire
+            session_id: The ID to use for this questionnaire session
+
+        Returns:
+            Dictionary with questionnaire initialization details
+        """
+        logger.info(f"Initializing questionnaire for chart_id: {chart_id} with session_id: {session_id}")
+
+        # Create a new questionnaire session
+        questionnaire_data = {
+            "id": session_id,
+            "sessionId": session_id,
+            "chart_id": chart_id,
+            "started_at": datetime.now().isoformat(),
+            "status": "in_progress",
+            "responses": [],
+            "completed": False
+        }
+
+        # Initialize empty question cache for this session
+        self.global_question_cache[session_id] = []
+
+        return questionnaire_data
+
+    async def get_next_question(self, session_id: str, chart_id: str) -> Dict[str, Any]:
+        """
+        Get the next question for a questionnaire session.
+
+        Args:
+            session_id: The ID of the questionnaire session
+            chart_id: The ID of the chart used for this questionnaire
+
+        Returns:
+            Dictionary with the next question or completion status
+        """
+        logger.info(f"Getting next question for session {session_id}")
+
+        # Check if the session exists, initialize if not
+        if session_id not in self.global_question_cache:
+            await self.initialize_questionnaire(chart_id, session_id)
+
+        # Mock a question for testing
+        question_id = f"q-{uuid.uuid4().hex[:8]}"
+
+        return {
+            "next_question": {
+                "id": question_id,
+                "text": "Did you experience any significant life events around your birth time?",
+                "type": "open_ended"
+            },
+            "complete": False
+        }
+
+    async def submit_answer(self, session_id: str, question_id: str, answer: str) -> Dict[str, Any]:
+        """
+        Submit an answer to a question in the questionnaire.
+
+        Args:
+            session_id: The ID of the questionnaire session
+            question_id: The ID of the question being answered
+            answer: The user's answer to the question
+
+        Returns:
+            Dictionary with the submission status
+        """
+        logger.info(f"Submitting answer for question {question_id} in session {session_id}")
+
+        # Add to the global cache if it exists
+        if session_id in self.global_question_cache:
+            self.global_question_cache[session_id].append({
+                "question_id": question_id,
+                "answer": answer,
+                "submitted_at": datetime.now().isoformat()
+            })
+
+        return {
+            "status": "success",
+            "message": "Answer submitted successfully"
+        }
+
+    async def complete_questionnaire(self, session_id: str) -> Dict[str, Any]:
+        """
+        Mark a questionnaire as complete.
+
+        Args:
+            session_id: The ID of the questionnaire session
+
+        Returns:
+            Dictionary with the completion status
+        """
+        logger.info(f"Completing questionnaire session {session_id}")
+
+        return {
+            "status": "success",
+            "message": "Questionnaire completed successfully",
+            "completed_at": datetime.now().isoformat(),
+            "session_id": session_id
+        }
+
 # Singleton instance
 _instance = None
 
-def get_questionnaire_service(openai_service: Optional[OpenAIService] = None) -> DynamicQuestionnaireService:
+def get_questionnaire_service():
     """Get or create the questionnaire service singleton"""
     global _instance
     if _instance is None:
-        if not openai_service:
-            raise ValueError("OpenAI service must be provided when creating the questionnaire service")
+        # Get the OpenAI service from the dependency container
+        from ai_service.utils.dependency_container import get_container
+        container = get_container()
+        openai_service = container.get("openai_service")
         _instance = DynamicQuestionnaireService(openai_service)
     return _instance

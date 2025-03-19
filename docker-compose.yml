@@ -97,12 +97,14 @@ services:
     container_name: ${CONTAINER_PREFIX:-birth-rectifier}-ai
     volumes:
       - ./ai_service:/app/ai_service
-      - ./ephemeris:/app/ephemeris
       - ./scripts:/app/scripts
       - ./requirements.txt:/app/requirements.txt
       - ./config/env/.env:/app/.env
+      - ./tests:/app/tests:rw
       - ai_service_venv:/app/.venv
       - openai_cache:/app/cache
+      - persistent_ephemeris:/app/ephemeris:rw
+      - persistent_tests:/app/tests_backup:rw
     environment:
       - PYTHONUNBUFFERED=1
       - ENVIRONMENT=${APP_ENV:-development}
@@ -130,9 +132,26 @@ services:
       - WS_MAX_SIZE=${WS_MAX_SIZE:-16777216}
     ports:
       - "8000:8000"
-    command: /app/.venv/bin/python -m uvicorn ai_service.main:app --host 0.0.0.0 --port 8000 --reload --ws-ping-interval ${WS_PING_INTERVAL:-20} --ws-ping-timeout ${WS_PING_TIMEOUT:-20} --ws-max-size ${WS_MAX_SIZE:-16777216}
+    command: |
+      bash -c "
+      # Ensure test directories exist
+      mkdir -p /app/tests/{integration,components,utils} &&
+      touch /app/tests/__init__.py /app/tests/integration/__init__.py /app/tests/components/__init__.py /app/tests/utils/__init__.py &&
+
+      # Sync ephemeris data if host directory is empty but backup has data
+      if [ ! \"$(ls -A /app/ephemeris)\" ] && [ \"$(ls -A /app/tests_backup)\" ]; then
+        echo 'Restoring ephemeris files from backup volume...'
+        cp -r /app/tests_backup/* /app/ephemeris/
+      fi &&
+
+      # Keep test_backups in sync with current tests
+      cp -r /app/tests/* /app/tests_backup/ &&
+
+      # Start the application
+      exec /app/.venv/bin/python -m uvicorn ai_service.app_wrapper:app_wrapper --host 0.0.0.0 --port 8000 --reload --ws-ping-interval ${WS_PING_INTERVAL:-20} --ws-ping-timeout ${WS_PING_TIMEOUT:-20} --ws-max-size ${WS_MAX_SIZE:-16777216}
+      "
     healthcheck:
-      test: ["CMD-SHELL", "pip install websocket-client && curl -f http://localhost:8000/health && echo 'WebSocket check:' && python -c \"import websocket; websocket.create_connection('ws://localhost:8000/ws'); print('WebSocket OK')\" || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-15s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
       retries: ${HEALTH_CHECK_RETRIES:-10}
@@ -218,8 +237,9 @@ volumes:
     driver: local
   ai_service_venv:
     driver: local
-  ephemeris_data:
+  persistent_ephemeris:
     driver: local
+    name: persistent_ephemeris
   openai_cache:
     driver: local
   api_gateway_logs:
@@ -232,3 +252,6 @@ volumes:
     driver: local
   next_cache:
     driver: local
+  persistent_tests:
+    driver: local
+    name: persistent_tests

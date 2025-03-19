@@ -47,9 +47,22 @@ HOUSE_SYSTEMS = {
 }
 
 def get_position_value(result: Any, index: int) -> float:
-    """Extract a value from a calculation result tuple safely."""
-    if result and len(result) > index:
+    """
+    Extract a value from a calculation result safely.
+
+    Handles both simple tuples and nested tuples returned by swe.calc_ut().
+    """
+    if not result:
+        return 0.0
+
+    # Handle the case when result is a tuple of tuples
+    if isinstance(result, tuple) and result and isinstance(result[0], tuple):
+        if len(result) > 0 and len(result[0]) > index:
+            return float(result[0][index])
+    # Standard case - result is a simple tuple
+    elif isinstance(result, tuple) and len(result) > index:
         return float(result[index])
+
     return 0.0
 
 class AstroCalculator:
@@ -115,7 +128,11 @@ class AstroCalculator:
         # Parse birth date and time
         try:
             birth_datetime_str = f"{birth_date} {birth_time}"
-            birth_datetime = datetime.strptime(birth_datetime_str, "%Y-%m-%d %H:%M")
+            # Modify the format string to handle birth times with seconds (HH:MM:SS)
+            if birth_time.count(':') > 1:
+                birth_datetime = datetime.strptime(birth_datetime_str, "%Y-%m-%d %H:%M:%S")
+            else:
+                birth_datetime = datetime.strptime(birth_datetime_str, "%Y-%m-%d %H:%M")
 
             # Apply timezone
             try:
@@ -144,6 +161,15 @@ class AstroCalculator:
         if include_houses:
             houses = self._calculate_houses(jd, latitude, longitude, house_system)
 
+        # Calculate ascendant (first house cusp)
+        ascendant = None
+        if houses and len(houses) > 0:
+            ascendant = {
+                "longitude": houses[0],
+                "sign": self._get_sign_name(int(houses[0] / 30)),
+                "degree": houses[0] % 30
+            }
+
         # Calculate aspects if requested
         aspects = None
         if include_aspects:
@@ -165,12 +191,17 @@ class AstroCalculator:
                 "timezone": timezone
             },
             "positions": positions,
+            # Add planets field to match expected structure
+            "planets": positions,
             "ephemeris_path_used": self.ephe_path,
             "calculation_accuracy": "high"
         }
 
         if houses:
             result["houses"] = houses
+
+        if ascendant:
+            result["ascendant"] = ascendant
 
         if aspects:
             result["aspects"] = aspects

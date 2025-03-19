@@ -1,0 +1,10 @@
+diff --git a/ai_service.Dockerfile b/ai_service.Dockerfile
+index abc123..def456 100644
+--- a/ai_service.Dockerfile
++++ b/ai_service.Dockerfile
+@@ -30,4 +30,4 @@ COPY ai_service ./ai_service
+
+ EXPOSE 8000
+
+-CMD ["python", "-m", "uvicorn", "ai_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
++CMD ["python", "-m", "uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000"]

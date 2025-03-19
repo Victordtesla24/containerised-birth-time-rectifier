@@ -8,15 +8,24 @@ import json
 import time
 import uuid
 import asyncio
-from typing import Dict, Any, List, Optional, TypedDict, cast
+from typing import Dict, Any, List, Optional, TypedDict, cast, Union, TYPE_CHECKING
 
+# Standard OpenAI import
 import openai
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionUserMessageParam
+# Import exception classes directly from the exceptions module
+from openai._exceptions import (
+    APIConnectionError,
+    APITimeoutError,
+    APIError,
+    RateLimitError,
+    BadRequestError
+)
+from openai.types.chat import ChatCompletionMessageParam
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from ai_service.api.services.openai.model_selection import select_model, get_task_category
 from ai_service.api.services.openai.cost_calculator import calculate_cost
+from ai_service.utils.dependency_container import get_container
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -30,19 +39,33 @@ class CacheEntry(TypedDict):
 class OpenAIService:
     """Service for interacting with OpenAI API."""
 
-    def __init__(self):
-        """Initialize the OpenAI service with API key and model configuration."""
-        self.api_key = os.environ.get("OPENAI_API_KEY")
+    def __init__(self, client=None, api_key=None):
+        """
+        Initialize the OpenAI service with API key and model configuration.
+
+        Args:
+            client: Optional pre-configured OpenAI client for dependency injection
+            api_key: Optional API key (defaults to environment variable)
+        """
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
 
         # Require API key - no fallbacks
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+            raise ValueError("OpenAI API key not provided and OPENAI_API_KEY environment variable is not set")
 
-        try:
-            self.client = AsyncOpenAI(api_key=self.api_key)
-            logger.info("OpenAI client initialized")
-        except Exception as e:
-            raise ValueError(f"Failed to initialize OpenAI client: {e}")
+        # Use injected client or create a new one
+        if client:
+            self.client = client
+            logger.info("Using provided OpenAI client")
+        else:
+            try:
+                # Initialize the AsyncOpenAI client directly from the openai module
+                # The linter may not recognize this attribute, but it exists in the runtime
+                self.client = openai.AsyncOpenAI(api_key=self.api_key)  # type: ignore
+                logger.info("OpenAI client initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI client: {e}")
+                raise ValueError(f"Failed to initialize OpenAI client: {e}")
 
         # Configuration
         self.default_model = os.environ.get("OPENAI_MODEL", "gpt-4-turbo-preview")
@@ -117,7 +140,7 @@ class OpenAIService:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((openai.APIError, openai.APITimeoutError, openai.APIConnectionError))
+        retry=retry_if_exception_type((APIConnectionError, APITimeoutError))
     )
     async def generate_completion(self, prompt: str, task_type: str, max_tokens: int = 500, temperature: float = 0.7) -> Dict[str, Any]:
         """
@@ -178,15 +201,13 @@ class OpenAIService:
 
             # Update token tracking
             usage = response.usage
-            if usage is not None:
-                prompt_tokens = usage.prompt_tokens
-                completion_tokens = usage.completion_tokens
-                total_tokens = usage.total_tokens
-            else:
-                # Fallback if usage is not available
-                prompt_tokens = len(prompt) // 4  # Rough estimate
-                completion_tokens = len(content or "") // 4  # Rough estimate
-                total_tokens = prompt_tokens + completion_tokens
+            if usage is None:
+                # Instead of fallback estimation, raise an error about missing usage data
+                raise ValueError("Token usage data not provided by OpenAI API. Cannot proceed without accurate tracking.")
+
+            prompt_tokens = usage.prompt_tokens
+            completion_tokens = usage.completion_tokens
+            total_tokens = usage.total_tokens
 
             self.prompt_tokens += prompt_tokens
             self.completion_tokens += completion_tokens
@@ -226,15 +247,19 @@ class OpenAIService:
             logger.debug(f"OpenAI API returned {total_tokens} tokens for {task_type} task")
             return result
 
-        except openai.RateLimitError as e:
+        except RateLimitError as e:
             logger.error(f"OpenAI API rate limit exceeded: {e}")
             raise ValueError(f"OpenAI API rate limit exceeded: {e}")
 
-        except openai.APIConnectionError as e:
+        except APIConnectionError as e:
             logger.error(f"OpenAI API connection error: {e}")
             raise ValueError(f"OpenAI API connection error: {e}")
 
-        except openai.APIError as e:
+        except BadRequestError as e:
+            logger.error(f"OpenAI API bad request error: {e}")
+            raise ValueError(f"OpenAI API bad request error: {e}")
+
+        except APIError as e:
             logger.error(f"OpenAI API error: {e}")
             raise ValueError(f"OpenAI API error: {e}")
 
@@ -934,12 +959,43 @@ class OpenAIService:
             logger.warning(f"Very close to rate limit ({self.tokens_this_minute} tokens), waiting longer")
             await asyncio.sleep(10)  # Wait 10 seconds
 
-# Singleton instance
-_instance = None
+def create_openai_service() -> OpenAIService:
+    """
+    Factory function for creating an OpenAI service.
+    This is used by the dependency container.
+
+    Returns:
+        A new OpenAIService instance
+
+    Raises:
+        ValueError: If the service cannot be created
+    """
+    try:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+
+        service = OpenAIService(api_key=api_key)
+        return service
+    except Exception as e:
+        logger.error(f"Failed to create OpenAI service: {e}")
+        raise ValueError(f"Failed to create OpenAI service: {e}")
 
 def get_openai_service() -> OpenAIService:
-    """Get or create the OpenAI service singleton."""
-    global _instance
-    if _instance is None:
-        _instance = OpenAIService()
-    return _instance
+    """
+    Get the OpenAI service instance from the dependency container or create a new one.
+
+    Returns:
+        An instance of the OpenAI service
+    """
+    from ai_service.utils.dependency_container import get_container
+
+    container = get_container()
+    try:
+        # Try to get the service from the container
+        return container.get("openai_service")
+    except ValueError:
+        # If not registered, create a new instance and register it
+        service = OpenAIService()
+        container.register_service("openai_service", service)
+        return service

@@ -78,9 +78,31 @@ class SessionStore:
             return False
 
         try:
+            # First check if file is empty
+            if os.path.getsize(filepath) == 0:
+                logger.warning(f"Session file {session_id}.json is empty, skipping")
+                return False
+
             async with aiofiles.open(filepath, 'r') as f:
                 content = await f.read()
-                session_data = json.loads(content)
+
+                # Check if content is empty or whitespace only
+                if not content or content.isspace():
+                    logger.warning(f"Session file {session_id}.json content is empty, skipping")
+                    return False
+
+                try:
+                    session_data = json.loads(content)
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"Invalid JSON in session file {session_id}: {str(json_err)}")
+                    # Attempt to back up the corrupted file
+                    try:
+                        backup_path = os.path.join(self.persistence_dir, f"{session_id}.json.corrupted")
+                        os.rename(filepath, backup_path)
+                        logger.info(f"Backed up corrupted session file to {backup_path}")
+                    except Exception as backup_err:
+                        logger.error(f"Failed to back up corrupted session file {session_id}: {str(backup_err)}")
+                    return False
 
                 # Check if session has expired
                 if "expiry" in session_data:
@@ -104,7 +126,8 @@ class SessionStore:
                 return True
         except Exception as e:
             logger.error(f"Error reading session file {session_id}: {str(e)}")
-            raise ValueError(f"Failed to read session file {session_id}: {str(e)}")
+            # Don't raise exception, just return False to skip this file
+            return False
 
     async def _persist_session(self, session_id: str) -> bool:
         """

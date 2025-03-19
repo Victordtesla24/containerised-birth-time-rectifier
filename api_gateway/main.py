@@ -86,6 +86,50 @@ async def health_check():
 # Include routers
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(chart_router, prefix="/chart", tags=["Chart"])
+
+# Add session endpoint
+@v1_router.get("/session/init")
+async def init_session():
+    """Initialize a new session and return session details"""
+    session_id = str(uuid.uuid4())
+    response = {
+        "session_id": session_id,
+        "status": "success",
+        "created_at": time.time()
+    }
+    logger.info(f"Session initialized: {session_id}")
+    return response
+
+@v1_router.post("/geocode")
+async def geocode_location(request: Request):
+    """Geocode a location and return coordinates"""
+    # Parse request body
+    body = await request.json()
+    query = body.get("query", "")
+
+    if not query:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Missing query parameter"}
+        )
+
+    logger.info(f"Geocoding location: {query}")
+
+    # Mock geocoding response - in a real implementation, this would call an external API
+    mock_response = {
+        "results": [
+            {
+                "formatted_address": "New York, NY, USA",
+                "latitude": 40.7128,
+                "longitude": -74.0060,
+                "confidence": 0.9
+            }
+        ],
+        "status": "success"
+    }
+
+    return mock_response
+
 app.include_router(v1_router)
 
 # WebSocket endpoints

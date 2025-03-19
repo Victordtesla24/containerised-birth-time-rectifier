@@ -33,6 +33,17 @@ class ChartComparisonRequest(BaseModel):
     comparison_type: str = Field(default="differences", description="Type of comparison to perform")
     include_significance: bool = Field(default=True, description="Whether to include significance ratings")
 
+class ChartGenerationRequest(BaseModel):
+    birth_date: str = Field(..., description="Birth date in ISO format (YYYY-MM-DD)")
+    birth_time: str = Field(..., description="Birth time in 24-hour format (HH:MM)")
+    latitude: float = Field(..., description="Latitude of birth place")
+    longitude: float = Field(..., description="Longitude of birth place")
+    location: str = Field(default="", description="Birth location name")
+    timezone: str = Field(default="UTC", description="Timezone name (from pytz)")
+    verify_with_openai: bool = Field(default=True, description="Whether to verify chart with OpenAI")
+    house_system: str = Field(default="P", description="House system to use (P=Placidus, etc.)")
+    zodiac_type: str = Field(default="sidereal", description="Zodiac type (sidereal/tropical)")
+
 # Helper function to request data from the AI service
 async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: str = "POST") -> Dict[str, Any]:
     """Send a request to the AI service"""
@@ -126,6 +137,41 @@ async def compare_charts_post(request: ChartComparisonRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Chart comparison failed: {str(exc)}"
+        )
+
+# Chart generation endpoint
+@router.post("/generate", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+async def generate_chart(request: ChartGenerationRequest):
+    """
+    Generate an astrological chart based on birth details.
+
+    Request body:
+    - birth_date: Birth date in ISO format (YYYY-MM-DD)
+    - birth_time: Birth time in 24-hour format (HH:MM)
+    - latitude: Latitude of birth location
+    - longitude: Longitude of birth location
+    - location: Birth location name
+    - timezone: Timezone of birth location
+    - verify_with_openai: Whether to verify with OpenAI
+    - house_system: House system to use
+    - zodiac_type: Zodiac type (sidereal/tropical)
+    """
+    try:
+        logger.info(f"Generating chart for {request.birth_date} {request.birth_time} at {request.latitude}, {request.longitude}")
+
+        # Use the correct endpoint path for the AI service
+        result = await request_ai_service("chart/generate", request.dict())
+
+        # Ensure we have a chart_id in the response
+        if "chart_id" not in result:
+            result["chart_id"] = f"chart_{os.urandom(5).hex()}"
+
+        return result
+    except Exception as exc:
+        logger.error(f"Error in chart generation: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chart generation failed: {str(exc)}"
         )
 
 @router.get("/{chart_id}", status_code=status.HTTP_200_OK)

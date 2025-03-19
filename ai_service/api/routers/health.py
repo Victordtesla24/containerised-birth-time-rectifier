@@ -1,120 +1,70 @@
 """
-Health check router for the Birth Time Rectifier API.
-Handles all health check related endpoints.
+Health Router.
+
+This module provides health check endpoints for the AI service.
 """
 
-from fastapi import APIRouter, Request
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from fastapi.responses import Response
+import logging
 from datetime import datetime
-import platform
-import psutil
-import os
+from typing import Dict, Any
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
-# Create router without prefix (will be added in main.py)
-router = APIRouter(
-    tags=["health"],
-    responses={404: {"description": "Not found"}},
-)
+from ai_service.api.services.openai.service import get_openai_service
 
-def get_gpu_info():
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Create router
+router = APIRouter()
+
+
+class HealthResponse(BaseModel):
+    """Health check response model."""
+    status: str
+    timestamp: str
+    environment: str = "production"
+    version: str = "1.0.0"
+    openai_status: str
+    usage_stats: Dict[str, Any] = {}
+
+
+@router.get("/", response_model=HealthResponse, tags=["Health"])
+async def health_check() -> Dict[str, Any]:
     """
-    Get GPU information if available.
-    Returns a dict with GPU details or a placeholder if GPU is not available.
+    Health check endpoint for the AI service.
+
+    Returns:
+        Health status information
     """
+    logger.info("Health check requested")
+
     try:
-        # Try to import torch for GPU detection
-        torch_available = False
-        try:
-            import torch
-            torch_available = True
-        except ImportError:
-            return {
-                "device": "cpu",
-                "name": "CPU Only (torch not installed)",
-                "count": 0,
-                "total": "N/A",
-                "allocated": "N/A",
-                "utilization": "N/A"
-            }
-
-        if torch_available and torch.cuda.is_available():
-            device = "cuda"
-            # Get GPU properties
-            device_count = torch.cuda.device_count()
-            device_name = torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
-
-            # Try to get memory info
-            try:
-                total_memory = torch.cuda.get_device_properties(0).total_memory
-                allocated_memory = torch.cuda.memory_allocated(0)
-                utilization = allocated_memory / total_memory if total_memory > 0 else 0
-
-                return {
-                    "device": device,
-                    "name": device_name,
-                    "count": device_count,
-                    "total": round(total_memory / (1024 * 1024), 2),  # MB
-                    "allocated": round(allocated_memory / (1024 * 1024), 2),  # MB
-                    "utilization": round(utilization * 100, 2)  # percentage
-                }
-            except Exception:
-                # If we can't get memory info
-                return {
-                    "device": device,
-                    "name": device_name,
-                    "count": device_count
-                }
-        else:
-            # No CUDA available
-            return {
-                "device": "cpu",
-                "message": "No GPU available, running on CPU"
-            }
+        # Get the OpenAI service to check its status
+        openai_service = get_openai_service()
+        usage_stats = openai_service.get_usage_statistics()
+        openai_status = "healthy"
     except Exception as e:
-        # Some other error
-        return {
-            "device": "unknown",
-            "message": f"Error detecting GPU: {str(e)}"
-        }
-
-@router.get("/health")
-async def health_check(request: Request):
-    """
-    Health check endpoint to verify the API is running.
-    """
-    # Try to get GPU information if available
-    gpu_info = get_gpu_info()
-
-    return {
-        "status": "ok",
-        "timestamp": datetime.now().isoformat(),
-        "service": "Birth Time Rectifier API",
-        "gpu": gpu_info
-    }
-
-@router.get("/details")
-async def health_details(request: Request):
-    """
-    Detailed health check with system information.
-    """
-    # Try to get GPU information if available
-    gpu_info = get_gpu_info()
+        logger.error(f"OpenAI service health check failed: {e}")
+        openai_status = "degraded"
+        usage_stats = {}
 
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "Birth Time Rectifier API",
-        "system": {
-            "platform": platform.platform(),
-            "python_version": platform.python_version(),
-            "cpu_usage": psutil.cpu_percent(),
-            "memory_usage": psutil.virtual_memory().percent,
-        },
-        "gpu": gpu_info
+        "environment": "production",
+        "version": "1.0.0",
+        "openai_status": openai_status,
+        "usage_stats": usage_stats
     }
 
-@router.get("/metrics", include_in_schema=False)
-async def metrics():
-    """Prometheus metrics endpoint."""
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+@router.get("/ping", tags=["Health"])
+async def ping() -> Dict[str, str]:
+    """
+    Simple ping endpoint for basic connectivity checks.
+
+    Returns:
+        Simple response message
+    """
+    return {"response": "pong", "timestamp": datetime.now().isoformat()}
