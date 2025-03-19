@@ -5,7 +5,7 @@ This module provides endpoints for generating and retrieving astrological charts
 with OpenAI verification against Indian Vedic Astrological standards.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Response, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, Body, Response, Depends, Request, BackgroundTasks, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Union
@@ -13,6 +13,7 @@ import logging
 import time
 from datetime import datetime
 import uuid
+import os
 
 from ai_service.api.websocket_events import emit_event, EventType
 
@@ -20,6 +21,9 @@ from ai_service.api.websocket_events import emit_event, EventType
 from ai_service.api.routers.consolidated_chart.utils import validate_chart_data, format_chart_response, store_chart, retrieve_chart
 from ai_service.core.chart_calculator import calculate_chart, calculate_verified_chart
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
+from ai_service.services.chart_service import get_chart_service, ChartService
+from ai_service.api.middleware import get_session_id
+from ai_service.api.services.openai import get_openai_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -118,6 +122,27 @@ class ComparisonRequest(BaseModel):
     chart2_id: str = Field(..., description="ID of the second chart to compare")
     comparison_type: str = Field("differences", description="Type of comparison: differences, full, or summary")
     include_significance: bool = Field(True, description="Include significance scores in the response")
+
+# Define required schemas locally
+class ChartGenerationRequest(BaseModel):
+    chart_data: Dict[str, Any]
+    options: Optional[Dict[str, Any]] = None
+
+class ChartGenerationResponse(BaseModel):
+    chart_id: str
+    chart_data: Dict[str, Any]
+    verification: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+
+class ChartVerificationRequest(BaseModel):
+    chart_id: str
+    verification_type: str = "standard"
+
+class ChartVerificationResponse(BaseModel):
+    chart_id: str
+    verification: Dict[str, Any]
+    verified: bool = False
+    message: Optional[str] = None
 
 @router.post("/validate", response_model=ValidationResponse, operation_id="validate_birth_details_generator")
 async def validate_birth_details(
@@ -251,38 +276,26 @@ async def generate_chart(
     and verifies it against Indian Vedic Astrological standards using OpenAI.
     """
     request_start_time = time.time()
+    logger.info(f"Received chart generation request: {request}")
 
     try:
+        # Verify OpenAI API key is available
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY environment variable is required for chart verification")
+
         # Check if request is a dict (flat format) or ChartRequest (nested format)
         if isinstance(request, dict):
-            # Check for required fields
-            required_fields = ["birth_date", "birth_time", "latitude", "longitude"]
-            missing_fields = [field for field in required_fields if field not in request]
+            # Check if birth_details is present as a nested object
+            birth_details_dict = request.get("birth_details", {})
 
-            if missing_fields:
-                # Try alternative field names
-                alt_field_mapping = {
-                    "birth_date": ["date", "birthDate"],
-                    "birth_time": ["time", "birthTime"],
-                    "latitude": ["lat"],
-                    "longitude": ["lng"]
-                }
-
-                for field in missing_fields[:]:
-                    for alt_field in alt_field_mapping.get(field, []):
-                        if alt_field in request:
-                            request[field] = request[alt_field]
-                            missing_fields.remove(field)
-                            break
-
-            if missing_fields:
+            if not birth_details_dict:
                 return JSONResponse(
-                    status_code=422,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                     content={
                         "error": {
                             "code": ERROR_CODES["VALIDATION_ERROR"],
-                            "message": "Missing required fields",
-                            "details": {"missing_fields": missing_fields}
+                            "message": "Chart validation failed",
+                            "details": {"birth_details": "Birth details are required"}
                         }
                     }
                 )
@@ -300,17 +313,51 @@ async def generate_chart(
                 verify_with_openai=options_dict.get("verify_with_openai", True)
             )
 
-            # Create birth details
-            birth_details = BirthDetails(
-                date=request.get("birth_date", request.get("date", request.get("birthDate", ""))),
-                time=request.get("birth_time", request.get("time", request.get("birthTime", ""))),
-                latitude=request.get("latitude", request.get("lat", 0.0)),
-                longitude=request.get("longitude", request.get("lng", 0.0)),
-                tz=request.get("timezone", request.get("tz", "UTC")),  # Default to UTC if not provided
-                location=request.get("location", "Unknown Location"),
-                full_name=request.get("full_name", request.get("fullName", None)),
-                additional_info=request.get("additional_info", None)
-            )
+            # Extract birth details fields
+            birth_date = birth_details_dict.get("birth_date", birth_details_dict.get("date", birth_details_dict.get("birthDate", "")))
+            birth_time = birth_details_dict.get("birth_time", birth_details_dict.get("time", birth_details_dict.get("birthTime", "")))
+            location = birth_details_dict.get("location", birth_details_dict.get("birthLocation", "Unknown Location"))
+            latitude = birth_details_dict.get("latitude", birth_details_dict.get("lat", 0.0))
+            longitude = birth_details_dict.get("longitude", birth_details_dict.get("lng", 0.0))
+            timezone = birth_details_dict.get("timezone", birth_details_dict.get("tz", "UTC"))
+
+            # Validate required fields
+            if not birth_date or not birth_time:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "error": {
+                            "code": ERROR_CODES["VALIDATION_ERROR"],
+                            "message": "Chart validation failed",
+                            "details": {"birth_details": "Birth date and time are required"}
+                        }
+                    }
+                )
+
+            # Convert to proper BirthDetails object
+            try:
+                birth_details = BirthDetails(
+                    date=birth_date,
+                    time=birth_time,
+                    latitude=float(latitude),
+                    longitude=float(longitude),
+                    tz=timezone,
+                    location=location,
+                    full_name=birth_details_dict.get("full_name", birth_details_dict.get("fullName", None)),
+                    additional_info=birth_details_dict.get("additional_info", None)
+                )
+            except Exception as e:
+                logger.error(f"Error parsing birth details: {e}")
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "error": {
+                            "code": ERROR_CODES["VALIDATION_ERROR"],
+                            "message": "Chart validation failed",
+                            "details": {"birth_details": f"Invalid birth details: {str(e)}"}
+                        }
+                    }
+                )
 
             # Store session_id if provided
             session_id = request.get("session_id")
@@ -327,6 +374,8 @@ async def generate_chart(
                 verify_with_openai=True
             )
 
+            session_id = getattr(request, "session_id", None)
+
         # Format birth date and time
         date_str = getattr(birth_details, 'birth_date', getattr(birth_details, 'date', ''))
         if not date_str:
@@ -341,131 +390,101 @@ async def generate_chart(
             time_str = f"{time_str}:00"
 
         # Get coordinates
-        latitude = birth_details.latitude
-        longitude = birth_details.longitude
-        location = birth_details.location or "Unknown Location"
-        timezone = getattr(birth_details, 'timezone', getattr(birth_details, 'tz', 'UTC'))  # Default to UTC if not provided
-        if not timezone:
-            raise ValueError("Timezone is required")
+        latitude = float(birth_details.latitude)
+        longitude = float(birth_details.longitude)
 
-        # Log generation request
-        logger.info(f"Generating chart for {date_str} {time_str} at coordinates: {latitude}, {longitude}")
+        # Get timezone
+        timezone = getattr(birth_details, 'timezone', getattr(birth_details, 'tz', 'UTC'))
 
+        # Format birth details for calculation
+        birth_details_formatted = {
+            "date": date_str,
+            "time": time_str,
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone,
+            "location": getattr(birth_details, 'location', 'Unknown')
+        }
+
+        # Generate unique chart ID
+        chart_id = str(uuid.uuid4())
+
+        # Prepare options for calculation
+        calculation_options = {
+            "house_system": options.house_system,
+            "zodiac_type": options.zodiac_type,
+            "ayanamsa": options.ayanamsa,
+            "node_type": options.node_type,
+            "verify_with_openai": options.verify_with_openai,
+            "session_id": session_id,
+        }
+
+        # Get chart service for calculation
+        chart_service = get_chart_service()
+
+        # Calculate chart
+        logger.info("Calculating chart with real service and data")
         try:
-            # Parse ayanamsa from string to float if needed
-            ayanamsa_value = 23.6647  # Default Lahiri ayanamsa
-            if isinstance(options.ayanamsa, str):
-                if options.ayanamsa.replace('.', '', 1).isdigit():
-                    ayanamsa_value = float(options.ayanamsa)
-                elif options.ayanamsa.lower() == "lahiri":
-                    ayanamsa_value = 23.6647
-            else:
-                ayanamsa_value = float(options.ayanamsa)
-
-            # Always use OpenAI verification for 100% accuracy as per requirements
-            logger.info(f"Generating verified chart for {date_str} {time_str}")
-
-            # Generate chart with OpenAI verification
-            chart_data = await calculate_verified_chart(
-                birth_date=date_str,
-                birth_time=time_str,
-                latitude=latitude,
-                longitude=longitude,
-                location=location,
-                house_system=options.house_system,
-                zodiac_type=options.zodiac_type,
-                ayanamsa=int(ayanamsa_value),
-                node_type=options.node_type,
-                verify_with_openai=True  # Always verify with OpenAI for 100% accuracy
+            chart_data = await chart_service.calculate_chart(
+                birth_details=birth_details_formatted,
+                options=calculation_options,
+                chart_id=chart_id
             )
-
-            # Validate the chart data to ensure it meets requirements
-            validation_result = validate_chart_data(chart_data)
-            if not validation_result["valid"]:
-                logger.error(f"Chart validation failed: {validation_result['errors']}")
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "error": {
-                            "code": ERROR_CODES["VALIDATION_ERROR"],
-                            "message": "Chart validation failed",
-                            "details": validation_result["errors"]
-                        }
-                    }
-                )
-
-            # Format the response
-            formatted_response = format_chart_response(chart_data)
-
-            # Store the chart in the session for later use
-            chart_id = store_chart(formatted_response)
-
-            # Add chart ID to the response
-            formatted_response["chart_id"] = chart_id
-
-            # Add processing time to the response
-            processing_time = time.time() - request_start_time
-            formatted_response["processing_time"] = processing_time
-
-            # Add metadata to the response
-            formatted_response["metadata"] = {
-                "verified_by_openai": True,
-                "verification_level": "high",
-                "ayanamsa_used": ayanamsa_value,
-                "house_system": options.house_system,
-                "zodiac_type": options.zodiac_type,
-                "node_type": options.node_type
-            }
-
-            # Log success
-            logger.info(f"Chart generated successfully in {processing_time:.2f} seconds")
-
-            # Emit chart generated event if we have a session ID
-            if hasattr(req.state, "session_id"):
-                session_id = req.state.session_id
-                # Send WebSocket event in the background
-                background_tasks.add_task(
-                    emit_event,
-                    session_id,
-                    EventType.CHART_GENERATED,
-                    {
-                        "chart_id": chart_id,
-                        "processing_time": processing_time,
-                        "verification": formatted_response.get("verification", {}),
-                        "birth_details": {
-                            "date": date_str,
-                            "time": time_str,
-                            "latitude": latitude,
-                            "longitude": longitude,
-                            "timezone": timezone
-                        }
-                    }
-                )
-
-            return formatted_response
-
         except Exception as e:
-            logger.error(f"Error calculating chart: {str(e)}", exc_info=True)
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": {
-                        "code": ERROR_CODES["CALCULATION_ERROR"],
-                        "message": "Error calculating chart",
-                        "details": str(e)
-                    }
-                }
-            )
+            logger.error(f"Error in chart calculation: {e}")
+            raise ValueError(f"Chart calculation failed: {str(e)}")
 
-    except Exception as e:
-        logger.error(f"Unexpected error in generate_chart: {str(e)}", exc_info=True)
+        # Format response
+        formatted_response = format_chart_response(chart_data)
+
+        # Store chart in database
+        await store_chart(formatted_response)
+
+        # Calculate processing time
+        processing_time = time.time() - request_start_time
+
+        # Return successful response
         return JSONResponse(
-            status_code=500,
+            status_code=status.HTTP_201_CREATED,
+            content={
+                "chart_id": chart_id,
+                "processing_time": processing_time,
+                "verification": formatted_response.get("verification", {}),
+                "birth_details": {
+                    "date": date_str,
+                    "time": time_str,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "timezone": timezone
+                },
+                "message": "Chart generated successfully"
+            }
+        )
+
+    except ValueError as e:
+        # Handle validation errors
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
             content={
                 "error": {
-                    "code": ERROR_CODES["INTERNAL_SERVER_ERROR"],
-                    "message": "An unexpected error occurred",
-                    "details": str(e)
+                    "code": ERROR_CODES["VALIDATION_ERROR"],
+                    "message": "Chart validation failed",
+                    "details": {"validation_error": str(e)}
+                }
+            }
+        )
+    except Exception as e:
+        # Log the full error for debugging
+        logger.error(f"Error generating chart: {e}", exc_info=True)
+
+        # Return a user-friendly error response
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": {
+                    "code": ERROR_CODES["INTERNAL_ERROR"],
+                    "message": "Failed to generate chart",
+                    "details": {"error": str(e)}
                 }
             }
         )
@@ -574,7 +593,7 @@ async def get_chart(
     """
     try:
         # Retrieve chart from storage
-        chart_data = retrieve_chart(chart_id)
+        chart_data = await retrieve_chart(chart_id)
 
         # Check if chart exists
         if not chart_data:
@@ -684,8 +703,8 @@ async def compare_charts(params: Union[ComparisonQueryParams, ComparisonRequest]
     """
     try:
         # Retrieve both charts
-        chart1 = retrieve_chart(params.chart1_id)
-        chart2 = retrieve_chart(params.chart2_id)
+        chart1 = await retrieve_chart(params.chart1_id)
+        chart2 = await retrieve_chart(params.chart2_id)
 
         # Check if both charts exist
         if not chart1:
@@ -884,18 +903,22 @@ def calculate_chart_differences(chart1: Dict[str, Any], chart2: Dict[str, Any], 
                     planet2 = planets2[planet_name]
 
                     # Compare house placements
-                    if "house" in planet1 and "house" in planet2 and planet1["house"] != planet2["house"]:
+                    house1 = planet1.get("house")
+                    house2 = planet2.get("house")
+                    if house1 is not None and house2 is not None and house1 != house2:
                         differences.append({
                             "type": "planet_house",
-                            "description": f"{planet_name} changes houses: {planet1['house']} to {planet2['house']}",
+                            "description": f"{planet_name} changes houses: {house1} to {house2}",
                             "significance": get_planet_significance(planet_name) if include_significance else None
                         })
 
                     # Compare signs
-                    if "sign" in planet1 and "sign" in planet2 and planet1["sign"] != planet2["sign"]:
+                    sign1 = planet1.get("sign")
+                    sign2 = planet2.get("sign")
+                    if sign1 is not None and sign2 is not None and sign1 != sign2:
                         differences.append({
                             "type": "planet_sign",
-                            "description": f"{planet_name} changes signs: {planet1['sign']} to {planet2['sign']}",
+                            "description": f"{planet_name} changes signs: {sign1} to {sign2}",
                             "significance": get_planet_significance(planet_name) if include_significance else None
                         })
 
@@ -995,3 +1018,113 @@ def generate_summary_text(chart1: Dict[str, Any], chart2: Dict[str, Any], differ
         summary += f"\nMost significant difference: {most_significant.get('description')}"
 
     return summary
+
+@router.post("/generate",
+             summary="Generate a natal chart based on birth details",
+             response_model=ChartGenerationResponse)
+async def generate_chart_with_verification(
+    request: Request,
+    session_id: str = Depends(get_session_id)
+) -> Dict[str, Any]:
+    """
+    Generate an astrological chart with OpenAI verification.
+
+    This is the main implementation of the "Generate Chart with Verification"
+    step in the sequence diagram.
+    """
+    logger.info("Received chart generation request")
+
+    # Extract request data
+    data = await request.json()
+
+    # Get birth details from either nested object or top-level fields
+    birth_details = data.get("birth_details", {})
+
+    # Extract birth details from nested object or top-level fields
+    birth_date = birth_details.get("birth_date") or data.get("birth_date")
+    birth_time = birth_details.get("birth_time") or data.get("birth_time")
+    location = birth_details.get("location") or data.get("location", "")
+    latitude = birth_details.get("latitude") or data.get("latitude")
+    longitude = birth_details.get("longitude") or data.get("longitude")
+    timezone = birth_details.get("timezone") or data.get("timezone")
+
+    # Check for alternative field names
+    if not birth_date:
+        birth_date = birth_details.get("date") or data.get("date") or birth_details.get("birthDate") or data.get("birthDate")
+    if not birth_time:
+        birth_time = birth_details.get("time") or data.get("time") or birth_details.get("birthTime") or data.get("birthTime")
+    if not latitude:
+        latitude = birth_details.get("lat") or data.get("lat")
+    if not longitude:
+        longitude = birth_details.get("lng") or data.get("lng")
+    if not timezone:
+        timezone = birth_details.get("tz") or data.get("tz")
+
+    # Log extracted birth details
+    logger.info(f"Extracted birth details - date: {birth_date}, time: {birth_time}, location: {location}")
+
+    # Validate required fields
+    if not birth_date or not birth_time:
+        logger.error("Birth details missing required fields")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"birth_details": "Birth details are required"}
+        )
+
+    # Get options from request
+    options = data.get("options", {})
+    house_system = options.get("house_system", "W")  # Default to Whole Sign for Vedic
+    verify_with_openai = options.get("verify_with_openai", True)
+
+    # Get chart service
+    chart_service = get_chart_service()
+
+    # Step 3: Calculate the chart with or without verification
+    try:
+        if verify_with_openai and not os.environ.get("OPENAI_API_KEY"):
+            # Handle missing API key by disabling verification
+            logger.warning("OpenAI verification requested but API key missing, disabling verification")
+            verification_warning = "OpenAI verification requested but API key missing"
+            verify_with_openai = False
+
+        chart_data = await calculate_verified_chart(
+            birth_date=birth_date,
+            birth_time=birth_time,
+            latitude=latitude,
+            longitude=longitude,
+            location=location,
+            house_system=house_system,
+            zodiac_type=options.zodiac_type,
+            ayanamsa=options.ayanamsa,
+            node_type=options.node_type,
+            verify_with_openai=verify_with_openai
+        )
+    except Exception as e:
+        # Log the error
+        logger.error(f"Error calculating chart: {str(e)}", exc_info=True)
+
+        # Return error response with the standard error code format
+        return {
+            "error": {
+                "code": ERROR_CODES["CALCULATION_ERROR"],
+                "message": "Chart calculation failed",
+                "details": {"calculation_error": str(e)}
+            }
+        }
+
+    # Add chart ID if not present
+    if "id" not in chart_data:
+        chart_data["id"] = str(uuid.uuid4())
+
+    # Create response
+    response = {
+        "chart_id": chart_data["id"],
+        "message": "Chart generated successfully",
+    }
+
+    # Include verification if available
+    if "verification" in chart_data:
+        response["verification"] = chart_data["verification"]
+
+    logger.info(f"Chart generated successfully with ID: {chart_data['id']}")
+    return response

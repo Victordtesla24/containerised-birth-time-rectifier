@@ -1,0 +1,51 @@
+## Python Development Environment
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+## Virtual Environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+
+## Dependencies
+node_modules/
+dist/
+build/
+
+## Development Containers & CI
+.devcontainer/
+.github/
+.docker/
+
+## IDE & Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+## Test & Coverage
+test_results/
+coverage/
+.coverage
+.tox/
+
+## Backup & Temporary Files
+*.*bk
+*.bak
+*.tmp
+*.temp
+backup/
+.DS_Store
+
+## Generated Files
+*.log
+*.sqlite
+*.db

@@ -1,55 +1,111 @@
-# Birth Time Rectifier Test Suite
+# Birth Time Rectifier Tests
 
-This directory contains test scripts for the Birth Time Rectifier application.
+This directory contains tests for the Birth Time Rectifier application, focusing on ensuring that backend services align with the sequence diagrams defined in the documentation.
 
-## Main Test Script
+## Test Structure
 
-The main test script is `test_consolidated_api_flow.py`, which tests the complete API flow from session initialization to chart export.
+The tests are organized into several categories:
 
-## Enhancements
+- **Unit Tests**: Located in `tests/unit/`. These test individual components in isolation.
+- **Component Tests**: Located in `tests/components/`. These test components with dependencies.
+- **Integration Tests**: Located in `tests/integration/`. These test multiple components working together.
+- **API Sequence Tests**: Documented in `tests/API_SEQUENCE_TESTS.md`. These test the full API sequence flow.
 
-The `test_consolidated_api_flow_enhancements.py` file contains additional helper functions to enhance the test script with:
+## Running Tests
 
-1. **Improved Chart Visualization**: Enhanced visualization of charts with side-by-side comparison between original and rectified charts.
+### Local Development
 
-2. **Enhanced Export Functionality**: Improved export functionality with better error handling and recovery options.
-
-3. **Safe Dictionary Access**: Helper functions for safely accessing dictionary values without triggering linter errors.
-
-4. **Chart Data Extraction**: Utility functions for extracting chart data from various response structures.
-
-5. **File Download Capability**: Functions for downloading exported chart files.
-
-## Usage
-
-To run the test script with all enhancements:
+For local development, you can run tests using pytest:
 
 ```bash
-python -m tests.test_consolidated_api_flow --export
+# Run all tests
+PYTHONPATH=. pytest
+
+# Run unit tests only
+PYTHONPATH=. pytest tests/unit/
+
+# Run component tests only
+PYTHONPATH=. pytest tests/components/
+
+# Run integration tests only
+PYTHONPATH=. pytest tests/integration/
+
+# Run a specific test file
+PYTHONPATH=. pytest tests/unit/test_chart_verification_functions.py
 ```
 
-### Command-line Arguments
+### Using Docker
 
-- `--verbose`: Enable verbose logging
-- `--dry-run`: Print what would be done without executing API calls
-- `--test-type`: Type of test flow to run (`interactive` or `default`)
-- `--retry`: Number of retries for API requests
-- `--backoff`: Backoff factor for retries
-- `--export`: Export chart after rectification
+For containerized testing, use the provided script:
 
-## Error Handling
+```bash
+# Run all tests
+./run_tests.sh
 
-The test script includes robust error handling with recovery strategies for different failure scenarios:
+# Run unit tests only
+./run_tests.sh --unit
 
-1. If chart generation fails, the script will provide detailed error information.
-2. If rectification fails, the script will attempt to visualize the original chart.
-3. If export fails, the script will attempt to export the original chart instead.
+# Run component tests only
+./run_tests.sh --component
 
-## Visualization
+# Run integration tests only
+./run_tests.sh --integration
 
-The test script includes ASCII-based visualization of:
+# Skip OpenAI tests
+./run_tests.sh --skip-openai
 
-1. Planetary positions in houses and signs
-2. Confidence score progress bars
-3. Side-by-side comparison between original and rectified charts
-4. Highlighted differences between charts
+# Run tests with debug output
+./run_tests.sh --debug
+```
+
+### Docker Compose
+
+You can also use Docker Compose directly:
+
+```bash
+# Run all tests
+docker-compose -f docker-compose.test.yml up --build
+
+# Run tests and clean up
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+docker-compose -f docker-compose.test.yml down
+```
+
+## Test Dependencies
+
+The tests require the following dependencies:
+
+- pytest
+- pytest-asyncio
+- pytest-cov
+- pytest-mock
+- aiohttp
+- httpx
+- websockets
+- fastapi
+- redis
+
+These are installed automatically when running tests in Docker.
+
+## API Rate Limiting
+
+The tests include rate limiting for OpenAI API calls to prevent exceeding API quotas during testing. The rate limiter is implemented in `tests/utils/rate_limiter.py`.
+
+## Alignment with Sequence Diagrams
+
+The tests are designed to ensure that the backend services align with the sequence diagrams defined in the documentation. The following sequence flows are tested:
+
+1. **Consolidated API Questionnaire Flow**: Tests the questionnaire interaction pattern.
+2. **Original Sequence Diagram**: Tests the complete end-to-end API flow.
+3. **Vedic Chart Verification Flow**: Tests the OpenAI verification integration.
+
+## Troubleshooting
+
+If tests are failing, check the following:
+
+1. Ensure dependencies are installed.
+2. Ensure environment variables are set correctly.
+3. Check Redis connection if using the Redis rate limiter.
+4. If OpenAI tests are failing, check the OpenAI API key.
+
+For more information, see the API sequence tests documentation in `tests/API_SEQUENCE_TESTS.md`.

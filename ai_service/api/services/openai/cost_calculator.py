@@ -48,13 +48,12 @@ def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
     Returns:
         Total cost in USD
     """
-    # Get costs for the model, with fallback to default costs
-    model_costs = MODEL_COSTS.get(model, DEFAULT_COSTS)
+    # Get the cost rates for the model
+    model_rates = MODEL_COSTS.get(model, DEFAULT_COSTS)
 
     # Calculate costs
-    prompt_cost = prompt_tokens * model_costs["input"]
-    completion_cost = completion_tokens * model_costs["output"]
-
+    prompt_cost = prompt_tokens * model_rates["input"]
+    completion_cost = completion_tokens * model_rates["output"]
     # Calculate total cost
     total_cost = prompt_cost + completion_cost
 

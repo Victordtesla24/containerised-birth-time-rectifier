@@ -1,79 +1,141 @@
 """
-Pytest configuration for Birth Time Rectifier tests.
-Contains fixtures and setup for all test suites.
+Test configuration for pytest.
+
+This module provides fixtures and configuration for the test suite.
 """
 
-import os
-import sys
 import pytest
-from fastapi.testclient import TestClient
+import os
+import json
 import logging
-from datetime import datetime
+from typing import Dict, Any, List, Optional, Callable, Awaitable
+from unittest.mock import MagicMock, AsyncMock
+import asyncio
+from dotenv import load_dotenv
 
-# Add the root directory to the path so we can import from the ai_service module
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Load environment variables from .env file
+load_dotenv()
 
-# Import the models directly to avoid circular imports
-from ai_service.models.chart import ChartRequestAlt
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Import the FastAPI app
-from ai_service.main import app
+# Mock classes for testing
+class MockOpenAIService:
+    """Mock OpenAI service for testing"""
 
-# Set up logging for tests
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger("test-birth-time-rectifier")
+    def __init__(self):
+        self.api_key = "test_key"
+        self.client = AsyncMock()
+        self.usage_stats = {
+            "calls_made": 0,
+            "total_tokens": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_cost": 0.0
+        }
 
-# Create fixtures for testing
-@pytest.fixture(scope="module")
-def test_client():
-    """Create a test client for the FastAPI app."""
-    with TestClient(app) as client:
-        yield client
+    async def generate_completion(self, prompt, task_type, max_tokens=500, temperature=0.7):
+        """Mock generate completion"""
+        self.usage_stats["calls_made"] += 1
+        self.usage_stats["prompt_tokens"] += 10
+        self.usage_stats["completion_tokens"] += 20
+        self.usage_stats["total_tokens"] += 30
 
-@pytest.fixture(scope="session")
-def sample_birth_data():
-    """Provide sample birth data for testing."""
-    return {
-        "birthDate": "1990-01-01",
-        "birthTime": "12:00",
-        "birthPlace": "New York, NY",
-        "latitude": 40.7128,
-        "longitude": -74.0060
-    }
+        # Return a default response
+        return {
+            "content": json.dumps({
+                "verified": True,
+                "confidence": 85,
+                "corrections_applied": False,
+                "message": "Chart verified successfully"
+            }),
+            "model_used": "gpt-4-turbo"
+        }
 
-@pytest.fixture(scope="session")
-def sample_chart_data():
-    """Provide sample chart data for testing."""
-    return {
-        "ascendant": {"sign": "Taurus", "degree": 15.5},
-        "planets": [
-            {
-                "planet": "Sun",
-                "sign": "Capricorn",
-                "degree": "10.5",
-                "house": 9
-            },
-            {
-                "planet": "Moon",
-                "sign": "Virgo",
-                "degree": "25.3",
-                "house": 5
+class MockChartVerifier:
+    """Mock chart verifier for testing"""
+
+    def __init__(self):
+        self.openai_service = MockOpenAIService()
+
+    async def verify_chart(self, verification_data, openai_service=None):
+        """Mock verify chart"""
+        if not openai_service:
+            openai_service = self.openai_service
+
+        # Call OpenAI service
+        response = await openai_service.generate_completion(
+            prompt="Test prompt",
+            task_type="chart_verification",
+            max_tokens=800,
+            temperature=0.2
+        )
+
+        # Parse response
+        if isinstance(response, dict) and "content" in response:
+            try:
+                result = json.loads(response["content"])
+                result["verified_at"] = "2023-01-01T00:00:00.000Z"
+                return result
+            except json.JSONDecodeError:
+                pass
+
+        # Default response
+        return {
+            "verified": True,
+            "confidence": 70,
+            "corrections_applied": False,
+            "message": "Chart verified with default response",
+            "verified_at": "2023-01-01T00:00:00.000Z"
+        }
+
+class MockChartService:
+    """Mock chart service for testing"""
+
+    def __init__(self):
+        self.chart_verifier = MockChartVerifier()
+
+    async def generate_chart(self, *args, **kwargs):
+        """Mock generate chart"""
+        return {
+            "id": "test-chart-id",
+            "ascendant": {"sign": "Aries", "longitude": 15.5},
+            "planets": {
+                "Sun": {"sign": "Taurus", "longitude": 25.3},
+                "Moon": {"sign": "Cancer", "longitude": 10.2}
             }
-        ],
-        "houses": [
-            {
-                "number": 1,
-                "sign": "Taurus",
-                "startDegree": 15.5,
-                "endDegree": 45.5
-            }
-        ]
-    }
+        }
 
-@pytest.fixture(scope="function")
-def test_session_id():
-    """Generate a unique session ID for testing."""
-    return f"test-session-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+# Fixtures for testing
+@pytest.fixture
+def mock_openai_service():
+    """Fixture for mock OpenAI service"""
+    return MockOpenAIService()
+
+@pytest.fixture
+def mock_chart_verifier():
+    """Fixture for mock chart verifier"""
+    return MockChartVerifier()
+
+@pytest.fixture
+def mock_chart_service():
+    """Fixture for mock chart service"""
+    return MockChartService()
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_environment():
+    """Set up environment variables for testing."""
+    # Store original environment variables
+    original_env = os.environ.copy()
+
+    # Set test environment variables
+    if not os.environ.get("OPENAI_API_KEY"):
+        logger.warning("OPENAI_API_KEY environment variable is not set in .env file.")
+
+    # For yield fixture
+    yield
+
+    # Restore original environment after tests
+    for key, value in original_env.items():
+        os.environ[key] = value

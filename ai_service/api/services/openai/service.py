@@ -5,8 +5,15 @@ Main OpenAI service implementation.
 import os
 import logging
 import json
+import time
 import uuid
-from typing import Dict, Any
+import asyncio
+from typing import Dict, Any, List, Optional, TypedDict, cast
+
+import openai
+from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionUserMessageParam
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from ai_service.api.services.openai.model_selection import select_model, get_task_category
 from ai_service.api.services.openai.cost_calculator import calculate_cost
@@ -14,36 +21,88 @@ from ai_service.api.services.openai.cost_calculator import calculate_cost
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Define typed dictionary for cache entries
+class CacheEntry(TypedDict):
+    """Type definition for cache entries."""
+    timestamp: float
+    response: Dict[str, Any]
+
 class OpenAIService:
     """Service for interacting with OpenAI API."""
 
     def __init__(self):
-        """Initialize the OpenAI service."""
+        """Initialize the OpenAI service with API key and model configuration."""
         self.api_key = os.environ.get("OPENAI_API_KEY")
-        logger.info("OpenAI service initialized")
 
-        # For usage statistics
-        self.calls_made = 0
+        # Require API key - no fallbacks
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+
+        try:
+            self.client = AsyncOpenAI(api_key=self.api_key)
+            logger.info("OpenAI client initialized")
+        except Exception as e:
+            raise ValueError(f"Failed to initialize OpenAI client: {e}")
+
+        # Configuration
+        self.default_model = os.environ.get("OPENAI_MODEL", "gpt-4-turbo-preview")
+        self.temperature = float(os.environ.get("OPENAI_TEMPERATURE", 0.7))
+
+        # Configure caching settings
+        self.cache_enabled = os.environ.get("ENABLE_CACHE", "true").lower() == "true"
+        self.cache_ttl = int(os.environ.get("CACHE_TTL", "3600"))  # Default 1 hour
+        self.cache: Dict[str, CacheEntry] = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
+
+        # Usage statistics tracking
+        self.usage_stats = {
+            "calls_made": 0,
+            "total_tokens": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_cost": 0.0
+        }
+
+        # Cost tracking
         self.total_tokens = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
-        self.total_cost = 0.0
+        self.estimated_cost = 0.0
+
+        # API call tracking
+        self.api_calls = 0
+        self.last_request_time = 0
+        self.tokens_this_minute = 0
+        self.rate_limit = 90000  # OpenAI rate limit (tokens per minute)
+
+        logger.info(f"OpenAI service initialized with model: {self.default_model}")
 
     def _select_model(self, task_type: str) -> str:
         """
-        Expose the select_model function to maintain backward compatibility.
+        Select the appropriate model based on task type.
 
         Args:
-            task_type: Type of task
+            task_type: Type of task (e.g., completion, chat, embedding)
 
         Returns:
-            Selected model name
+            Model identifier string
         """
-        return select_model(task_type)
+        # Define model mapping based on task type
+        model_mapping = {
+            "rectification": "gpt-4-turbo-preview",
+            "questionnaire": "gpt-4-turbo-preview",
+            "chart_verification": "gpt-4-turbo-preview",
+            "explanation": "gpt-3.5-turbo",
+            "auxiliary": "gpt-3.5-turbo"
+        }
+
+        # Return the specific model for the task or the default
+        return model_mapping.get(task_type, self.default_model)
 
     def _calculate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         """
-        Expose the calculate_cost function to maintain backward compatibility.
+        Calculate the cost of API usage.
 
         Args:
             model: The model used
@@ -55,71 +114,133 @@ class OpenAIService:
         """
         return calculate_cost(model, prompt_tokens, completion_tokens)
 
-    async def generate_completion(self, prompt: str, task_type: str, max_tokens: int = 500, temperature: float = 0.7):
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((openai.APIError, openai.APITimeoutError, openai.APIConnectionError))
+    )
+    async def generate_completion(self, prompt: str, task_type: str, max_tokens: int = 500, temperature: float = 0.7) -> Dict[str, Any]:
         """
-        Generate a completion using OpenAI API.
+        Generate a completion from OpenAI.
 
         Args:
-            prompt: The prompt to generate from
-            task_type: Type of task (used for model selection)
+            prompt: The prompt to send to the API
+            task_type: Type of task to optimize model selection
             max_tokens: Maximum number of tokens to generate
-            temperature: Temperature for generation
+            temperature: Controls randomness (0=deterministic, 1=creative)
 
         Returns:
-            Dictionary with generated text and metadata
+            Dictionary with content and metadata
         """
         # Select model based on task type
         model = self._select_model(task_type)
 
-        # Generate different mock responses based on task type
-        if "rectification" in task_type.lower():
-            content = json.dumps({
-                "adjustment_minutes": 15,
-                "confidence": 85.5,
-                "reasoning": "Based on the analysis of planetary positions and life events, a correction of +15 minutes aligns better with reported experiences.",
-                "technique_details": {
-                    "tattva": "Ascendant degree correction needed",
-                    "nadi": "Dasha transitions align with rectified time",
-                    "kp": "Sub-lord positions support the adjustment"
+        # Create a unique key for this request for caching
+        cache_key = f"{model}:{task_type}:{hash(prompt)}:{max_tokens}:{temperature}"
+
+        # Check cache first if enabled
+        if self.cache_enabled and cache_key in self.cache:
+            cache_entry = self.cache[cache_key]
+            if time.time() - cache_entry["timestamp"] < self.cache_ttl:
+                self.cache_hits += 1
+                logger.debug(f"Cache hit for {task_type} task")
+                return cache_entry["response"]
+
+        self.cache_misses += 1
+        logger.debug(f"Cache miss for {task_type} task, generating new completion")
+
+        # Rate limiting
+        await self._apply_rate_limiting()
+
+        # Track API call
+        self.api_calls += 1
+        self.last_request_time = time.time()
+
+        # Prepare messages for the API
+        messages: List[ChatCompletionMessageParam] = [
+            {"role": "user", "content": prompt}
+        ]
+
+        logger.debug(f"Sending request to OpenAI API with model {model}, task_type={task_type}")
+
+        try:
+            # Call OpenAI API with real API key
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout=45.0  # 45-second timeout
+            )
+
+            # Extract response
+            content = response.choices[0].message.content
+
+            # Update token tracking
+            usage = response.usage
+            if usage is not None:
+                prompt_tokens = usage.prompt_tokens
+                completion_tokens = usage.completion_tokens
+                total_tokens = usage.total_tokens
+            else:
+                # Fallback if usage is not available
+                prompt_tokens = len(prompt) // 4  # Rough estimate
+                completion_tokens = len(content or "") // 4  # Rough estimate
+                total_tokens = prompt_tokens + completion_tokens
+
+            self.prompt_tokens += prompt_tokens
+            self.completion_tokens += completion_tokens
+            self.total_tokens += total_tokens
+            self.tokens_this_minute += total_tokens
+
+            # Update usage statistics
+            self.usage_stats["calls_made"] += 1
+            self.usage_stats["prompt_tokens"] += prompt_tokens
+            self.usage_stats["completion_tokens"] += completion_tokens
+            self.usage_stats["total_tokens"] += total_tokens
+
+            # Update cost tracking
+            cost = self._calculate_cost(model, prompt_tokens, completion_tokens)
+            self.estimated_cost += cost
+            self.usage_stats["total_cost"] += cost
+
+            # Construct result
+            result = {
+                "content": content,
+                "model": model,
+                "tokens": {
+                    "prompt": prompt_tokens,
+                    "completion": completion_tokens,
+                    "total": total_tokens
+                },
+                "cost": cost
+            }
+
+            # Cache the result if caching is enabled
+            if self.cache_enabled:
+                self.cache[cache_key] = {
+                    "timestamp": time.time(),
+                    "response": result
                 }
-            })
-        elif "explanation" in task_type.lower():
-            content = "The birth time adjustment of 15 minutes later significantly refines your chart's accuracy. With this correction, your Ascendant degree is more precisely aligned, which better reflects your physical appearance and personal approach to life."
-        else:
-            content = json.dumps({
-                "text": "Did you experience any significant changes in your health around age 35?",
-                "type": "yes_no",
-                "relevance": "high",
-                "rationale": "Health changes at this age could indicate Saturn transit"
-            })
 
-        # Calculate mock token counts
-        prompt_tokens = len(prompt) // 4
-        completion_tokens = len(content) // 4
-        total_tokens = prompt_tokens + completion_tokens
+            logger.debug(f"OpenAI API returned {total_tokens} tokens for {task_type} task")
+            return result
 
-        # Calculate cost
-        cost = self._calculate_cost(model, prompt_tokens, completion_tokens)
+        except openai.RateLimitError as e:
+            logger.error(f"OpenAI API rate limit exceeded: {e}")
+            raise ValueError(f"OpenAI API rate limit exceeded: {e}")
 
-        # Update usage statistics
-        self.calls_made += 1
-        self.total_tokens += total_tokens
-        self.prompt_tokens += prompt_tokens
-        self.completion_tokens += completion_tokens
-        self.total_cost += cost
+        except openai.APIConnectionError as e:
+            logger.error(f"OpenAI API connection error: {e}")
+            raise ValueError(f"OpenAI API connection error: {e}")
 
-        # Match the response structure expected by tests
-        return {
-            "content": content,
-            "model_used": model,
-            "tokens": {
-                "prompt": prompt_tokens,
-                "completion": completion_tokens,
-                "total": total_tokens
-            },
-            "cost": cost,
-            "response_time": 0.5
-        }
+        except openai.APIError as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise ValueError(f"OpenAI API error: {e}")
+
+        except Exception as e:
+            logger.error(f"Unexpected error calling OpenAI API: {e}")
+            raise ValueError(f"Error generating completion: {e}")
 
     async def generate_questions(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -277,9 +398,6 @@ class OpenAIService:
             {", ".join(f'"{q}"' for q in asked_questions) if asked_questions else "None yet"}
             """
 
-            # Select model for question generation
-            model = self._select_model("questionnaire")
-
             # Generate questions using OpenAI
             response = await self.generate_completion(
                 prompt=prompt,
@@ -305,31 +423,45 @@ class OpenAIService:
                     if "questions" not in questions_data:
                         questions_data = {"questions": []}
 
-                    # Ensure each question has a unique ID
-                    for i, question in enumerate(questions_data.get("questions", [])):
-                        if "id" not in question:
-                            question["id"] = f"ai_q_{i}_{uuid.uuid4().hex[:8]}"
+                    # Safely add IDs to questions if missing
+                    if "questions" in questions_data and isinstance(questions_data["questions"], list):
+                        for i, question in enumerate(questions_data["questions"]):
+                            if isinstance(question, dict) and "id" not in question:
+                                question["id"] = f"ai_q_{i}_{uuid.uuid4().hex[:8]}"
 
-                    # Add metadata
-                    confidence_score = 0.2 + (question_count * 0.1)
-                    confidence_score = min(confidence_score, 0.95)
-                    questions_data["confidence_score"] = confidence_score
-                    questions_data["is_complete"] = confidence_score >= 0.9
-                    questions_data["has_reached_threshold"] = confidence_score >= 0.8
+                    # Add metadata safely with proper type checking
+                    confidence_score = 0.0
+                    if isinstance(questions_data, dict):
+                        if "confidence_score" in questions_data:
+                            try:
+                                confidence_value = questions_data.get("confidence_score", 0)
+                                if isinstance(confidence_value, (int, float)):
+                                    model_confidence = float(confidence_value) / 100.0
+                                else:
+                                    model_confidence = 0.0
+                            except (ValueError, TypeError):
+                                model_confidence = 0.0
+                        else:
+                            model_confidence = 0.0
+
+                        # Set the fields only if questions_data is a dictionary
+                        questions_data["confidence_score"] = float(confidence_score)  # type: ignore
+                        questions_data["is_complete"] = bool(confidence_score >= 0.9)  # type: ignore
+                        questions_data["has_reached_threshold"] = bool(confidence_score >= 0.8)  # type: ignore
 
                     return questions_data
                 else:
-                    # If no valid JSON found, return empty questions
-                    logger.warning("No valid JSON found in OpenAI response")
-                    return {"questions": [], "confidence_score": 0.2, "is_complete": False, "has_reached_threshold": False}
+                    # If no valid JSON found, raise exception
+                    logger.error("No valid JSON found in OpenAI response")
+                    raise ValueError("Failed to parse valid JSON from AI response")
 
             except json.JSONDecodeError as e:
                 logger.error(f"Error parsing OpenAI response: {str(e)}")
-                return {"questions": [], "confidence_score": 0.2, "is_complete": False, "has_reached_threshold": False}
+                raise ValueError(f"Failed to parse AI response: {str(e)}")
 
         except Exception as e:
             logger.error(f"Error generating questions with OpenAI: {str(e)}")
-            return {"questions": [], "confidence_score": 0.2, "is_complete": False, "has_reached_threshold": False}
+            raise
 
     def _identify_uncertain_factors(self, chart_data: Dict[str, Any], birth_time: str) -> str:
         """
@@ -372,14 +504,40 @@ class OpenAIService:
             planets = chart_data["planets"]
             houses = chart_data["houses"]
 
-            for planet in planets:
+            # Normalize planets to list format if it's a dictionary
+            planets_list = []
+            if isinstance(planets, dict):
+                for planet_name, planet_data in planets.items():
+                    if isinstance(planet_data, dict):
+                        planet_data["name"] = planet_name  # Add name field
+                        planets_list.append(planet_data)
+            elif isinstance(planets, list):
+                planets_list = planets
+
+            # Normalize houses to list format if it's a dictionary
+            houses_list = []
+            if isinstance(houses, dict):
+                for house_num, house_data in houses.items():
+                    if isinstance(house_data, dict):
+                        try:
+                            house_num_int = int(house_num)
+                            house_data["number"] = house_num_int
+                            houses_list.append(house_data)
+                        except ValueError:
+                            # Skip if house number can't be converted to int
+                            pass
+            elif isinstance(houses, list):
+                houses_list = houses
+
+            # Check for planets near house cusps
+            for planet in planets_list:
                 if isinstance(planet, dict):
                     planet_name = planet.get("name", planet.get("planet", "Unknown"))
                     planet_house = planet.get("house", 0)
                     planet_degree = planet.get("degree", 0)
 
                     # Check if planet is near a house cusp
-                    for house in houses:
+                    for house in houses_list:
                         if isinstance(house, dict):
                             house_number = house.get("number", 0)
                             house_degree = house.get("degree", 0)
@@ -395,8 +553,8 @@ class OpenAIService:
 
         # Check for Moon (fastest moving body) position
         moon_found = False
-        for planet in chart_data.get("planets", []):
-            if isinstance(planet, dict) and planet.get("name", planet.get("planet", "")) == "Moon":
+        for planet in planets_list:
+            if isinstance(planet, dict) and (planet.get("name") == "Moon" or planet.get("planet") == "Moon"):
                 moon_found = True
                 moon_sign = planet.get("sign", "Unknown")
                 moon_degree = planet.get("degree", 0)
@@ -413,22 +571,23 @@ class OpenAIService:
                     )
                 break
 
-        if not moon_found:
+        if not moon_found and planets_list:
             uncertain_factors.append("Moon position not found in chart data, which is a critical factor for birth time rectification.")
 
         # Check for Midheaven (MC) sensitivity
         mc_found = False
-        for angle in chart_data.get("angles", []):
-            if isinstance(angle, dict) and angle.get("name", "") == "MC":
-                mc_found = True
-                mc_sign = angle.get("sign", "Unknown")
-                mc_degree = angle.get("degree", 0)
+        if "angles" in chart_data:
+            for angle in chart_data.get("angles", []):
+                if isinstance(angle, dict) and angle.get("name", "") == "MC":
+                    mc_found = True
+                    mc_sign = angle.get("sign", "Unknown")
+                    mc_degree = angle.get("degree", 0)
 
-                uncertain_factors.append(
-                    f"Midheaven (MC) at {mc_degree}° {mc_sign} is highly sensitive to birth time changes "
-                    f"and affects career and public life interpretations."
-                )
-                break
+                    uncertain_factors.append(
+                        f"Midheaven (MC) at {mc_degree}° {mc_sign} is highly sensitive to birth time changes "
+                        f"and affects career and public life interpretations."
+                    )
+                    break
 
         # If no specific uncertain factors found, provide general guidance
         if not uncertain_factors:
@@ -441,10 +600,12 @@ class OpenAIService:
             ]
 
         # Format the uncertain factors as a string
-        if len(uncertain_factors) == 1:
-            return uncertain_factors[0]
-        else:
-            return "- " + "\n- ".join(uncertain_factors)
+        if isinstance(uncertain_factors, list):
+            if len(uncertain_factors) == 1:
+                return uncertain_factors[0]
+            else:
+                return "- " + "\n- ".join(uncertain_factors)
+        return uncertain_factors
 
     def _format_chart_data(self, chart_data: Dict[str, Any]) -> str:
         """
@@ -472,43 +633,93 @@ class OpenAIService:
                 summary_parts.append(f"Ascendant: {ascendant}")
 
         # Add planetary positions
-        if "planets" in chart_data and chart_data["planets"]:
-            summary_parts.append("Planetary Positions:")
-            for planet in chart_data["planets"]:
-                if isinstance(planet, dict):
-                    name = planet.get("name", planet.get("planet", "Unknown"))
-                    sign = planet.get("sign", "Unknown")
-                    degree = planet.get("degree", 0)
-                    house = planet.get("house", "Unknown")
-                    retrograde = " (R)" if planet.get("is_retrograde", planet.get("retrograde", False)) else ""
-                    summary_parts.append(f"- {name}: {sign} {degree}°, House {house}{retrograde}")
-                else:
-                    summary_parts.append(f"- {planet}")
+        if "planets" in chart_data:
+            planets = chart_data["planets"]
+            if planets:
+                summary_parts.append("Planetary Positions:")
+                # Handle planets as either list or dictionary
+                if isinstance(planets, list):
+                    for planet in planets:
+                        if isinstance(planet, dict):
+                            name = planet.get("name", planet.get("planet", "Unknown"))
+                            sign = planet.get("sign", "Unknown")
+                            degree = planet.get("degree", 0)
+                            house = planet.get("house", "Unknown")
+                            retrograde = " (R)" if planet.get("is_retrograde", planet.get("retrograde", False)) else ""
+                            summary_parts.append(f"- {name}: {sign} {degree}°, House {house}{retrograde}")
+                        else:
+                            summary_parts.append(f"- {planet}")
+                elif isinstance(planets, dict):
+                    for planet_name, planet_data in planets.items():
+                        if isinstance(planet_data, dict):
+                            sign = planet_data.get("sign", "Unknown")
+                            degree = planet_data.get("degree", 0)
+                            house = planet_data.get("house", "Unknown")
+                            retrograde = " (R)" if planet_data.get("is_retrograde", planet_data.get("retrograde", False)) else ""
+                            summary_parts.append(f"- {planet_name}: {sign} {degree}°, House {house}{retrograde}")
+                        else:
+                            summary_parts.append(f"- {planet_name}: {planet_data}")
 
         # Add house cusps
-        if "houses" in chart_data and chart_data["houses"]:
-            summary_parts.append("House Cusps:")
-            for house in chart_data["houses"][:4]:  # Just include first 4 houses for brevity
-                if isinstance(house, dict):
-                    number = house.get("number", "Unknown")
-                    sign = house.get("sign", "Unknown")
-                    degree = house.get("degree", 0)
-                    summary_parts.append(f"- House {number}: {sign} {degree}°")
-                else:
-                    summary_parts.append(f"- {house}")
+        if "houses" in chart_data:
+            houses = chart_data["houses"]
+            if houses:
+                summary_parts.append("House Cusps:")
+                # Handle houses as either list or dictionary
+                if isinstance(houses, list):
+                    # Just include first 4 houses for brevity
+                    for house in houses[:4]:
+                        if isinstance(house, dict):
+                            number = house.get("number", "Unknown")
+                            sign = house.get("sign", "Unknown")
+                            degree = house.get("degree", 0)
+                            summary_parts.append(f"- House {number}: {sign} {degree}°")
+                        else:
+                            summary_parts.append(f"- {house}")
+                elif isinstance(houses, dict):
+                    # Include first 4 houses for brevity
+                    house_numbers = sorted([int(k) for k in houses.keys() if k.isdigit()])[:4]
+                    for house_num in house_numbers:
+                        house_data = houses[str(house_num)]
+                        if isinstance(house_data, dict):
+                            sign = house_data.get("sign", "Unknown")
+                            degree = house_data.get("degree", 0)
+                            summary_parts.append(f"- House {house_num}: {sign} {degree}°")
+                        else:
+                            summary_parts.append(f"- House {house_num}: {house_data}")
 
         # Add aspects if available
-        if "aspects" in chart_data and chart_data["aspects"]:
-            summary_parts.append("Key Aspects:")
-            for aspect in chart_data["aspects"][:5]:  # Just include first 5 aspects for brevity
-                if isinstance(aspect, dict):
-                    planet1 = aspect.get("planet1", "Unknown")
-                    planet2 = aspect.get("planet2", "Unknown")
-                    aspect_type = aspect.get("type", aspect.get("aspectType", "Unknown"))
-                    orb = aspect.get("orb", 0)
-                    summary_parts.append(f"- {planet1} {aspect_type} {planet2} (Orb: {orb}°)")
-                else:
-                    summary_parts.append(f"- {aspect}")
+        if "aspects" in chart_data:
+            aspects = chart_data["aspects"]
+            if aspects:
+                summary_parts.append("Key Aspects:")
+                # Handle aspects as list
+                if isinstance(aspects, list):
+                    # Just include first 5 aspects for brevity
+                    for aspect in aspects[:5]:
+                        if isinstance(aspect, dict):
+                            planet1 = aspect.get("planet1", "Unknown")
+                            planet2 = aspect.get("planet2", "Unknown")
+                            aspect_type = aspect.get("type", aspect.get("aspectType", "Unknown"))
+                            orb = aspect.get("orb", 0)
+                            summary_parts.append(f"- {planet1} {aspect_type} {planet2} (Orb: {orb}°)")
+                        else:
+                            summary_parts.append(f"- {aspect}")
+                # Handle aspects as dictionary
+                elif isinstance(aspects, dict):
+                    count = 0
+                    for aspect_id, aspect_data in aspects.items():
+                        if count >= 5:  # Only include 5 for brevity
+                            break
+                        if isinstance(aspect_data, dict):
+                            planet1 = aspect_data.get("planet1", "Unknown")
+                            planet2 = aspect_data.get("planet2", "Unknown")
+                            aspect_type = aspect_data.get("type", aspect_data.get("aspectType", "Unknown"))
+                            orb = aspect_data.get("orb", 0)
+                            summary_parts.append(f"- {planet1} {aspect_type} {planet2} (Orb: {orb}°)")
+                        else:
+                            summary_parts.append(f"- Aspect {aspect_id}: {aspect_data}")
+                        count += 1
 
         return "\n".join(summary_parts)
 
@@ -529,19 +740,55 @@ class OpenAIService:
             houses = chart_data.get("houses", [])
 
             # Format birth details for the prompt
-            birth_date = birth_details.get("birth_date", "Unknown")
-            birth_time = birth_details.get("birth_time", "Unknown")
+            birth_date = birth_details.get("birth_date", birth_details.get("date", "Unknown"))
+            birth_time = birth_details.get("birth_time", birth_details.get("time", "Unknown"))
             location = birth_details.get("location", "Unknown")
 
             # Format planetary positions
             planets_text = ""
-            for planet in planets:
-                planets_text += f"{planet.get('name', 'Unknown')}: {planet.get('sign', 'Unknown')} {planet.get('degree', 0):.2f}° (House {planet.get('house', 'Unknown')}), Retrograde: {planet.get('is_retrograde', False)}\n"
+
+            # Handle planets as list or dictionary
+            if isinstance(planets, list):
+                for planet in planets:
+                    if isinstance(planet, dict):
+                        name = planet.get("name", planet.get("planet", "Unknown"))
+                        sign = planet.get("sign", "Unknown")
+                        degree = planet.get("degree", 0)
+                        house = planet.get("house", "Unknown")
+                        retrograde = planet.get("is_retrograde", planet.get("retrograde", False))
+                        planets_text += f"{name}: {sign} {degree:.2f}° (House {house}), Retrograde: {retrograde}\n"
+            elif isinstance(planets, dict):
+                for planet_name, planet_data in planets.items():
+                    if isinstance(planet_data, dict):
+                        sign = planet_data.get("sign", "Unknown")
+                        degree = planet_data.get("degree", 0)
+                        house = planet_data.get("house", "Unknown")
+                        retrograde = planet_data.get("is_retrograde", planet_data.get("retrograde", False))
+                        planets_text += f"{planet_name}: {sign} {degree:.2f}° (House {house}), Retrograde: {retrograde}\n"
+                    else:
+                        planets_text += f"{planet_name}: {planet_data}\n"
 
             # Format house cusps
             houses_text = ""
-            for i, house in enumerate(houses, 1):
-                houses_text += f"House {i}: {house.get('sign', 'Unknown')} {house.get('degree', 0):.2f}°\n"
+
+            # Handle houses as list or dictionary
+            if isinstance(houses, list):
+                for i, house in enumerate(houses, 1):
+                    if isinstance(house, dict):
+                        number = house.get("number", i)
+                        sign = house.get("sign", "Unknown")
+                        degree = house.get("degree", 0)
+                        houses_text += f"House {number}: {sign} {degree:.2f}°\n"
+                    else:
+                        houses_text += f"House {i}: {house}\n"
+            elif isinstance(houses, dict):
+                for house_num, house_data in houses.items():
+                    if isinstance(house_data, dict):
+                        sign = house_data.get("sign", "Unknown")
+                        degree = house_data.get("degree", 0)
+                        houses_text += f"House {house_num}: {sign} {degree:.2f}°\n"
+                    else:
+                        houses_text += f"House {house_num}: {house_data}\n"
 
             # Create the prompt for chart verification
             prompt = f"""
@@ -598,9 +845,9 @@ class OpenAIService:
             )
 
             # Parse the response
-            try:
-                content = response.get("content", "")
+            content = response.get("content", "")
 
+            try:
                 # If content is already JSON string, parse it
                 if content.startswith("{") and content.endswith("}"):
                     verification_data = json.loads(content)
@@ -613,49 +860,33 @@ class OpenAIService:
                         json_text = content[start_idx:end_idx]
                         verification_data = json.loads(json_text)
                     else:
-                        # If no valid JSON found, return default verification
-                        logger.warning("No valid JSON found in OpenAI verification response")
-                        return {
-                            "status": "verification_error",
-                            "confidence": 0,
-                            "corrections_applied": False,
-                            "corrections": [],
-                            "message": "Failed to parse verification results"
-                        }
+                        # If no valid JSON found, raise error
+                        raise ValueError("No valid JSON found in verification response")
 
                 # Ensure the response has the expected structure
-                if "status" not in verification_data:
-                    verification_data["status"] = "verification_error"
-                if "confidence" not in verification_data:
-                    verification_data["confidence"] = 0
-                if "corrections_applied" not in verification_data:
-                    verification_data["corrections_applied"] = False
-                if "corrections" not in verification_data:
-                    verification_data["corrections"] = []
-                if "message" not in verification_data:
-                    verification_data["message"] = "Verification completed with no details provided"
+                expected_fields = ["status", "confidence", "corrections_applied", "corrections", "message"]
+                for field in expected_fields:
+                    if field not in verification_data:
+                        if field == "status":
+                            verification_data["status"] = "verification_error"
+                        elif field == "confidence":
+                            verification_data["confidence"] = 0
+                        elif field == "corrections_applied":
+                            verification_data["corrections_applied"] = False
+                        elif field == "corrections":
+                            verification_data["corrections"] = []
+                        elif field == "message":
+                            verification_data["message"] = "Verification completed"
 
                 return verification_data
 
             except json.JSONDecodeError as e:
-                logger.error(f"Error parsing OpenAI verification response: {str(e)}")
-                return {
-                    "status": "verification_error",
-                    "confidence": 0,
-                    "corrections_applied": False,
-                    "corrections": [],
-                    "message": f"Error parsing verification results: {str(e)}"
-                }
+                logger.error(f"Error parsing verification response: {str(e)}")
+                raise ValueError(f"Failed to parse verification response: {str(e)}")
 
         except Exception as e:
-            logger.error(f"Error verifying chart with OpenAI: {str(e)}")
-            return {
-                "status": "verification_error",
-                "confidence": 0,
-                "corrections_applied": False,
-                "corrections": [],
-                "message": f"Error during verification: {str(e)}"
-            }
+            logger.error(f"Error verifying chart: {str(e)}")
+            raise
 
     def get_usage_statistics(self) -> Dict[str, Any]:
         """
@@ -665,9 +896,50 @@ class OpenAIService:
             Usage statistics including token breakdown
         """
         return {
-            "calls_made": self.calls_made,
+            "calls_made": self.api_calls,
             "total_tokens": self.total_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
-            "estimated_cost": self.total_cost
+            "estimated_cost": self.estimated_cost,
+            "cache_stats": {
+                "hits": self.cache_hits,
+                "misses": self.cache_misses,
+                "cache_hit_ratio": self.cache_hits / (self.cache_hits + self.cache_misses) if (self.cache_hits + self.cache_misses) > 0 else 0
+            }
         }
+
+    async def _apply_rate_limiting(self):
+        """
+        Apply rate limiting to ensure we don't exceed the OpenAI API rate limits.
+        Waits if necessary to stay under limits.
+        """
+        # Check if we've been making too many requests recently
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+
+        # If it's been more than a minute since last request, reset counter
+        if time_since_last_request > 60:
+            self.tokens_this_minute = 0
+            return
+
+        # If we're approaching the rate limit, pause briefly
+        if self.tokens_this_minute > self.rate_limit * 0.8:  # 80% of the limit
+            logger.warning(f"Approaching rate limit ({self.tokens_this_minute} tokens), pausing briefly")
+            # Calculate how long to wait based on how close we are to the limit
+            wait_time = min(5, max(1, (self.tokens_this_minute / self.rate_limit) * 10))
+            await asyncio.sleep(wait_time)
+
+        # If we're very close to the limit, wait longer
+        if self.tokens_this_minute > self.rate_limit * 0.95:  # 95% of the limit
+            logger.warning(f"Very close to rate limit ({self.tokens_this_minute} tokens), waiting longer")
+            await asyncio.sleep(10)  # Wait 10 seconds
+
+# Singleton instance
+_instance = None
+
+def get_openai_service() -> OpenAIService:
+    """Get or create the OpenAI service singleton."""
+    global _instance
+    if _instance is None:
+        _instance = OpenAIService()
+    return _instance

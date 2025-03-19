@@ -4,13 +4,14 @@ from ai_service.utils.astro_calculator import AstroCalculator, WHOLE_SIGN, PLACI
 import json
 import logging
 import argparse
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def main():
+async def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Calculate astrological chart with configurable settings')
     parser.add_argument('--date', type=str, default='1985-10-24', help='Birth date in YYYY-MM-DD format')
@@ -58,7 +59,7 @@ def main():
     # Make sure all parameters have the correct type
     try:
         # First try with parameters matching the method signature
-        chart_data = calculator.calculate_chart(
+        chart_data = await calculator.calculate_chart(
             birth_date_str,
             birth_time_str,
             float(latitude),
@@ -67,7 +68,7 @@ def main():
         )
     except TypeError:
         # Fall back to the alternative style with keyword arguments
-        chart_data = calculator.calculate_chart(
+        chart_data = await calculator.calculate_chart(
             birth_date=birth_date_str,
             birth_time=birth_time_str,
             latitude=float(latitude),
@@ -98,4 +99,5 @@ def main():
         print(f"House {house['number']}: {house['sign']} {house['degree']:.2f}°")
 
 if __name__ == "__main__":
-    main()
+    # Run async main function
+    asyncio.run(main())

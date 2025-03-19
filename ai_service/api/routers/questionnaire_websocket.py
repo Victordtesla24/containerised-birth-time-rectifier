@@ -10,8 +10,11 @@ from typing import Dict, List, Optional, Any, Union
 import logging
 import uuid
 from datetime import datetime
+import traceback
 
 from ai_service.api.websocket_events import emit_event, EventType
+from ai_service.api.services.questionnaire_service import get_questionnaire_service
+from ai_service.api.services.chart import get_chart_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -33,7 +36,7 @@ class QuestionnaireResponse(BaseModel):
 
 class QuestionAnswerRequest(BaseModel):
     question_id: str
-    answer: str
+    answer: Any
 
 class QuestionAnswerResponse(BaseModel):
     next_question: Optional[Dict[str, Any]]
@@ -67,6 +70,49 @@ async def start_questionnaire(
         # Get chart ID from request
         chart_id = request.chart_id
 
+        # Get the actual services
+        questionnaire_service = get_questionnaire_service()
+        chart_service = get_chart_service()
+
+        # Get chart data
+        try:
+            chart_data = await chart_service.get_chart(chart_id)
+            if not chart_data:
+                logger.error(f"Chart not found: {chart_id}")
+                raise HTTPException(status_code=404, detail=f"Chart not found: {chart_id}")
+        except Exception as chart_err:
+            logger.error(f"Error retrieving chart {chart_id}: {chart_err}")
+            raise HTTPException(status_code=500, detail=f"Error retrieving chart: {str(chart_err)}")
+
+        # Extract birth details
+        birth_details = chart_data.get("birth_details", {})
+        if not birth_details:
+            logger.error(f"Chart {chart_id} missing birth details")
+            raise HTTPException(status_code=400, detail="Chart missing birth details")
+
+        # Initialize the questionnaire with real data
+        initial_questions_data = await questionnaire_service.initialize_questionnaire(
+            birth_details=birth_details,
+            chart_data=chart_data,
+            session_id=questionnaire_id
+        )
+
+        # Extract questions from the real response
+        if not initial_questions_data or "questions" not in initial_questions_data:
+            logger.error(f"Failed to initialize questionnaire: Invalid response from service")
+            raise HTTPException(status_code=500, detail="Failed to initialize questionnaire")
+
+        questions = initial_questions_data.get("questions", [])
+        total_questions = len(questions)
+
+        # Store questionnaire data in persistent storage
+        await questionnaire_service.store_questionnaire_session(
+            questionnaire_id=questionnaire_id,
+            chart_id=chart_id,
+            birth_details=birth_details,
+            initial_questions=questions
+        )
+
         # Emit questionnaire started event if we have a session ID
         if hasattr(req.state, "session_id"):
             session_id = req.state.session_id
@@ -82,24 +128,18 @@ async def start_questionnaire(
                 }
             )
 
-        # Forward the request to the original questionnaire endpoint
-        # This is just a placeholder - in a real implementation, you would
-        # call the actual questionnaire service or router
-
-        # For now, return a mock response
+        # Return the actual response with real data
         return {
             "questionnaire_id": questionnaire_id,
-            "total_questions": 10,
-            "questions": [
-                {
-                    "id": f"q_{uuid.uuid4().hex[:8]}",
-                    "text": "Have you experienced any major career changes?",
-                    "type": "yes_no"
-                }
-            ]
+            "total_questions": total_questions,
+            "questions": questions
         }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error starting questionnaire: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error starting questionnaire: {str(e)}")
 
 @router.post("/{questionnaire_id}/answer", response_model=QuestionAnswerResponse)
@@ -119,6 +159,38 @@ async def answer_question(
         question_id = request.question_id
         answer = request.answer
 
+        # Get the questionnaire service
+        questionnaire_service = get_questionnaire_service()
+
+        # Verify the questionnaire exists
+        questionnaire_data = await questionnaire_service.get_questionnaire_session(questionnaire_id)
+        if not questionnaire_data:
+            logger.error(f"Questionnaire not found: {questionnaire_id}")
+            raise HTTPException(status_code=404, detail=f"Questionnaire not found: {questionnaire_id}")
+
+        # Store the answer in the questionnaire session
+        await questionnaire_service.store_answer(
+            questionnaire_id=questionnaire_id,
+            question_id=question_id,
+            answer=answer
+        )
+
+        # Get the next question based on the answer
+        response_data = await questionnaire_service.get_next_question(
+            questionnaire_id=questionnaire_id,
+            previous_question_id=question_id,
+            previous_answer=answer
+        )
+
+        # Extract data from real response
+        if not response_data:
+            logger.error(f"Failed to get next question: Invalid response from service")
+            raise HTTPException(status_code=500, detail="Failed to get next question")
+
+        next_question = response_data.get("next_question")
+        current_confidence = response_data.get("confidence", 0.0)
+        questions_remaining = response_data.get("questions_remaining", 0)
+
         # Emit question answered event if we have a session ID
         if hasattr(req.state, "session_id"):
             session_id = req.state.session_id
@@ -135,22 +207,18 @@ async def answer_question(
                 }
             )
 
-        # Forward the request to the original questionnaire endpoint
-        # This is just a placeholder - in a real implementation, you would
-        # call the actual questionnaire service or router
-
-        # For now, return a mock response
+        # Return the real response with the next question
         return {
-            "next_question": {
-                "id": f"q_{uuid.uuid4().hex[:8]}",
-                "text": "When did your most significant career change occur?",
-                "type": "date"
-            },
-            "current_confidence": 45.0,
-            "questions_remaining": 9
+            "next_question": next_question,
+            "current_confidence": current_confidence,
+            "questions_remaining": questions_remaining
         }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error answering question: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error answering question: {str(e)}")
 
 @router.post("/complete", response_model=QuestionnaireCompleteResponse)
@@ -168,6 +236,26 @@ async def complete_questionnaire(
         # Get questionnaire ID from request
         questionnaire_id = request.questionnaire_id
 
+        # Get the questionnaire service
+        questionnaire_service = get_questionnaire_service()
+
+        # Verify the questionnaire exists
+        questionnaire_data = await questionnaire_service.get_questionnaire_session(questionnaire_id)
+        if not questionnaire_data:
+            logger.error(f"Questionnaire not found: {questionnaire_id}")
+            raise HTTPException(status_code=404, detail=f"Questionnaire not found: {questionnaire_id}")
+
+        # Complete the questionnaire and get the real results
+        completion_result = await questionnaire_service.complete_questionnaire(questionnaire_id)
+
+        if not completion_result:
+            logger.error(f"Failed to complete questionnaire: Invalid response from service")
+            raise HTTPException(status_code=500, detail="Failed to complete questionnaire")
+
+        status = completion_result.get("status", "completed")
+        message = completion_result.get("message", "Questionnaire completed successfully")
+        confidence = completion_result.get("confidence", 0.0)
+
         # Emit questionnaire completed event if we have a session ID
         if hasattr(req.state, "session_id"):
             session_id = req.state.session_id
@@ -179,21 +267,21 @@ async def complete_questionnaire(
                 {
                     "questionnaire_id": questionnaire_id,
                     "timestamp": datetime.now().isoformat(),
-                    "confidence": 75.0,
-                    "status": "completed"
+                    "confidence": confidence,
+                    "status": status
                 }
             )
 
-        # Forward the request to the original questionnaire endpoint
-        # This is just a placeholder - in a real implementation, you would
-        # call the actual questionnaire service or router
-
-        # For now, return a mock response
+        # Return the real result
         return {
-            "status": "completed",
-            "message": "Questionnaire completed successfully",
-            "confidence": 75.0
+            "status": status,
+            "message": message,
+            "confidence": confidence
         }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error completing questionnaire: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error completing questionnaire: {str(e)}")

@@ -97,10 +97,11 @@ services:
     container_name: ${CONTAINER_PREFIX:-birth-rectifier}-ai
     volumes:
       - ./ai_service:/app/ai_service
+      - ./ephemeris:/app/ephemeris
+      - ./scripts:/app/scripts
       - ./requirements.txt:/app/requirements.txt
       - ./config/env/.env:/app/.env
       - ai_service_venv:/app/.venv
-      - ephemeris_data:/app/ephemeris
       - openai_cache:/app/cache
     environment:
       - PYTHONUNBUFFERED=1

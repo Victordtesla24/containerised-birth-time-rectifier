@@ -208,24 +208,6 @@ async def get_interpretation(
             detail=f"Failed to generate interpretation: {str(e)}"
         )
 
-# Helper functions for generating mock interpretations
-def get_sign_keywords(sign: str) -> str:
-    """Get keywords for a zodiac sign"""
-    keywords = {
-        "Aries": "initiative, courage, and assertiveness",
-        "Taurus": "stability, persistence, and sensuality",
-        "Gemini": "adaptability, communication, and curiosity",
-        "Cancer": "nurturing, emotional depth, and security",
-        "Leo": "creativity, leadership, and self-expression",
-        "Virgo": "analysis, practicality, and perfectionism",
-        "Libra": "harmony, relationships, and aesthetics",
-        "Scorpio": "transformation, intensity, and depth",
-        "Sagittarius": "exploration, optimism, and freedom",
-        "Capricorn": "discipline, ambition, and responsibility",
-        "Aquarius": "innovation, community, and originality",
-        "Pisces": "compassion, imagination, and spiritual connection"
-    }
-    return keywords.get(sign, "unique energetic qualities")
 
 def get_planet_keywords(planet: str) -> List[str]:
     """Get keywords for a planet"""

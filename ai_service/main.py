@@ -17,16 +17,26 @@ import uuid
 import json
 import tempfile
 from contextlib import asynccontextmanager
-from typing import cast, Any, Callable
+from typing import cast, Any, Callable, Tuple, Optional
 
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Histogram, Gauge, CollectorRegistry
+    REGISTRY = CollectorRegistry()
+    METRICS_AVAILABLE = True
 except ImportError:
     # Allow execution without Prometheus for development
     print("Warning: Prometheus client not installed, metrics will be disabled")
-    Counter = lambda *args, **kwargs: None
-    Histogram = lambda *args, **kwargs: None
-    Gauge = lambda *args, **kwargs: None
+    METRICS_AVAILABLE = False
+
+    # Create dummy classes
+    class DummyMetric:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    Counter = lambda *args, **kwargs: DummyMetric()
+    Histogram = lambda *args, **kwargs: DummyMetric()
+    Gauge = lambda *args, **kwargs: DummyMetric()
+    REGISTRY = None
 
 # Configure logging
 logging.basicConfig(
@@ -68,11 +78,46 @@ from ai_service.api.routers.ai_status import router as ai_status_router
 from ai_service.api.websockets import manager
 from ai_service.api.websocket_events import EventType
 
+# Initialize metrics - using a function to handle potential duplicates
+def init_metrics() -> Tuple[Optional[Any], Optional[Any], Optional[Any], Optional[Any]]:
+    """Initialize Prometheus metrics with duplication handling"""
+    if not METRICS_AVAILABLE:
+        return None, None, None, None
+
+    try:
+        # Create metrics with a safer approach to avoid duplicates
+        metric_keys = ['birth_time_rectifier_requests_total',
+                      'birth_time_rectifier_processing_seconds',
+                      'birth_time_rectifier_gpu_memory_mb',
+                      'birth_time_rectifier_model_inference_seconds']
+
+        metrics = {}
+        for key in metric_keys:
+            try:
+                if key == 'birth_time_rectifier_requests_total':
+                    metrics[key] = Counter(key, 'Total requests processed', registry=REGISTRY)
+                elif key == 'birth_time_rectifier_processing_seconds':
+                    metrics[key] = Histogram(key, 'Time spent processing request', registry=REGISTRY)
+                elif key == 'birth_time_rectifier_gpu_memory_mb':
+                    metrics[key] = Gauge(key, 'GPU memory usage in MB', registry=REGISTRY)
+                elif key == 'birth_time_rectifier_model_inference_seconds':
+                    metrics[key] = Histogram(key, 'Time spent on model inference', registry=REGISTRY)
+            except Exception as e:
+                logger.warning(f"Could not create metric {key}: {e}")
+                metrics[key] = None
+
+        return (metrics.get('birth_time_rectifier_requests_total'),
+               metrics.get('birth_time_rectifier_processing_seconds'),
+               metrics.get('birth_time_rectifier_gpu_memory_mb'),
+               metrics.get('birth_time_rectifier_model_inference_seconds'))
+
+    except Exception as e:
+        logger.error(f"Error initializing metrics: {e}")
+        # Return None for all metrics if initialization fails
+        return None, None, None, None
+
 # Initialize metrics
-REQUESTS = Counter('birth_time_rectifier_requests_total', 'Total requests processed')
-PROCESSING_TIME = Histogram('birth_time_rectifier_processing_seconds', 'Time spent processing request')
-GPU_MEMORY_USAGE = Gauge('birth_time_rectifier_gpu_memory_mb', 'GPU memory usage in MB')
-MODEL_INFERENCE_TIME = Histogram('birth_time_rectifier_model_inference_seconds', 'Time spent on model inference')
+REQUESTS, PROCESSING_TIME, GPU_MEMORY_USAGE, MODEL_INFERENCE_TIME = init_metrics()
 
 # Define lifespan context manager for proper setup/cleanup
 @asynccontextmanager
@@ -143,10 +188,13 @@ app.add_middleware(PathRewriterMiddleware)
 # Request timing middleware
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
+    """Add processing time to response headers"""
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
+
+    # Use response.headers.update() which has proper typing
+    response.headers.update({"X-Process-Time": str(process_time)})
     return response
 
 # Add session middleware
@@ -248,21 +296,13 @@ async def default_websocket_endpoint(websocket: WebSocket):
 
     await manager.connect(websocket, session_id)
     try:
-        # Send initial message with the auto-generated session ID
-        await manager.send_update(session_id, {
-            "type": "connection_status",
-            "status": "connected",
-            "session_id": session_id,
-            "message": "Connected with auto-generated session ID"
-        })
-
         while True:
-            # Keep connection alive, wait for client messages
             data = await websocket.receive_text()
-            # Echo received messages for testing
+            # Echo received messages with session ID
             await manager.send_update(session_id, {
                 "type": "echo",
-                "message": f"Echo: {data}",
+                "message": f"Echo from auto-session: {data}",
+                "session_id": session_id,
                 "timestamp": datetime.now().isoformat()
             })
     except WebSocketDisconnect:
@@ -271,33 +311,22 @@ async def default_websocket_endpoint(websocket: WebSocket):
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(session_id)
 
-# Initialize model instance for AI services
+# Initialize model for backward compatibility
 model = None
 
-def init_model():
-    """
-    Initialize AI model for birth time rectification.
-    This is called lazily when needed.
-    """
-    global model
-
-    # Import model lazily to avoid circular imports
-    from ai_service.models.unified_model import UnifiedRectificationModel
-
-    if model is None:
-        try:
-            logger.info("Initializing AI model...")
-            model = UnifiedRectificationModel()
-            logger.info("AI model initialized successfully.")
-            return True
-        except Exception as e:
-            logger.error(f"Error initializing AI model: {e}")
-            return False
-
-    return True
-
+# Make sure the API reads the correct port from environment variables
 if __name__ == "__main__":
     import uvicorn
-    # Initialize AI model at startup
-    init_model()
-    uvicorn.run("ai_service.main:app", host="0.0.0.0", port=8000, reload=True)
+
+    # Get port from environment variable with fallback to default 8000
+    port = int(os.environ.get("API_PORT", 8000))
+    host = os.environ.get("API_HOST", "0.0.0.0")
+
+    logger.info(f"Starting API service on {host}:{port}")
+
+    uvicorn.run(
+        "ai_service.main:app",
+        host=host,
+        port=port,
+        reload=True if os.environ.get("DEBUG", "False").lower() in ["true", "1", "t"] else False
+    )

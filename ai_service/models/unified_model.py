@@ -4,7 +4,6 @@ Handles AI-based analysis for birth time rectification.
 """
 
 import logging
-import random
 import time
 import json
 import re
@@ -14,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union, Tuple
 
 # Import OpenAI service for AI-powered rectification
-from ..api.services.openai import OpenAIService
+from ai_service.api.services.openai import get_openai_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ class UnifiedRectificationModel:
     """
     Model for birth time rectification using questionnaire responses and chart data.
 
-    Implements multi-task AI model architecture for birth time rectification,
+    Implements AI model architecture for birth time rectification,
     combining different astrological techniques (Tattva, Nadi, KP systems)
     with intelligent model routing for optimal accuracy and cost efficiency.
     """
@@ -41,15 +40,14 @@ class UnifiedRectificationModel:
         self.last_cache_clear = time.time()
         self.response_cache = {}  # Simple cache for repeated queries
 
-        # Initialize OpenAI service
-        try:
-            self.openai_service = OpenAIService()
-            logger.info("OpenAI service initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize OpenAI service: {e}")
-            # Continue with initialization even if OpenAI service fails
-            # This ensures the model can still function in fallback mode
-            self.openai_service = None
+        # Initialize OpenAI service - required for operation
+        self.openai_service = get_openai_service()
+        if not self.openai_service:
+            raise ValueError("OpenAI service is required for birth time rectification")
+
+        # Initialize state
+        self.current_chart = None
+        self.rectification_in_progress = False
 
         # Initialize GPU memory management if available
         try:
@@ -78,7 +76,7 @@ class UnifiedRectificationModel:
             'kp': 0.25      # Krishnamurti Paddhati system
         }
 
-        # Define significance weights for different question categories (as before)
+        # Define significance weights for different question categories
         self.category_weights = {
             "personality": 0.7,
             "life_events": 0.9,
@@ -86,7 +84,7 @@ class UnifiedRectificationModel:
             "relationships": 0.7
         }
 
-        # Define critical chart factors (as before)
+        # Define critical chart factors
         self.critical_factors = [
             "Ascendant",
             "Moon placement",
@@ -98,7 +96,7 @@ class UnifiedRectificationModel:
                                      chart_data: Optional[Dict[str, Any]],
                                      questionnaire_data: Dict[str, Any]) -> Tuple[int, float]:
         """
-        Use o1-preview model for astronomical calculations and rectification.
+        Use OpenAI model for astronomical calculations and rectification.
 
         Args:
             birth_details: Original birth details
@@ -108,13 +106,6 @@ class UnifiedRectificationModel:
         Returns:
             Tuple of (adjustment_minutes, confidence)
         """
-        if not self.openai_service:
-            raise ValueError("OpenAI service not available for rectification")
-
-        # Ensure chart_data is a valid dictionary
-        if chart_data is None:
-            chart_data = {}
-
         # Create cache key based on input data
         cache_key = f"{hash(str(birth_details))}-{hash(str(questionnaire_data))}"
 
@@ -129,7 +120,7 @@ class UnifiedRectificationModel:
         # Call OpenAI with rectification task type
         response = await self.openai_service.generate_completion(
             prompt=prompt,
-            task_type="rectification",  # Will route to o1-preview
+            task_type="rectification",
             max_tokens=1000,
             temperature=0.2  # Lower temperature for more deterministic results
         )
@@ -555,21 +546,10 @@ class UnifiedRectificationModel:
             logger.error(f"Missing or invalid birth time: {birth_time_str}")
             raise ValueError(f"Missing or invalid birth time: {birth_time_str}")
 
-        # Use AI service for rectification if available
-        use_ai_rectification = self.openai_service is not None and original_chart is not None
-
-        # If OpenAI service is available and original chart provided, use AI rectification
-        if use_ai_rectification:
-            logger.info("Using AI model for rectification calculations")
-            adjustment_minutes, ai_confidence = await self._perform_ai_rectification(
-                birth_details, original_chart, questionnaire_data
-            )
-        else:
-            # Fallback to rule-based rectification when AI is not available
-            logger.info("Using fallback mode for rectification calculations")
-            adjustment_minutes, ai_confidence = self._perform_fallback_rectification(
-                birth_details, questionnaire_data
-            )
+        # Use AI service for rectification
+        adjustment_minutes, ai_confidence = await self._perform_ai_rectification(
+            birth_details, original_chart, questionnaire_data
+        )
 
         # Apply adjustment
         birth_dt = datetime.combine(datetime.today().date(), birth_time)
@@ -579,94 +559,46 @@ class UnifiedRectificationModel:
         # Format adjusted time
         suggested_time = adjusted_time.strftime("%H:%M:%S")  # Return time with seconds for consistency
 
-        # Calculate confidence and reliability
-        confidence = self._calculate_confidence(questionnaire_data, ai_confidence)
-        reliability = self._determine_reliability(confidence, questionnaire_data)
-
-        # Generate task-specific predictions using standard datetime.time type
-        task_predictions = self._generate_task_predictions(birth_details, adjusted_time)
+        # Calculate reliability
+        reliability = self._determine_reliability(ai_confidence, questionnaire_data)
 
         # Generate explanation
-        if self.openai_service is not None:
-            explanation = await self._generate_explanation(
-                adjustment_minutes, reliability, questionnaire_data
-            )
-        else:
-            explanation = self._generate_fallback_explanation(
-                adjustment_minutes, reliability, questionnaire_data
-            )
+        explanation = await self._generate_explanation(
+            adjustment_minutes, reliability, questionnaire_data
+        )
 
         # Extract life events from questionnaire
-        if self.openai_service is not None and use_ai_rectification:
-            significant_events = await self._identify_significant_events_ai(
-                questionnaire_data, adjustment_minutes
-            )
-        else:
-            significant_events = self._identify_significant_events_fallback(questionnaire_data)
+        significant_events = await self._identify_significant_events_ai(
+            questionnaire_data, adjustment_minutes
+        )
+
+        # Generate task-specific predictions
+        task_predictions = {
+            "time_accuracy": int(min(90, max(70, ai_confidence))),
+            "ascendant_accuracy": int(min(95, max(75, ai_confidence + 5))),
+            "houses_accuracy": int(min(88, max(68, ai_confidence - 2)))
+        }
 
         # Return comprehensive dictionary with all relevant information
-        techniques = {}
-        if use_ai_rectification:
-            techniques = {
-                "tattva": "Used for house cusps analysis",
-                "nadi": "Used for life events correlation",
-                "kp": "Used for sublord positioning"
-            }
-        else:
-            techniques = {
-                "simulation": "Used for time offset estimation",
-                "pattern": "Used for life events correlation",
-                "heuristic": "Used for confidence calculation"
-            }
+        techniques = {
+            "tattva": "Used for house cusps analysis",
+            "nadi": "Used for life events correlation",
+            "kp": "Used for sublord positioning"
+        }
 
         return {
             "suggested_time": suggested_time,
             "rectified_time": suggested_time,  # Added for API compatibility
-            "confidence": confidence,
-            "confidence_score": confidence,  # Added for API compatibility
+            "confidence": ai_confidence,
+            "confidence_score": ai_confidence,  # Added for API compatibility
             "reliability": reliability,
             "task_predictions": task_predictions,
             "explanation": explanation,
             "significant_events": significant_events,
-            "ai_used": use_ai_rectification,
+            "ai_used": True,
             "adjustment_minutes": adjustment_minutes,
             "techniques_used": techniques
         }
-
-    def _calculate_confidence(self, questionnaire_data: Dict[str, Any], ai_confidence: float = 70.0) -> float:
-        """
-        Calculate confidence score based on questionnaire responses and AI confidence.
-
-        Args:
-            questionnaire_data: Dictionary of question responses
-            ai_confidence: Confidence score from AI (default: 70.0)
-
-        Returns:
-            Confidence score (0-100)
-        """
-        # In a real implementation, this would use a sophisticated algorithm
-
-        # For mock implementation, base confidence on number of questions
-        base_confidence = 70.0
-        num_questions = 0
-
-        if "responses" in questionnaire_data:
-            num_questions = len(questionnaire_data["responses"])
-
-        adjustment = min(num_questions * 2, 25)
-
-        # Add random variation
-        variation = random.uniform(-5, 5)
-
-        confidence = base_confidence + adjustment + variation
-
-        # Blend with AI confidence
-        confidence = (confidence * 0.3) + (ai_confidence * 0.7)
-
-        # Ensure within bounds
-        confidence = max(50.0, min(95.0, confidence))
-
-        return confidence
 
     def _determine_reliability(self, confidence: float, questionnaire_data: Dict[str, Any]) -> str:
         """
@@ -679,8 +611,6 @@ class UnifiedRectificationModel:
         Returns:
             Reliability rating (low, moderate, high, very high)
         """
-        # In a real implementation, this would consider data quality, consistency, etc.
-
         if confidence >= 90:
             return "very high"
         elif confidence >= 80:
@@ -689,43 +619,6 @@ class UnifiedRectificationModel:
             return "moderate"
         else:
             return "low"
-
-    def _generate_task_predictions(self, birth_details: Dict[str, Any], adjusted_time) -> Dict[str, int]:
-        """
-        Generate task-specific predictions based on birth time rectification.
-
-        Args:
-            birth_details: Original birth details
-            adjusted_time: Rectified birth time
-
-        Returns:
-            Dictionary with task predictions
-        """
-        # In a real implementation, this would use a sophisticated algorithm
-
-        # For mock implementation, simple task predictions
-        task_predictions = {
-            "time_accuracy": 85,
-            "ascendant_accuracy": 90,
-            "houses_accuracy": 80
-        }
-
-        # Adjust predictions based on birth time
-        if adjusted_time.hour < 12:
-            task_predictions["time_accuracy"] -= 15
-            task_predictions["ascendant_accuracy"] -= 5
-            task_predictions["houses_accuracy"] -= 5
-        else:
-            task_predictions["time_accuracy"] += 15
-            task_predictions["ascendant_accuracy"] += 5
-            task_predictions["houses_accuracy"] += 5
-
-        # Ensure within bounds
-        task_predictions["time_accuracy"] = max(60, min(85, task_predictions["time_accuracy"]))
-        task_predictions["ascendant_accuracy"] = max(65, min(90, task_predictions["ascendant_accuracy"]))
-        task_predictions["houses_accuracy"] = max(60, min(80, task_predictions["houses_accuracy"]))
-
-        return task_predictions
 
     async def _generate_explanation(self, adjustment_minutes: int,
                               reliability: str,
@@ -753,135 +646,72 @@ class UnifiedRectificationModel:
             if isinstance(safe_questionnaire_data["responses"], list):
                 responses = safe_questionnaire_data["responses"][:3]  # Limit to first 3 for safety
 
-        # Initialize OpenAI service if it's None but the class is available
-        if self.openai_service is None:
-            try:
-                from ..api.services.openai import OpenAIService
-                self.openai_service = OpenAIService()
-                logger.info("Successfully initialized OpenAI service")
-            except Exception as init_error:
-                logger.warning(f"Failed to initialize OpenAI service: {init_error}")
+        # Create a more detailed prompt for better explanation
+        prompt = f"""
+        Based on the birth time rectification analysis, the birth time should be adjusted by {abs_minutes} minutes {direction}.
+        The reliability of this rectification is assessed as {reliability}.
 
-        # Check if OpenAI service is available
-        if self.openai_service is not None:
-            try:
-                # Create a more detailed prompt for better explanation
-                prompt = f"""
-                Based on the birth time rectification analysis, the birth time should be adjusted by {abs_minutes} minutes {direction}.
-                The reliability of this rectification is assessed as {reliability}.
-
-                Key points from the questionnaire:
-                """
-
-                # Add responses safely
-                for i, response in enumerate(responses):
-                    if isinstance(response, dict):
-                        question = response.get('question', 'Question')
-                        answer = response.get('answer', 'No answer')
-                        prompt += f"\n- {question}: {answer}"
-
-                prompt += """
-
-                Please provide a concise explanation for this birth time rectification in astrological terms.
-                Include:
-                1. How this adjustment affects key positions in the birth chart
-                2. Why this adjustment aligns better with the person's life events
-                3. What astrological techniques were used to determine this adjustment
-
-                Use clear, informative language that emphasizes the astrological reasoning.
-                """
-
-                # Call OpenAI service for explanation generation with retries
-                max_retries = 2
-                for retry in range(max_retries + 1):
-                    try:
-                        response = await self.openai_service.generate_completion(
-                            prompt=prompt,
-                            task_type="explanation",  # Routes to GPT-4 Turbo
-                            max_tokens=350,
-                            temperature=0.7
-                        )
-
-                        # Extract and return the explanation
-                        if isinstance(response, dict) and "content" in response:
-                            explanation = response["content"]
-
-                            # Log token usage (for monitoring)
-                            if "tokens" in response and isinstance(response["tokens"], dict) and "total" in response["tokens"]:
-                                logger.info(f"Explanation generated. Tokens used: {response['tokens']['total']}")
-
-                            return explanation
-                        else:
-                            if retry < max_retries:
-                                logger.warning(f"Unexpected OpenAI response format (attempt {retry+1}/{max_retries+1}). Retrying...")
-                                continue
-                            else:
-                                logger.warning("Unexpected OpenAI response format. Using fallback explanation.")
-                                return self._generate_fallback_explanation(adjustment_minutes, reliability, safe_questionnaire_data)
-
-                    except Exception as api_error:
-                        if retry < max_retries:
-                            logger.warning(f"OpenAI API error (attempt {retry+1}/{max_retries+1}): {api_error}. Retrying...")
-                            await asyncio.sleep(1)  # Short delay before retry
-                            continue
-                        else:
-                            logger.error(f"OpenAI API error after {max_retries+1} attempts: {api_error}")
-                            return self._generate_fallback_explanation(adjustment_minutes, reliability, safe_questionnaire_data)
-
-                # Add fallback return in case loop completes without returning
-                return self._generate_fallback_explanation(adjustment_minutes, reliability, safe_questionnaire_data)
-
-            except Exception as e:
-                logger.error(f"Error generating explanation with OpenAI: {e}")
-                # Include stack trace for debugging
-                import traceback
-                logger.error(f"Stack trace: {traceback.format_exc()}")
-                # Fall back to template-based explanation if API fails
-                return self._generate_fallback_explanation(adjustment_minutes, reliability, safe_questionnaire_data)
-        else:
-            # Always use warning level for important service unavailability
-            logger.warning("OpenAI service not available, using fallback explanation")
-            return self._generate_fallback_explanation(adjustment_minutes, reliability, safe_questionnaire_data)
-
-    def _generate_fallback_explanation(self, adjustment_minutes: int,
-                                      reliability: str,
-                                      questionnaire_data: Dict[str, Any]) -> str:
+        Key points from the questionnaire:
         """
-        Generate a fallback explanation when OpenAI is unavailable.
 
-        Args:
-            adjustment_minutes: Adjustment in minutes
-            reliability: Reliability rating
-            questionnaire_data: Dictionary of question responses
+        # Add responses safely
+        for i, response in enumerate(responses):
+            if isinstance(response, dict):
+                question = response.get('question', 'Question')
+                answer = response.get('answer', 'No answer')
+                prompt += f"\n- {question}: {answer}"
 
-        Returns:
-            Explanation text
+        prompt += """
+
+        Please provide a concise explanation for this birth time rectification in astrological terms.
+        Include:
+        1. How this adjustment affects key positions in the birth chart
+        2. Why this adjustment aligns better with the person's life events
+        3. What astrological techniques were used to determine this adjustment
+
+        Use clear, informative language that emphasizes the astrological reasoning.
         """
-        direction = "later" if adjustment_minutes > 0 else "earlier"
-        abs_minutes = abs(adjustment_minutes)
 
-        # Set default explanations
-        explanations = [
-            f"Based on your questionnaire responses, your birth time appears to be {abs_minutes} minutes {direction} than recorded.",
-            f"Analysis suggests a {reliability} probability that your actual birth time was {abs_minutes} minutes {direction}.",
-            f"The rectified birth time aligns better with significant life events and personality traits described in your responses."
-        ]
+        # Call OpenAI service for explanation generation with retries
+        max_retries = 2
+        for retry in range(max_retries + 1):
+            try:
+                response = await self.openai_service.generate_completion(
+                    prompt=prompt,
+                    task_type="explanation",  # Routes to appropriate model
+                    max_tokens=350,
+                    temperature=0.7
+                )
 
-        # Optional additions based on data
-        if reliability in ["high", "very high"]:
-            explanations.append("Your answers showed strong correlation with specific planetary positions.")
+                # Extract and return the explanation
+                if isinstance(response, dict) and "content" in response:
+                    explanation = response["content"]
 
-        # Safely access response count
-        response_count = 0
-        if isinstance(questionnaire_data, dict) and "responses" in questionnaire_data:
-            if isinstance(questionnaire_data["responses"], list):
-                response_count = len(questionnaire_data["responses"])
+                    # Log token usage (for monitoring)
+                    if "tokens" in response and isinstance(response["tokens"], dict) and "total" in response["tokens"]:
+                        logger.info(f"Explanation generated. Tokens used: {response['tokens']['total']}")
 
-        if response_count >= 5:
-            explanations.append("The comprehensive information you provided allowed for a detailed rectification analysis.")
+                    return explanation
+                else:
+                    if retry < max_retries:
+                        logger.warning(f"Unexpected OpenAI response format (attempt {retry+1}/{max_retries+1}). Retrying...")
+                        continue
+                    else:
+                        logger.warning("Unexpected OpenAI response format.")
+                        raise ValueError("Invalid response format from OpenAI API")
 
-        # Join explanations into a single paragraph
-        return " ".join(explanations)
+            except Exception as api_error:
+                if retry < max_retries:
+                    logger.warning(f"OpenAI API error (attempt {retry+1}/{max_retries+1}): {api_error}. Retrying...")
+                    await asyncio.sleep(1)  # Short delay before retry
+                    continue
+                else:
+                    logger.error(f"OpenAI API error after {max_retries+1} attempts: {api_error}")
+                    raise RuntimeError(f"Failed to generate explanation after {max_retries+1} attempts: {api_error}")
+
+        # This should never be reached due to the exception handling above,
+        # but adding to satisfy type checker
+        return "Unable to generate explanation due to API errors"
 
     async def _identify_significant_events_ai(self, questionnaire_data: Dict[str, Any], adjustment_minutes: int) -> List[str]:
         """
@@ -894,9 +724,6 @@ class UnifiedRectificationModel:
         Returns:
             List of significant events with astrological explanations
         """
-        if not self.openai_service:
-            return self._identify_significant_events_fallback(questionnaire_data)
-
         try:
             # Extract responses
             responses = []
@@ -930,7 +757,7 @@ class UnifiedRectificationModel:
             # Call OpenAI service for event identification
             response = await self.openai_service.generate_completion(
                 prompt=prompt,
-                task_type="auxiliary",  # Use less expensive model for this task
+                task_type="auxiliary",  # Use appropriate model for this task
                 max_tokens=250,
                 temperature=0.5
             )
@@ -942,205 +769,8 @@ class UnifiedRectificationModel:
                 events = [line.strip() for line in content.split('\n') if line.strip()]
                 return events
             else:
-                # Fallback to rule-based method
-                return self._identify_significant_events_fallback(questionnaire_data)
+                raise ValueError("Invalid response format from OpenAI API")
 
         except Exception as e:
             logger.error(f"Error identifying significant events with AI: {e}")
-            return self._identify_significant_events_fallback(questionnaire_data)
-
-    def _identify_significant_events_fallback(self, questionnaire_data: Dict[str, Any]) -> List[str]:
-        """
-        Identify significant life events with astrological explanations using rule-based approach.
-
-        Args:
-            questionnaire_data: Dictionary of question responses
-
-        Returns:
-            List of significant events with astrological explanations
-        """
-        # Astrological conditions for different age ranges
-        astrological_conditions = {
-            (28, 30): ["Saturn return", "Nodal opposition"],
-            (35, 37): ["Jupiter return", "Uranus opposition"],
-            (42, 44): ["Neptune square", "Uranus square"],
-            (20, 22): ["Jupiter-Saturn conjunction"],
-            (25, 27): ["Progressed Moon return"],
-            (14, 16): ["Saturn opposition"]
-        }
-
-        # Keywords for life events
-        event_keywords = {
-            "career": ["career", "job", "profession", "work", "business"],
-            "relationship": ["marriage", "divorce", "partner", "relationship", "love"],
-            "education": ["education", "school", "college", "university", "degree"],
-            "health": ["health", "illness", "disease", "hospital", "surgery"],
-            "relocation": ["move", "relocate", "migration", "abroad", "country"]
-        }
-
-        # Extract life events and ages from questionnaire data
-        life_events = []
-        responses = []
-
-        if isinstance(questionnaire_data, dict) and "responses" in questionnaire_data:
-            if isinstance(questionnaire_data["responses"], list):
-                responses = questionnaire_data["responses"]
-
-        for response in responses:
-            if not isinstance(response, dict):
-                continue
-
-            question = response.get('question', '').lower()
-            answer = response.get('answer', '').lower()
-
-            if not answer or answer in ["no", "none", "n/a", "unknown"]:
-                continue
-
-            # Check for age mentions
-            age_mentions = re.findall(r'age\s+(\d+)|(\d+)\s+years\s+old|at\s+(\d+)', answer)
-            ages = []
-            for age_match in age_mentions:
-                for age_str in age_match:
-                    if age_str:
-                        try:
-                            ages.append(int(age_str))
-                        except ValueError:
-                            pass
-
-            # Check for event types
-            event_types = []
-            for event_type, keywords in event_keywords.items():
-                if any(keyword in question for keyword in keywords) or any(keyword in answer for keyword in keywords):
-                    event_types.append(event_type)
-
-            # Generate events with astrological explanations
-            for age in ages:
-                for (age_min, age_max), conditions in astrological_conditions.items():
-                    if age_min <= age <= age_max:
-                        condition = conditions[0]  # Use the first condition
-                        for event_type in event_types or ["life event"]:
-                            event = f"{event_type.capitalize()} during {condition} at age {age}"
-                            life_events.append(event)
-
-        # If no events were extracted, generate some generic ones
-        if not life_events:
-            life_events = [
-                "Career development during Saturn return",
-                "Relationship changes during Nodal opposition",
-                "Personal growth during Jupiter-Saturn conjunction",
-                "Health matters during Neptune square"
-            ]
-            # Randomly select 2-3 events to return
-            import random
-            num_events = min(len(life_events), random.randint(2, 3))
-            life_events = random.sample(life_events, num_events)
-
-        return life_events
-
-    def _perform_fallback_rectification(self, birth_details: Dict[str, Any], questionnaire_data: Dict[str, Any]) -> Tuple[int, float]:
-        """
-        Perform rule-based birth time rectification as a fallback when AI is unavailable.
-
-        Args:
-            birth_details: Original birth details
-            questionnaire_data: Questionnaire responses
-
-        Returns:
-            Tuple of (adjustment_minutes, confidence)
-        """
-        logger.info("Performing fallback rule-based rectification")
-
-        # Extract responses
-        responses = []
-        if isinstance(questionnaire_data, dict) and "responses" in questionnaire_data:
-            if isinstance(questionnaire_data["responses"], list):
-                responses = questionnaire_data["responses"]
-
-        # Set default values
-        adjustment_minutes = 0
-        base_confidence = 65.0
-
-        # Extract direct time hints from questionnaire
-        for response in responses:
-            if not isinstance(response, dict):
-                continue
-
-            question = response.get('question', '').lower()
-            answer = response.get('answer', '').lower()
-
-            # Skip empty answers
-            if not answer:
-                continue
-
-            # Check for direct time mentions
-            time_hints = [
-                "born earlier", "born later", "actually born", "birth certificate wrong",
-                "minutes earlier", "minutes later", "hour earlier", "hour later"
-            ]
-
-            if any(hint in answer for hint in time_hints) or "time" in question:
-                # Look for specific time adjustments
-                earlier_match = re.search(r'(\d+)\s*(?:min(?:ute)?s?)?\s*earlier', answer)
-                later_match = re.search(r'(\d+)\s*(?:min(?:ute)?s?)?\s*later', answer)
-                hour_earlier_match = re.search(r'(\d+)\s*(?:hour(?:s)?)?\s*earlier', answer)
-                hour_later_match = re.search(r'(\d+)\s*(?:hour(?:s)?)?\s*later', answer)
-
-                if earlier_match:
-                    adjustment_minutes = -int(earlier_match.group(1))
-                    base_confidence += 10
-                elif later_match:
-                    adjustment_minutes = int(later_match.group(1))
-                    base_confidence += 10
-                elif hour_earlier_match:
-                    adjustment_minutes = -int(hour_earlier_match.group(1)) * 60
-                    base_confidence += 10
-                elif hour_later_match:
-                    adjustment_minutes = int(hour_later_match.group(1)) * 60
-                    base_confidence += 10
-                else:
-                    # If we have time-related answer but no specific adjustment,
-                    # make a small random adjustment
-                    adjustment_minutes = random.randint(-30, 30)
-
-        # If no specific adjustment found in responses, use heuristics
-        if adjustment_minutes == 0:
-            # Birth time rounding heuristic: many recorded birth times are rounded to hour or half-hour
-            birth_time_str = birth_details.get("birth_time", birth_details.get("birthTime", ""))
-            if birth_time_str:
-                try:
-                    if len(birth_time_str.split(":")) == 3:  # HH:MM:SS
-                        birth_time = datetime.strptime(birth_time_str, "%H:%M:%S").time()
-                    else:  # HH:MM
-                        birth_time = datetime.strptime(birth_time_str, "%H:%M").time()
-
-                    # Check if time is exactly on the hour
-                    if birth_time.minute == 0:
-                        # Shift slightly (between 5-15 minutes)
-                        adjustment_minutes = random.randint(5, 15)
-                    # Check if time is on the half hour
-                    elif birth_time.minute == 30:
-                        # Shift slightly (between 5-15 minutes in either direction)
-                        adjustment_minutes = random.choice([-1, 1]) * random.randint(5, 15)
-                except (ValueError, AttributeError):
-                    # Default to small random adjustment if parsing fails
-                    adjustment_minutes = random.randint(-20, 20)
-            else:
-                # Default to small random adjustment
-                adjustment_minutes = random.randint(-20, 20)
-
-        # Clamp adjustment to reasonable range (-2 to +2 hours)
-        adjustment_minutes = max(-120, min(120, adjustment_minutes))
-
-        # Calculate confidence based on available data
-        confidence = base_confidence
-
-        # Adjust confidence based on number of questionnaire responses
-        confidence += min(len(responses) * 1.5, 15)
-
-        # Add small random variation to make it look more realistic
-        confidence += random.uniform(-5, 5)
-
-        # Ensure confidence is within reasonable bounds
-        confidence = max(50.0, min(85.0, confidence))
-
-        return adjustment_minutes, confidence
+            raise RuntimeError(f"Failed to identify significant events: {e}")

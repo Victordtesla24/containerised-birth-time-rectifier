@@ -7,36 +7,17 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any, Optional
 
+# Import OpenAI service
+from ai_service.api.services.openai import get_openai_service
+
 # Setup logging
 logger = logging.getLogger("birth-time-rectifier.ai-status")
 
 # Create router
 router = APIRouter(tags=["AI Status"])
 
-# Import OpenAI service
-try:
-    from ai_service.api.services.openai import OpenAIService
-except ImportError as e:
-    logger.error(f"Failed to import OpenAI service: {e}")
-    OpenAIService = None
-
-def get_openai_service() -> Any:
-    """
-    Get or create an OpenAI service instance.
-    Returns None if the service cannot be initialized.
-    """
-    try:
-        if OpenAIService is None:
-            return None
-        return OpenAIService()
-    except Exception as e:
-        logger.error(f"Failed to initialize OpenAI service: {e}")
-        return None
-
 @router.get("/status", summary="Check AI Service Status")
-async def check_ai_status(
-    openai_service: Any = Depends(get_openai_service)
-) -> Dict[str, Any]:
+async def check_ai_status() -> Dict[str, Any]:
     """
     Check if the AI service is healthy and ready to handle requests.
 
@@ -44,31 +25,31 @@ async def check_ai_status(
         Dict with status information about the OpenAI service.
     """
     try:
-        # Basic check if the service is available
-        if openai_service is None:
-            return {
-                "status": "warning",
-                "message": "OpenAI service not initialized",
-                "initialized": False,
-                "available": False,
-                "cache_enabled": False
-            }
+        # Get real OpenAI service instance
+        openai_service = get_openai_service()
+
+        # Verify service is initialized
+        if not openai_service:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service not available"
+            )
 
         # Get API key status (redacted for security)
-        api_key_available = bool(openai_service.api_key) and openai_service.api_key != "sk-mock-key-for-testing"
-        api_key_status = "available" if api_key_available else "mock" if openai_service.api_key == "sk-mock-key-for-testing" else "missing"
+        api_key_available = bool(openai_service.api_key)
 
-        # Check if using mock responses
-        using_mock = openai_service.api_key == "sk-mock-key-for-testing"
+        if not api_key_available:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="OpenAI API key not configured"
+            )
 
-        # Basic status information
+        # Return real service status
         status_info = {
-            "status": "healthy" if api_key_available else "limited",
-            "message": "AI service is operational" if api_key_available else "Using mock responses",
+            "status": "healthy",
+            "message": "AI service is operational",
             "initialized": True,
             "available": True,
-            "api_key_status": api_key_status,
-            "using_mock_responses": using_mock,
             "cache_enabled": hasattr(openai_service, "cache_expiry") and openai_service.cache_expiry > 0,
             "timeout": getattr(openai_service, "timeout", 30),
             "usage_stats": {
@@ -78,20 +59,18 @@ async def check_ai_status(
         }
 
         return status_info
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error checking AI status: {e}")
-        return {
-            "status": "error",
-            "message": f"Error checking AI status: {str(e)}",
-            "initialized": False,
-            "available": False,
-            "error": str(e)
-        }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking AI status: {str(e)}"
+        )
 
 @router.get("/usage_statistics", summary="Get AI Usage Statistics")
-async def get_usage_statistics(
-    openai_service: Any = Depends(get_openai_service)
-) -> Dict[str, Any]:
+async def get_usage_statistics() -> Dict[str, Any]:
     """
     Get usage statistics for the OpenAI service.
 
@@ -99,26 +78,33 @@ async def get_usage_statistics(
         Dict with token usage counts and estimated costs.
     """
     try:
-        if openai_service is None:
-            return {
-                "status": "warning",
-                "message": "OpenAI service not initialized",
-                "total_tokens": 0,
-                "calls_made": 0,
-                "estimated_cost": 0.0
-            }
+        # Get real OpenAI service instance
+        openai_service = get_openai_service()
 
-        # Get usage statistics
+        # Verify service is initialized
+        if not openai_service:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenAI service not available"
+            )
+
+        # Get real usage statistics from the service
         usage_stats = openai_service.get_usage_statistics()
 
+        # Validate we have actual stats
+        if not usage_stats:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve usage statistics"
+            )
+
         return usage_stats
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error getting usage statistics: {e}")
-        return {
-            "status": "error",
-            "message": f"Error getting usage statistics: {str(e)}",
-            "total_tokens": 0,
-            "calls_made": 0,
-            "estimated_cost": 0.0,
-            "error": str(e)
-        }
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting usage statistics: {str(e)}"
+        )

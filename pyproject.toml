@@ -1,0 +1,5 @@
+[tool.pylance]
+reportMissingImports = "none"
+
+[tool.pyright]
+reportMissingImports = false

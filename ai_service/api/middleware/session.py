@@ -268,3 +268,21 @@ async def session_middleware(request: Request, call_next):
             test_threshold = 5.0  # Higher threshold for tests
             if process_time > test_threshold and "test" in sys.argv[0].lower():  # Increased from 1.0s to 5.0s for tests
                 raise RuntimeError(f"Slow request: {request.method} {request.url.path} took {process_time:.2f}s")
+
+# Function to get session ID for dependency injection in route handlers
+async def get_session_id(request: Request) -> str:
+    """
+    Get the current session ID from the request.
+    If no session ID is found, creates a new one.
+
+    Designed to be used with FastAPI's Depends.
+
+    Returns:
+        str: The session ID
+    """
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        # Create a new session ID if one doesn't exist
+        session_id = str(uuid.uuid4())
+        # This will be set in the response via the session middleware
+    return session_id

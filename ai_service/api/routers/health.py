@@ -24,9 +24,21 @@ def get_gpu_info():
     """
     try:
         # Try to import torch for GPU detection
-        import torch
+        torch_available = False
+        try:
+            import torch
+            torch_available = True
+        except ImportError:
+            return {
+                "device": "cpu",
+                "name": "CPU Only (torch not installed)",
+                "count": 0,
+                "total": "N/A",
+                "allocated": "N/A",
+                "utilization": "N/A"
+            }
 
-        if torch.cuda.is_available():
+        if torch_available and torch.cuda.is_available():
             device = "cuda"
             # Get GPU properties
             device_count = torch.cuda.device_count()
@@ -59,12 +71,6 @@ def get_gpu_info():
                 "device": "cpu",
                 "message": "No GPU available, running on CPU"
             }
-    except ImportError:
-        # Torch not installed
-        return {
-            "device": "cpu",
-            "message": "PyTorch not installed, running on CPU"
-        }
     except Exception as e:
         # Some other error
         return {
@@ -81,7 +87,7 @@ async def health_check(request: Request):
     gpu_info = get_gpu_info()
 
     return {
-        "status": "healthy",
+        "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "service": "Birth Time Rectifier API",
         "gpu": gpu_info

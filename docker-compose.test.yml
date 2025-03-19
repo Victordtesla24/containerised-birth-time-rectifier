@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  test-runner:
+    build:
+      context: .
+      dockerfile: ai_service.Dockerfile
+      target: development
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner
+    volumes:
+      - ./ai_service:/app/ai_service
+      - ./tests:/app/tests
+      - ./config:/app/config
+      - ./requirements.txt:/app/requirements.txt
+      - test_logs:/app/logs
+      - test_cache:/app/cache
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=test
+      - APP_ENV=test
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+      - API_URL=http://api_gateway:8000
+      - WS_URL=ws://api_gateway:8000/ws
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TEST_MODE=true
+      - SKIP_REAL_APIS=${SKIP_REAL_APIS:-true}
+    command: >
+      sh -c "
+        echo 'Installing test dependencies...' &&
+        pip install pytest pytest-asyncio pytest-cov pytest-mock httpx websockets &&
+        echo 'Running tests...' &&
+        python -m pytest tests/ -v
+      "
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-test-redis
+    volumes:
+      - ./config/docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - test_redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  test_logs:
+    driver: local
+  test_cache:
+    driver: local
+  test_redis_data:
+    driver: local

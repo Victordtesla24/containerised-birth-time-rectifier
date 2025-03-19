@@ -20,12 +20,20 @@ from ai_service.models.unified_model import UnifiedRectificationModel
 from ai_service.core.chart_calculator import calculate_verified_chart
 from ai_service.api.websocket_events import emit_event, emit_rectification_progress, EventType
 import asyncio
+import os
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Initialize the UnifiedRectificationModel
-rectification_model = UnifiedRectificationModel()
+# Create dependency for UnifiedRectificationModel to lazy-load it
+def get_rectification_model():
+    """Get rectification model instance"""
+    # Enable test mode if TEST_MODE environment variable is set
+    if os.environ.get("TEST_MODE", "").lower() == "true":
+        logger.info("Using test mode for rectification model")
+        os.environ["TEST_MODE"] = "true"
+
+    return UnifiedRectificationModel()
 
 # Create router with appropriate tags
 router = APIRouter(
@@ -65,7 +73,8 @@ async def rectify_birth_time(
     background_tasks: BackgroundTasks,
     request: RectificationRequest,
     response: Response,
-    session_id: Optional[str] = Header(None)
+    session_id: Optional[str] = Header(None),
+    rectification_model: UnifiedRectificationModel = Depends(get_rectification_model)
 ):
     """
     Rectify birth time based on questionnaire answers.
@@ -76,7 +85,7 @@ async def rectify_birth_time(
     try:
         # Retrieve the original chart
         chart_id = request.chart_id
-        chart_data = retrieve_chart(chart_id)
+        chart_data = await retrieve_chart(chart_id)
 
         # Check if chart exists
         if not chart_data:

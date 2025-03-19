@@ -67,6 +67,48 @@ async def get_coordinates(location: str) -> Optional[Dict[str, float]]:
     # Return sensible defaults if geocoding fails
     return None
 
+async def get_timezone_for_coordinates(latitude: float, longitude: float) -> Dict[str, Any]:
+    """
+    Get timezone information for given coordinates.
+
+    Args:
+        latitude: Latitude in decimal degrees
+        longitude: Longitude in decimal degrees
+
+    Returns:
+        Dictionary with timezone information (timezone, offset)
+    """
+    # Import timezone libraries
+    try:
+        import timezonefinder
+        import pytz
+        from datetime import datetime
+
+        # Initialize timezone finder
+        tf = timezonefinder.TimezoneFinder()
+
+        # Find timezone
+        timezone_str = tf.timezone_at(lat=latitude, lng=longitude)
+
+        if not timezone_str:
+            logger.warning(f"Could not find timezone for coordinates: {latitude}, {longitude}")
+            timezone_str = "UTC"
+
+        # Get current offset
+        timezone = pytz.timezone(timezone_str)
+        offset = timezone.utcoffset(datetime.now()).total_seconds() / 3600
+
+        return {
+            "timezone": timezone_str,
+            "offset": offset
+        }
+    except Exception as e:
+        logger.error(f"Error finding timezone: {e}")
+        return {
+            "timezone": "UTC",
+            "offset": 0
+        }
+
 # For testing purposes
 if __name__ == "__main__":
     import asyncio

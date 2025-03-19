@@ -6,6 +6,10 @@ Loads environment variables and provides default values.
 import os
 from typing import Optional, Dict, Any, List
 import logging
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 
 # Configure logging
 logger = logging.getLogger("birth-time-rectifier.config")
