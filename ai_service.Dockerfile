@@ -49,15 +49,15 @@ COPY scripts/setup/download_ephemeris.sh /app/scripts/setup/
 RUN chmod +x /app/scripts/setup/download_ephemeris.sh && \
     /app/scripts/setup/download_ephemeris.sh
 
-# Keep the container running for development
+# Expose port
 EXPOSE 8000
 
-# Health check with direct service status endpoint
+# Health check with direct health endpoint that uses the ASGI wrapper
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-    CMD curl -s -f http://localhost:8000/api/v1/ai/status || exit 1
+    CMD curl -s -f http://localhost:8000/health || exit 1
 
-# Command to run the application with robust configuration for development
-CMD ["uvicorn", "ai_service.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--preload", "--log-level", "info"]
+# Command to run the application using the wrapper which bypasses middleware for health checks
+CMD ["uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000", "--reload", "--preload", "--log-level", "info"]
 
 # Stage for production
 FROM base as production
@@ -81,11 +81,11 @@ RUN chmod +x /app/scripts/setup/download_ephemeris.sh && \
 # Expose port
 EXPOSE 8000
 
-# Health check with direct service status endpoint
+# Health check with direct health endpoint that uses the ASGI wrapper
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-    CMD curl -s -f http://localhost:8000/api/v1/ai/status || exit 1
+    CMD curl -s -f http://localhost:8000/health || exit 1
 
-# Command to run the application with robust configuration for production
+# Command to run the application using the wrapper which bypasses middleware for health checks
 # - preload ensures models are initialized before handling requests
 # - timeout settings prevent long-running operations from crashing the server
-CMD ["uvicorn", "ai_service.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--preload", "--timeout-keep-alive", "120", "--timeout-graceful-shutdown", "180", "--log-level", "info", "--proxy-headers"]
+CMD ["uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--preload", "--timeout-keep-alive", "120", "--timeout-graceful-shutdown", "180", "--log-level", "info", "--proxy-headers"]

@@ -270,3 +270,74 @@ npm run test:update-visual
 ### Visual Test Files
 
 Visual tests are located in `src/__tests__` with the naming pattern `*.visual.test.jsx`.
+
+## Environment Setup for Real API Calls
+
+This application is configured to use real OpenAI API calls without fallbacks or mockups. To ensure the system works correctly, you need to set up your environment variables properly.
+
+### Setting Up Your `.env` File
+
+1. Create a `.env` file in the root directory of the project (or use the provided template)
+2. Add your OpenAI API key to the file:
+
+```
+OPENAI_API_KEY=your_actual_api_key_here
+```
+
+3. Additional configuration can be added to the `.env` file:
+
+```
+# OpenAI Model Configuration
+OPENAI_MODEL=gpt-4-turbo-preview
+OPENAI_TEMPERATURE=0.7
+
+# Enable caching for API calls (reduces costs and improves performance)
+ENABLE_CACHE=true
+CACHE_TTL=3600
+
+# Logging Configuration
+LOG_LEVEL=INFO
+
+# Application Configuration
+PORT=8000
+DEBUG=false
+```
+
+### Obtaining an OpenAI API Key
+
+1. Go to https://platform.openai.com/api-keys
+2. Sign in or create an account
+3. Create a new API key
+4. Copy the key and add it to your `.env` file
+
+### Important Notes
+
+- **Never commit your `.env` file to version control.** The `.env` file has been added to `.gitignore`.
+- The application is designed to fail with clear error messages if the API key is not available.
+- There are **no fallbacks to mock implementations** - this ensures you're always testing with real API calls.
+
+### Requirements
+
+To use the `.env` file loading, make sure to install the required dependency:
+
+```bash
+pip install python-dotenv
+```
+
+## Running the Application
+
+Once your `.env` file is set up:
+
+```bash
+python -m ai_service.main
+```
+
+## Running Tests with Real API Calls
+
+To run tests with real API calls:
+
+```bash
+pytest -xvs tests/
+```
+
+Note that running tests with real API calls will consume API credits and may incur costs.

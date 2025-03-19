@@ -1,141 +1,212 @@
 """
-Test configuration for pytest.
+Configuration fixtures for pytest.
 
-This module provides fixtures and configuration for the test suite.
+This module provides fixtures for dependency injection and mocking in tests.
 """
 
 import pytest
 import os
-import json
 import logging
-from typing import Dict, Any, List, Optional, Callable, Awaitable
-from unittest.mock import MagicMock, AsyncMock
 import asyncio
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Dict, Any, Optional, Type, cast, AsyncGenerator
+from playwright.sync_api import sync_playwright, Page, Browser
+from playwright.async_api import async_playwright, Page as AsyncPage
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Mock classes for testing
-class MockOpenAIService:
-    """Mock OpenAI service for testing"""
+# Import dependency container
+from ai_service.utils.dependency_container import get_container
 
-    def __init__(self):
-        self.api_key = "test_key"
-        self.client = AsyncMock()
-        self.usage_stats = {
-            "calls_made": 0,
-            "total_tokens": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_cost": 0.0
-        }
+# Define base classes for mocks
+class BaseOpenAIService:
+    """Base class for OpenAI service mocks."""
+    pass
 
-    async def generate_completion(self, prompt, task_type, max_tokens=500, temperature=0.7):
-        """Mock generate completion"""
-        self.usage_stats["calls_made"] += 1
-        self.usage_stats["prompt_tokens"] += 10
-        self.usage_stats["completion_tokens"] += 20
-        self.usage_stats["total_tokens"] += 30
+class BaseChartService:
+    """Base class for chart service mocks."""
+    pass
 
-        # Return a default response
-        return {
-            "content": json.dumps({
-                "verified": True,
-                "confidence": 85,
-                "corrections_applied": False,
-                "message": "Chart verified successfully"
-            }),
-            "model_used": "gpt-4-turbo"
-        }
+class BaseChartVerifier:
+    """Base class for chart verifier mocks."""
+    pass
 
-class MockChartVerifier:
-    """Mock chart verifier for testing"""
+# Import services we want to mock - handle import errors gracefully
+try:
+    from ai_service.api.services.openai.service import OpenAIService
+    from ai_service.services.chart_service import ChartService, ChartVerifier
+    # Use the actual classes for mocking
+    ServiceClass = OpenAIService
+    ChartServiceClass = ChartService
+    VerifierClass = ChartVerifier
+except ImportError:
+    logger.warning("Service modules not available, using base classes for mocks")
+    # Use the base classes if imports fail
+    ServiceClass = BaseOpenAIService  # type: ignore
+    ChartServiceClass = BaseChartService  # type: ignore
+    VerifierClass = BaseChartVerifier  # type: ignore
 
-    def __init__(self):
-        self.openai_service = MockOpenAIService()
+# Add Playwright fixtures
+@pytest.fixture(scope="session")
+def browser_type_launch_args():
+    """Define browser launch arguments to use across tests."""
+    return {
+        "headless": True,
+        "args": ["--no-sandbox", "--disable-gpu"]
+    }
 
-    async def verify_chart(self, verification_data, openai_service=None):
-        """Mock verify chart"""
-        if not openai_service:
-            openai_service = self.openai_service
+@pytest.fixture(scope="session")
+def browser(browser_type_launch_args):
+    """Create a browser instance for testing."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**browser_type_launch_args)
+        yield browser
+        browser.close()
 
-        # Call OpenAI service
-        response = await openai_service.generate_completion(
-            prompt="Test prompt",
-            task_type="chart_verification",
-            max_tokens=800,
-            temperature=0.2
-        )
+@pytest.fixture
+def page(browser) -> Page:
+    """Create a new page instance for each test."""
+    page = browser.new_page()
+    yield page
+    page.close()
 
-        # Parse response
-        if isinstance(response, dict) and "content" in response:
-            try:
-                result = json.loads(response["content"])
-                result["verified_at"] = "2023-01-01T00:00:00.000Z"
-                return result
-            except json.JSONDecodeError:
-                pass
+@pytest.fixture
+async def async_page() -> AsyncGenerator[AsyncPage, None]:
+    """Create an async page instance."""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        yield page
+        await page.close()
+        await browser.close()
 
-        # Default response
-        return {
-            "verified": True,
-            "confidence": 70,
-            "corrections_applied": False,
-            "message": "Chart verified with default response",
-            "verified_at": "2023-01-01T00:00:00.000Z"
-        }
+@pytest.fixture(scope="function")
+def reset_container():
+    """Reset the dependency container before and after each test."""
+    # Get the container and clear all registered mocks
+    container = get_container()
+    container.clear_mocks()
 
-class MockChartService:
-    """Mock chart service for testing"""
+    # Let the test run
+    yield
 
-    def __init__(self):
-        self.chart_verifier = MockChartVerifier()
+    # Clean up after the test
+    container.clear_mocks()
 
-    async def generate_chart(self, *args, **kwargs):
-        """Mock generate chart"""
-        return {
-            "id": "test-chart-id",
-            "ascendant": {"sign": "Aries", "longitude": 15.5},
-            "planets": {
-                "Sun": {"sign": "Taurus", "longitude": 25.3},
-                "Moon": {"sign": "Cancer", "longitude": 10.2}
-            }
-        }
 
-# Fixtures for testing
 @pytest.fixture
 def mock_openai_service():
-    """Fixture for mock OpenAI service"""
-    return MockOpenAIService()
+    """Create a mock OpenAI service for testing."""
+    mock_service = MagicMock(spec=ServiceClass)
+
+    # Set up the generate_completion method as an AsyncMock
+    mock_service.generate_completion = AsyncMock()
+    mock_service.generate_completion.return_value = {
+        "content": "This is a mock response from OpenAI",
+        "model": "gpt-4-mock",
+        "tokens": {
+            "prompt": 10,
+            "completion": 20,
+            "total": 30
+        },
+        "cost": 0.0
+    }
+
+    # Set up other potentially used methods
+    mock_service.verify_chart = AsyncMock()
+    mock_service.generate_questions = AsyncMock()
+
+    # Register mock with container
+    container = get_container()
+    container.register_mock("openai_service", mock_service)
+
+    return mock_service
+
 
 @pytest.fixture
 def mock_chart_verifier():
-    """Fixture for mock chart verifier"""
-    return MockChartVerifier()
+    """Create a mock chart verifier for testing."""
+    mock_verifier = MagicMock(spec=VerifierClass)
+
+    # Set up async methods
+    mock_verifier.verify_chart = AsyncMock()
+    mock_verifier.verify_chart.return_value = {
+        "verified": True,
+        "confidence_score": 90,
+        "corrections": [],
+        "message": "Chart verified successfully (mock)"
+    }
+
+    # Register mock with container
+    container = get_container()
+    container.register_mock("chart_verifier", mock_verifier)
+
+    return mock_verifier
+
 
 @pytest.fixture
-def mock_chart_service():
-    """Fixture for mock chart service"""
-    return MockChartService()
+def mock_chart_service(mock_openai_service, mock_chart_verifier):
+    """Create a mock chart service for testing."""
+    mock_service = MagicMock(spec=ChartServiceClass)
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_environment():
-    """Set up environment variables for testing."""
-    # Store original environment variables
-    original_env = os.environ.copy()
+    # Set up async methods
+    mock_service.generate_chart = AsyncMock()
+    mock_service.verify_chart_with_openai = AsyncMock()
+    mock_service.get_chart = AsyncMock()
+    mock_service.compare_charts = AsyncMock()
+    mock_service.save_chart = AsyncMock()
+    mock_service.delete_chart = AsyncMock()
 
-    # Set test environment variables
-    if not os.environ.get("OPENAI_API_KEY"):
-        logger.warning("OPENAI_API_KEY environment variable is not set in .env file.")
+    # Set default return values
+    mock_service.generate_chart.return_value = {
+        "chart_id": "test_chart_123",
+        "generated_at": "2023-01-01T00:00:00Z",
+        "verification": {
+            "verified": True,
+            "confidence_score": 85,
+            "message": "Chart generated successfully (mock)"
+        }
+    }
 
-    # For yield fixture
-    yield
+    # Set up dependencies
+    mock_service.openai_service = mock_openai_service
+    mock_service.chart_verifier = mock_chart_verifier
 
-    # Restore original environment after tests
-    for key, value in original_env.items():
-        os.environ[key] = value
+    # Register mock with container
+    container = get_container()
+    container.register_mock("chart_service", mock_service)
+
+    return mock_service
+
+
+@pytest.fixture
+def sample_chart_data():
+    """Provide sample chart data for testing."""
+    return {
+        "chart_id": "test_chart_123",
+        "birth_details": {
+            "birth_date": "1990-01-01",
+            "birth_time": "12:00:00",
+            "latitude": 40.7128,
+            "longitude": -74.0060,
+            "timezone": "America/New_York",
+            "location": "New York, NY"
+        },
+        "ascendant": {
+            "sign": "Aries",
+            "degree": 15.5
+        },
+        "planets": [
+            {"name": "Sun", "sign": "Capricorn", "degree": 10.5, "house": 10},
+            {"name": "Moon", "sign": "Taurus", "degree": 22.3, "house": 2},
+            {"name": "Mercury", "sign": "Capricorn", "degree": 5.6, "house": 10}
+        ],
+        "houses": [
+            {"number": 1, "sign": "Aries", "degree": 15.5},
+            {"number": 2, "sign": "Taurus", "degree": 20.1},
+            {"number": 3, "sign": "Gemini", "degree": 25.3}
+        ],
+        "generated_at": "2023-01-01T00:00:00Z"
+    }

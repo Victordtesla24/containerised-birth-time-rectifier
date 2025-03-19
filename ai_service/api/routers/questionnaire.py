@@ -100,9 +100,11 @@ def get_astro_calculator():
 from ai_service.api.services.session_service import get_session_store
 
 @router.get("", response_model=Dict[str, Any])
-async def get_questionnaire(chart_id: str = Query(None, description="Chart ID for personalized questions"),
-                          session_id: str = Query(None, description="Session ID for tracking"),
-                          questionnaire_service: Any = Depends(get_questionnaire_service)):
+async def get_questionnaire(
+    chart_id: str = Query(None, description="Chart ID for personalized questions"),
+    session_id: str = Query(None, description="Session ID for tracking"),
+    questionnaire_service = Depends(get_questionnaire_service)
+):
     """
     Get the questionnaire questions tailored to the chart data.
     """

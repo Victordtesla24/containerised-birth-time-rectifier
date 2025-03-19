@@ -10,6 +10,7 @@ The tests are organized into several categories:
 - **Component Tests**: Located in `tests/components/`. These test components with dependencies.
 - **Integration Tests**: Located in `tests/integration/`. These test multiple components working together.
 - **API Sequence Tests**: Documented in `tests/API_SEQUENCE_TESTS.md`. These test the full API sequence flow.
+- **Questionnaire Tests**: Documented in `tests/integration/QUESTIONNAIRE_TESTS.md`. These test the questionnaire functionality with real API calls.
 
 ## Running Tests
 
@@ -29,6 +30,9 @@ PYTHONPATH=. pytest tests/components/
 
 # Run integration tests only
 PYTHONPATH=. pytest tests/integration/
+
+# Run questionnaire tests specifically
+PYTHONPATH=. pytest tests/integration/test_questionnaire.py
 
 # Run a specific test file
 PYTHONPATH=. pytest tests/unit/test_chart_verification_functions.py
@@ -50,6 +54,9 @@ For containerized testing, use the provided script:
 
 # Run integration tests only
 ./run_tests.sh --integration
+
+# Run questionnaire tests specifically
+./scripts/run_questionnaire_tests.sh
 
 # Skip OpenAI tests
 ./run_tests.sh --skip-openai
@@ -87,6 +94,16 @@ The tests require the following dependencies:
 
 These are installed automatically when running tests in Docker.
 
+## Real API Testing Approach
+
+The Questionnaire tests use a "no mocks" approach, meaning they interact with real external APIs and services rather than mocked responses. This approach:
+
+1. Provides higher confidence in production readiness
+2. Tests actual API responses and error handling
+3. Validates the entire system against real-world conditions
+
+See `tests/integration/QUESTIONNAIRE_TESTS.md` for details on the questionnaire tests implementation.
+
 ## API Rate Limiting
 
 The tests include rate limiting for OpenAI API calls to prevent exceeding API quotas during testing. The rate limiter is implemented in `tests/utils/rate_limiter.py`.
@@ -99,6 +116,16 @@ The tests are designed to ensure that the backend services align with the sequen
 2. **Original Sequence Diagram**: Tests the complete end-to-end API flow.
 3. **Vedic Chart Verification Flow**: Tests the OpenAI verification integration.
 
+## Docker Container Persistence
+
+For questionnaire tests, we ensure persistence across Docker container rebuilds by:
+
+1. Using volumes to persist test files
+2. Backing up tests to a persistent volume
+3. Automatically restoring tests when containers are rebuilt
+
+See scripts in `scripts/backup_questionnaire_tests.sh` and `scripts/run_questionnaire_tests.sh`.
+
 ## Troubleshooting
 
 If tests are failing, check the following:
@@ -107,5 +134,6 @@ If tests are failing, check the following:
 2. Ensure environment variables are set correctly.
 3. Check Redis connection if using the Redis rate limiter.
 4. If OpenAI tests are failing, check the OpenAI API key.
+5. For questionnaire tests, verify the Docker volume persistence.
 
-For more information, see the API sequence tests documentation in `tests/API_SEQUENCE_TESTS.md`.
+For more information, see the API sequence tests documentation in `tests/API_SEQUENCE_TESTS.md` and questionnaire tests documentation in `tests/integration/QUESTIONNAIRE_TESTS.md`.

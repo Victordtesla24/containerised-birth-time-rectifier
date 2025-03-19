@@ -49,3 +49,10 @@ backup/
 *.log
 *.sqlite
 *.db
+
+## Ephemiris Data Files
+ephemiris_data/
+ephemiris/
+*.se1
+*.cat
+*.zip

@@ -11,6 +11,7 @@ import random
 import asyncio
 import json
 from datetime import datetime
+import re
 
 # Add type checker directive to ignore FixtureFunction related errors
 # pyright: reportInvalidTypeForm=false
@@ -276,7 +277,7 @@ class QuestionnaireEngine:
         4. Is approachable for someone without astrological knowledge
         5. Has high potential to distinguish between different potential birth times
 
-        Return ONLY a JSON with the following format:
+        Return ONLY a JSON object with the following format, and do not include any markdown formatting like ```json:
         {{
             "id": "unique_question_id",
             "text": "The carefully crafted question text",
@@ -301,7 +302,38 @@ class QuestionnaireEngine:
 
             # Parse the JSON response
             response_content = response.get("content", "{}")
-            question_data = json.loads(response_content)
+
+            # Remove any markdown code block formatting that might be present
+            cleaned_content = response_content
+            # Remove triple backticks and json tag if present at the beginning
+            if cleaned_content.strip().startswith("```"):
+                # Handle ```json format
+                cleaned_content = re.sub(r'^```(?:json)?\n', '', cleaned_content, flags=re.MULTILINE)
+                # Remove closing backticks
+                cleaned_content = re.sub(r'\n```$', '', cleaned_content, flags=re.MULTILINE)
+
+            try:
+                # Try to parse the JSON
+                question_data = json.loads(cleaned_content)
+            except json.JSONDecodeError:
+                # If parsing fails, try to extract just the JSON part using regex
+                json_pattern = r'({.*?})'
+                match = re.search(json_pattern, cleaned_content, re.DOTALL)
+                if match:
+                    potential_json = match.group(1)
+                    # Try parsing again
+                    question_data = json.loads(potential_json)
+                else:
+                    # If all else fails, create a default question
+                    logger.warning("Failed to parse JSON response, using default question")
+                    question_data = {
+                        "id": f"default_{uuid.uuid4().hex[:8]}",
+                        "text": "Can you describe any significant life events that occurred around your 25th birthday?",
+                        "type": "text",
+                        "relevance": "high",
+                        "sensitivity_to_time": "medium",
+                        "astrological_factors": ["life_events", "progressions"]
+                    }
 
             # Add metadata
             question_data["generated_method"] = "ai_dynamic"
@@ -426,7 +458,7 @@ class QuestionnaireEngine:
             if not p1 or not p2 or not aspect_type:
                 continue
 
-            if any(p in ["Ascendant", "MC", "Midheaven", "IC", "Descendant", "DSC"] for p in [p1, p2]):
+            if any(p in ["Ascendant", "MC", "Midheaven", "IC", "DSC", "Descendant"] for p in [p1, p2]):
                 angular_aspects.append(f"{p1.lower()}_{aspect_type.lower()}_{p2.lower()}")
 
         if angular_aspects:
@@ -445,77 +477,95 @@ class QuestionnaireEngine:
 
     def _format_chart_summary(self, chart_data: Dict[str, Any]) -> str:
         """
-        Format chart data for AI analysis, highlighting time-sensitive factors.
+        Format chart data into a summary string for OpenAI prompt.
 
-        This method prioritizes astrological factors that are most sensitive to birth time changes,
-        particularly ascendant, houses, and angular positions.
+        Args:
+            chart_data: Dictionary containing chart data
+
+        Returns:
+            Formatted chart summary string
         """
-        if not chart_data:
-            return "No chart data available"
+        summary = ["### BIRTH CHART SUMMARY ###"]
 
-        summary = []
+        # Check if planets data exists
+        planets_data = chart_data.get("planets", {})
+        if not planets_data:
+            summary.append("No planetary data available.")
+            return "\n".join(summary)
 
-        # Birth details section
-        if "birth_details" in chart_data:
-            bd = chart_data["birth_details"]
-            summary.append("BIRTH DETAILS:")
-            summary.append(f"Date: {bd.get('birth_date', 'Unknown')}")
-            summary.append(f"Time: {bd.get('birth_time', 'Unknown')} (TO BE RECTIFIED)")
-            summary.append(f"Location: {bd.get('location', 'Unknown')} (Lat: {bd.get('latitude', 'Unknown')}, Long: {bd.get('longitude', 'Unknown')})")
-            summary.append("")
+        # Check the structure of planets data (could be dict or list)
+        planets_list = []
+        if isinstance(planets_data, dict):
+            # Convert dict to list format for uniform processing
+            for planet_name, planet_data in planets_data.items():
+                planet_data_copy = dict(planet_data)  # Create a copy to avoid modifying original
+                planet_data_copy["planet"] = planet_name  # Add planet name
+                planets_list.append(planet_data_copy)
+        elif isinstance(planets_data, list):
+            planets_list = planets_data
 
-        # CRITICAL TIME-SENSITIVE FACTORS (highlighted for AI attention)
-        summary.append("TIME-SENSITIVE FACTORS (CRITICAL FOR RECTIFICATION):")
-
-        # Ascendant (most sensitive to birth time)
-        asc_data = next((p for p in chart_data.get("planets", []) if p.get("planet") == "Ascendant"), {})
+        # Process ascendant (from dedicated field or planets)
+        asc_data = chart_data.get("ascendant", {})
         if asc_data:
             summary.append(f"• ASCENDANT: {asc_data.get('sign', 'Unknown')} {asc_data.get('degree', '0')}° " +
                           f"(Changes approx. every 2 hours - HIGHEST SENSITIVITY TO BIRTH TIME)")
 
-        # Midheaven/MC (very sensitive to birth time)
-        mc_data = next((p for p in chart_data.get("planets", []) if p.get("planet") in ["MC", "Midheaven"]), {})
+        # Midheaven/MC (try to get from planets if available)
+        mc_data = next((p for p in planets_list if p.get("planet") in ["MC", "Midheaven"]), {})
         if mc_data:
             summary.append(f"• MIDHEAVEN: {mc_data.get('sign', 'Unknown')} {mc_data.get('degree', '0')}° " +
                           f"(Changes approx. every 2 hours - VERY HIGH SENSITIVITY)")
 
         # Houses (highly sensitive to birth time)
-        if "houses" in chart_data and chart_data["houses"]:
+        houses_data = chart_data.get("houses", [])
+        if houses_data:
             summary.append("• HOUSE CUSPS (Each shifts with minutes of birth time change):")
-            for i, house in enumerate(chart_data["houses"][:4], 1):  # Focus on angular houses
-                if isinstance(house, dict):
-                    summary.append(f"  - House {i} (Angular): {house.get('sign', 'Unknown')} {house.get('degree', '0')}°")
+
+            # Handle houses based on structure (list or dict)
+            if isinstance(houses_data, list):
+                for i, house_pos in enumerate(houses_data[:4], 1):  # Focus on angular houses
+                    if isinstance(house_pos, dict):
+                        summary.append(f"  - House {i} (Angular): {house_pos.get('sign', 'Unknown')} {house_pos.get('degree', '0')}°")
+                    else:
+                        # Handle case where house position is just a degree value
+                        sign_num = int(house_pos / 30) % 12
+                        degree = house_pos % 30
+                        sign_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                                     "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+                        summary.append(f"  - House {i} (Angular): {sign_names[sign_num]} {degree:.1f}°")
 
         # Moon position (changes ~12° per day, moderate time sensitivity)
-        moon_data = next((p for p in chart_data.get("planets", []) if p.get("planet") == "Moon"), {})
+        moon_data = next((p for p in planets_list if p.get("planet") == "Moon"), {})
         if moon_data:
             summary.append(f"• MOON: {moon_data.get('sign', 'Unknown')} {moon_data.get('degree', '0')}° " +
-                          f"(Changes ~12° daily - Moves ~0.5° per hour)")
+                          f"(Moves ~12° per day - MODERATE SENSITIVITY)")
 
-        # Other planets section
-        summary.append("\nOTHER PLANETARY POSITIONS:")
-        for planet in chart_data.get("planets", []):
-            if isinstance(planet, dict) and planet.get("planet") not in ["Ascendant", "MC", "Midheaven", "Moon"]:
-                summary.append(f"• {planet.get('planet', 'Unknown')}: {planet.get('sign', 'Unknown')} {planet.get('degree', '0')}°")
+        # Sun position (changes ~1° per day, low time sensitivity)
+        sun_data = next((p for p in planets_list if p.get("planet") == "Sun"), {})
+        if sun_data:
+            summary.append(f"• SUN: {sun_data.get('sign', 'Unknown')} {sun_data.get('degree', '0')}° " +
+                          f"(Moves ~1° per day - LOW TIME SENSITIVITY)")
 
-        # Angular aspects (aspects to Asc/MC/IC/DSC are time-sensitive)
-        angular_aspects = []
-        for aspect in chart_data.get("aspects", []):
-            if isinstance(aspect, dict):
-                planets = [aspect.get("planet1", ""), aspect.get("planet2", "")]
-                if any(p in ["Ascendant", "MC", "Midheaven", "IC", "DSC", "Descendant"] for p in planets):
-                    angular_aspects.append(f"• {aspect.get('planet1', '')} {aspect.get('aspect_type', '')} {aspect.get('planet2', '')} (Orb: {aspect.get('orb', '0')}°)")
+        # Add other personal planets
+        for planet in ["Mercury", "Venus", "Mars"]:
+            planet_data = next((p for p in planets_list if p.get("planet") == planet), {})
+            if planet_data:
+                summary.append(f"• {planet.upper()}: {planet_data.get('sign', 'Unknown')} {planet_data.get('degree', '0')}°")
 
-        if angular_aspects:
-            summary.append("\nTIME-SENSITIVE ASPECTS (involving angles):")
-            summary.extend(angular_aspects)
+        # Add important aspects
+        if "aspects" in chart_data and chart_data["aspects"]:
+            # Filter to include only the most significant aspects
+            important_aspects = [a for a in chart_data["aspects"]
+                                if (a.get("planet1") in ["Sun", "Moon", "Ascendant"] or
+                                    a.get("planet2") in ["Sun", "Moon", "Ascendant"]) and
+                                   a.get("angle") in [0, 60, 90, 120, 180]]
 
-        # Add birth time sensitivity analysis
-        summary.append("\nBIRTH TIME RECTIFICATION SENSITIVITY ANALYSIS:")
-        summary.append("• Ascendant moves ~1° every 4 minutes of birth time")
-        summary.append("• House cusps shift proportionally with Ascendant changes")
-        summary.append("• Planets close to house cusps or angles are highly sensitive to time changes")
-        summary.append("• Moon moves ~0.5° per hour, affecting lunar aspects and house position")
+            if important_aspects:
+                summary.append("• KEY ASPECTS:")
+                for aspect in important_aspects[:3]:  # Limit to 3 most important
+                    aspect_type = {0: "Conjunction", 60: "Sextile", 90: "Square",
+                                  120: "Trine", 180: "Opposition"}.get(aspect.get("angle"), "Aspect")
+                    summary.append(f"  - {aspect.get('planet1')} {aspect_type} {aspect.get('planet2')}")
 
         return "\n".join(summary)
 
