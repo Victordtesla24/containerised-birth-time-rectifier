@@ -39,6 +39,40 @@ PLANETS_LIST = [
     "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
 ]
 
+# Define constants that might be missing from flatlib.const
+# Always use our own PLANETS_LIST since const.LIST_PLANETS is not available in the current flatlib version
+PLANETS_LIST = [
+    "Sun", "Moon", "Mercury", "Venus", "Mars",
+    "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
+]
+
+# Define constants that are missing from flatlib.const in this version
+# Always use our own PLANETS_LIST since const.LIST_PLANETS is not available
+PLANETS_LIST = [
+    "Sun", "Moon", "Mercury", "Venus", "Mars",
+    "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
+]
+
+# Define constants that are missing from flatlib.const in the current version
+PLANETS_LIST = [
+    "Sun", "Moon", "Mercury", "Venus", "Mars",
+    "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
+]
+
+# Define constants that are missing from flatlib.const in the current version
+# Always use this list instead of trying to access const.LIST_PLANETS which doesn't exist
+PLANETS_LIST = [
+    "Sun", "Moon", "Mercury", "Venus", "Mars",
+    "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
+]
+
+# Define the list of planets to use in all astrological calculations
+# flatlib.const.LIST_PLANETS is not available in the current version
+PLANETS_LIST = [
+    "Sun", "Moon", "Mercury", "Venus", "Mars",
+    "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
+]
+
 # Define life event types and their associated astrological factors
 LIFE_EVENT_MAPPING = {
     "marriage": ["Venus", "Juno", "Descendant", "7th_house"],
@@ -299,9 +333,10 @@ def calculate_chart(birth_date: datetime, latitude: float, longitude: float, tim
 
         for planet_id in range(10):  # 0-9 are major planets
             try:
+                # Call Swiss Ephemeris to calculate planet position
                 calc_result = swe.calc_ut(jul_day, planet_id)
 
-                # Validate calculation result
+                # Check if calculation result is valid
                 if not isinstance(calc_result, tuple) or len(calc_result) < 2:
                     logger.warning(f"Invalid calculation result for planet {planet_id}: {calc_result}")
                     continue
@@ -317,27 +352,31 @@ def calculate_chart(birth_date: datetime, latitude: float, longitude: float, tim
                     latitude = 0.0
                     distance = 0.0
                 else:
-                    longitude = float(position[0])
-                    latitude = float(position[1])
-                    distance = float(position[2])
-
-                # Ensure speed is a sequence with at least 1 element
-                if not hasattr(speed, '__getitem__'):
-                    logger.warning(f"Invalid speed data for planet {planet_id}: {speed}")
-                    speed_value = 0.0
-                else:
                     try:
-                        # Handle both scalar and sequence speed values
-                        if isinstance(speed, (int, float)):
-                            speed_value = float(speed)
-                        elif len(speed) > 0:
+                        longitude = float(position[0])
+                        latitude = float(position[1])
+                        distance = float(position[2])
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid numeric data in position for planet {planet_id}: {position}")
+                        longitude = 0.0
+                        latitude = 0.0
+                        distance = 0.0
+
+                # Handle speed value with more robust error handling
+                speed_value = 0.0
+                try:
+                    # Handle different formats of speed data
+                    if isinstance(speed, (int, float)):
+                        speed_value = float(speed)
+                    elif hasattr(speed, '__getitem__') and len(speed) > 0:
+                        # Check if the value is valid before conversion
+                        if speed[0] != "" and speed[0] is not None:
                             speed_value = float(speed[0])
-                        else:
-                            logger.warning(f"Empty speed data for planet {planet_id}")
-                            speed_value = 0.0
-                    except (IndexError, TypeError):
-                        logger.warning(f"Could not extract speed data for planet {planet_id}: {speed}")
-                        speed_value = 0.0
+                    else:
+                        logger.warning(f"Empty or invalid speed data for planet {planet_id}: {speed}")
+                except (IndexError, TypeError, ValueError) as e:
+                    logger.warning(f"Could not convert speed data for planet {planet_id}: {speed}, Error: {e}")
+                    speed_value = 0.0
 
                 planets[planet_names[planet_id]] = {
                     'longitude': longitude,
@@ -560,7 +599,7 @@ def score_chart_for_event(chart: Chart, event_type: str) -> float:
     score = 0.0
 
     # Check planet positions and dignities
-    for planet_name in const.LIST_PLANETS:
+    for planet_name in get_planets_list():
         try:
             planet = chart.getObject(planet_name)
 
@@ -620,7 +659,7 @@ def score_chart_for_event(chart: Chart, event_type: str) -> float:
                 angle = chart.getAngle(angle_map[angle_key])
 
                 # Check if any planet is conjunct the angle
-                for planet_name in const.LIST_PLANETS:
+                for planet_name in get_planets_list():
                     planet = chart.getObject(planet_name)
                     # Check for conjunction (within 5 degrees)
                     if abs(planet.lon - angle.lon) < 5.0 or abs(planet.lon - angle.lon) > 355.0:
@@ -990,7 +1029,7 @@ async def ai_assisted_rectification(
 
     # Extract planet positions
     chart_data["planets"] = {}
-    for planet_name in const.LIST_PLANETS:
+    for planet_name in get_planets_list():
         try:
             planet = chart.getObject(planet_name)
             if planet:
@@ -1033,7 +1072,7 @@ async def ai_assisted_rectification(
 
     # Calculate and add major aspects
     chart_data["aspects"] = []
-    planet_list = list(const.LIST_PLANETS)
+    planet_list = list(get_planets_list())
     for i, p1 in enumerate(planet_list):
         for p2 in planet_list[i+1:]:
             try:
@@ -1296,6 +1335,12 @@ async def solar_arc_rectification(
             except AttributeError:
                 # Fall back to our custom PLANETS_LIST if const.LIST_PLANETS is not available
                 planets_to_check = PLANETS_LIST
+
+            # Use our custom PLANETS_LIST directly since const.LIST_PLANETS is not available
+            planets_to_check = PLANETS_LIST
+
+            # Use our get_planets_list function
+            planets_to_check = get_planets_list()
 
             for planet_key in planets_to_check:
                 try:
@@ -2325,3 +2370,10 @@ async def comprehensive_rectification(
             "solar_arc_rectification": bool(solar_arc_time)
         }
     }
+
+# Safe function to get planet lists - always use our PLANETS_LIST
+def get_planets_list():
+    """Safe function to get a list of planets to use in calculations.
+    This function always returns our predefined PLANETS_LIST and never tries to access const.LIST_PLANETS.
+    """
+    return PLANETS_LIST

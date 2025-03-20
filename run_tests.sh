@@ -22,3 +22,12 @@ else
     echo "Running specified tests..."
     python -m pytest "$@"
 fi
+
+# Run the specified tests or all tests if none specified
+if [ $# -eq 0 ]; then
+    echo "Running all tests..."
+    python3 -m pytest
+else
+    echo "Running specified tests..."
+    python3 -m pytest "$@"
+fi
