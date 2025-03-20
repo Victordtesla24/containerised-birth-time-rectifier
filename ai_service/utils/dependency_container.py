@@ -147,10 +147,28 @@ def register_chart_service():
     """Register the Chart service in the dependency container."""
     container = get_container()
     if not container.has_service("chart_service"):
-        # Import here to avoid circular imports
-        from ai_service.services.chart_service import create_chart_service
-        container.register("chart_service", create_chart_service)
-        logger.info("Registered chart_service factory")
+        try:
+            # Import here to avoid circular imports
+            from ai_service.services.chart_service import create_chart_service
+
+            # First register the factory
+            container.register("chart_service", create_chart_service)
+            logger.info("Registered chart_service factory")
+
+            # Then immediately create an instance to verify it works
+            chart_service = container.get("chart_service")
+            logger.info("Successfully initialized chart_service")
+        except Exception as e:
+            logger.error(f"Failed to register chart_service: {e}")
+            # Fallback to a basic implementation if available
+            try:
+                from ai_service.api.services.chart import get_chart_service
+                chart_service = get_chart_service()
+                container.register_service("chart_service", chart_service)
+                logger.info("Registered fallback chart_service")
+            except Exception as fallback_error:
+                logger.error(f"Failed to register fallback chart_service: {fallback_error}")
+                raise ValueError(f"Chart service registration failed completely: {e} -> {fallback_error}")
 
 # Call this on module import to ensure the services are registered
 register_openai_service()

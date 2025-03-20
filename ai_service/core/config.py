@@ -7,26 +7,14 @@ import os
 from typing import Optional, Dict, Any, List
 import logging
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, validator
 
 # Load .env file
 load_dotenv()
 
 # Configure logging
 logger = logging.getLogger("birth-time-rectifier.config")
-
-# Define our own BaseSettings class to avoid Pydantic import issues
-class BaseSettings:
-    """Simple settings base class to replace Pydantic's BaseSettings"""
-
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-
-    def dict(self) -> Dict[str, Any]:
-        """Return settings as dictionary"""
-        return {k: v for k, v in self.__dict__.items()
-                if not k.startswith('_') and not callable(v)}
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables with defaults"""
@@ -49,8 +37,23 @@ class Settings(BaseSettings):
     # Redis settings
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+    # Database settings
+    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
+    DB_USER: str = os.getenv("DB_USER", "postgres")
+    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "postgres")
+    DB_NAME: str = os.getenv("DB_NAME", "birth_time_rectifier")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+
+    # Media and export settings
+    MEDIA_ROOT: str = os.getenv("MEDIA_ROOT", "/app/media")
+    UPLOADS_DIR: str = os.path.join(MEDIA_ROOT, "uploads")
+    EXPORTS_DIR: str = os.path.join(MEDIA_ROOT, "exports")
+
     # OpenAI API settings (for AI integration)
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY", None)
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_ORG_ID: str = os.getenv("OPENAI_ORG_ID", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
 
     # GPU settings
     # Handle potential comments in environment variables by stripping everything after #
@@ -60,15 +63,28 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 
     # Session settings
-    SESSION_TTL: int = 3600  # 1 hour in seconds
+    SESSION_DIR: str = os.getenv("SESSION_DIR", "/app/sessions")
+    SESSION_EXPIRY_DAYS: int = int(os.getenv("SESSION_EXPIRY_DAYS", "30"))
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # Chart calculation settings
+    EPHEMERIS_PATH: str = os.getenv("EPHEMERIS_PATH", "/app/ephemeris")
+    DEFAULT_HOUSE_SYSTEM: str = os.getenv("DEFAULT_HOUSE_SYSTEM", "P")
+    DEFAULT_ZODIAC_TYPE: str = os.getenv("DEFAULT_ZODIAC_TYPE", "sidereal")
+    DEFAULT_AYANAMSA: float = float(os.getenv("DEFAULT_AYANAMSA", "23.6647"))
+
+    @validator("DATABASE_URL", pre=True)
+    def assemble_db_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
+        if v and len(v) > 0:
+            return v
+
+        # Build the URL from separate components
+        return f"postgresql://{values.get('DB_USER')}:{values.get('DB_PASSWORD')}@{values.get('DB_HOST')}:{values.get('DB_PORT')}/{values.get('DB_NAME')}"
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     def dict_with_secrets_hidden(self) -> Dict[str, Any]:
         """Returns settings dict with sensitive values hidden"""
-        settings_dict = self.dict()
+        settings_dict = self.model_dump()
         sensitive_keys = ["SECRET_KEY", "OPENAI_API_KEY"]
 
         for key in sensitive_keys:
@@ -83,3 +99,10 @@ settings = Settings()
 # Log non-sensitive settings in debug mode
 if settings.DEBUG:
     logger.debug(f"Loaded settings: {settings.dict_with_secrets_hidden()}")
+
+# Ensure necessary directories exist
+os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+os.makedirs(settings.UPLOADS_DIR, exist_ok=True)
+os.makedirs(settings.EXPORTS_DIR, exist_ok=True)
+os.makedirs(settings.SESSION_DIR, exist_ok=True)
+os.makedirs(settings.EPHEMERIS_PATH, exist_ok=True)

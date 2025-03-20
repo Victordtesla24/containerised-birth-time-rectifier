@@ -7,17 +7,20 @@ import json
 import uuid
 import time
 import os
+import shutil
 from typing import Dict, Any, Optional, List, Union
 from datetime import datetime, timedelta
 import asyncio
 import aiofiles
+
+from ai_service.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class SessionStore:
     """Enhanced session store for questionnaire interactions with persistence."""
 
-    def __init__(self, persistence_dir: str = "/app/cache/sessions"):
+    def __init__(self, persistence_dir: Optional[str] = None):
         """
         Initialize the session store with persistence support.
 
@@ -26,46 +29,27 @@ class SessionStore:
         """
         self.sessions: Dict[str, Dict[str, Any]] = {}
         self.session_expiry: Dict[str, float] = {}
-        self.default_expiry = 3600 * 24  # 24 hours in seconds
-        self.persistence_dir = persistence_dir
+        self.default_expiry = 3600 * 24 * settings.SESSION_EXPIRY_DAYS  # Default days in seconds
+
+        # Use the configured session directory or the provided one
+        self.persistence_dir = persistence_dir or settings.SESSION_DIR
         self.cleanup_interval = 3600  # 1 hour
         self.last_cleanup = time.time()
 
         # Create persistence directory
-        os.makedirs(self.persistence_dir, exist_ok=True)
-        logger.info(f"Session persistence directory created: {self.persistence_dir}")
-
-        # Load persisted sessions
-        asyncio.create_task(self._load_persisted_sessions())
-
-        logger.info("Enhanced session store initialized with persistence")
-
-    async def _load_persisted_sessions(self) -> None:
-        """Load sessions from persisted files."""
-        try:
-            if not os.path.exists(self.persistence_dir):
+        if not os.path.isdir(self.persistence_dir):
+            try:
                 os.makedirs(self.persistence_dir, exist_ok=True)
-                logger.info(f"Created persistence directory: {self.persistence_dir}")
-                return
-
-            for filename in os.listdir(self.persistence_dir):
-                if not filename.endswith('.json'):
-                    continue
-
-                session_id = filename.replace('.json', '')
-                try:
-                    await self._load_session_file(session_id)
-                except Exception as e:
-                    logger.error(f"Error loading session {session_id}: {str(e)}")
-
-            logger.info(f"Loaded {len(self.sessions)} persisted sessions")
-        except Exception as e:
-            logger.error(f"Error loading persisted sessions: {str(e)}")
-            raise RuntimeError(f"Failed to load session data: {str(e)}")
+                # Ensure the directory has proper permissions (readable/writable)
+                os.chmod(self.persistence_dir, 0o755)  # Standard permissions
+                logger.info(f"Session persistence directory created: {self.persistence_dir}")
+            except Exception as e:
+                logger.error(f"Failed to create persistence directory: {str(e)}")
+                raise RuntimeError(f"Cannot create session directory: {str(e)}")
 
     async def _load_session_file(self, session_id: str) -> bool:
         """
-        Load a single session file.
+        Load a session from a file.
 
         Args:
             session_id: The session ID
@@ -78,60 +62,55 @@ class SessionStore:
             return False
 
         try:
-            # First check if file is empty
-            if os.path.getsize(filepath) == 0:
-                logger.warning(f"Session file {session_id}.json is empty, skipping")
-                return False
-
             async with aiofiles.open(filepath, 'r') as f:
                 content = await f.read()
-
-                # Check if content is empty or whitespace only
-                if not content or content.isspace():
-                    logger.warning(f"Session file {session_id}.json content is empty, skipping")
+                if not content.strip():
+                    logger.error(f"Empty session file: {session_id}")
+                    # Remove the invalid file
+                    os.remove(filepath)
                     return False
 
-                try:
-                    session_data = json.loads(content)
-                except json.JSONDecodeError as json_err:
-                    logger.error(f"Invalid JSON in session file {session_id}: {str(json_err)}")
-                    # Attempt to back up the corrupted file
+                # Parse the content
+                session_data = json.loads(content)
+                self.sessions[session_id] = session_data
+
+                # Set expiry based on updated_at time + default expiry
+                updated_at = session_data.get("updated_at")
+                if updated_at:
                     try:
-                        backup_path = os.path.join(self.persistence_dir, f"{session_id}.json.corrupted")
-                        os.rename(filepath, backup_path)
-                        logger.info(f"Backed up corrupted session file to {backup_path}")
-                    except Exception as backup_err:
-                        logger.error(f"Failed to back up corrupted session file {session_id}: {str(backup_err)}")
-                    return False
-
-                # Check if session has expired
-                if "expiry" in session_data:
-                    if time.time() > session_data["expiry"]:
-                        # Delete expired session file
-                        try:
-                            os.remove(filepath)
-                        except Exception as e:
-                            logger.error(f"Error removing expired session file {session_id}: {str(e)}")
-                        return False
-
-                    # Set expiry in memory
-                    self.session_expiry[session_id] = session_data["expiry"]
-                    # Remove expiry from session data as it's tracked separately
-                    del session_data["expiry"]
+                        dt = datetime.fromisoformat(updated_at)
+                        # Convert to timestamp and add expiry
+                        self.session_expiry[session_id] = dt.timestamp() + self.default_expiry
+                    except (ValueError, TypeError):
+                        # If date parsing fails, use current time + expiry
+                        self.session_expiry[session_id] = time.time() + self.default_expiry
                 else:
-                    # If no expiry in file, set default
+                    # Use current time + expiry if no updated_at date
                     self.session_expiry[session_id] = time.time() + self.default_expiry
 
-                self.sessions[session_id] = session_data
+                logger.info(f"Session loaded from file: {session_id}")
                 return True
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing session file {session_id}: {str(e)}")
+            # Make a backup of the corrupted file
+            backup_file = f"{filepath}.corrupted"
+            try:
+                shutil.copy2(filepath, backup_file)
+                logger.info(f"Backup of corrupted session file created: {backup_file}")
+                # Remove the invalid file
+                os.remove(filepath)
+            except Exception as backup_err:
+                logger.error(f"Failed to backup corrupted session file: {str(backup_err)}")
+
+            return False
         except Exception as e:
             logger.error(f"Error reading session file {session_id}: {str(e)}")
-            # Don't raise exception, just return False to skip this file
             return False
 
     async def _persist_session(self, session_id: str) -> bool:
         """
-        Persist session to file.
+        Persist a session to a file.
 
         Args:
             session_id: The session ID
@@ -140,21 +119,41 @@ class SessionStore:
             True if persisted successfully, False otherwise
         """
         if session_id not in self.sessions:
-            logger.error(f"Cannot persist non-existent session: {session_id}")
+            logger.warning(f"Cannot persist non-existent session: {session_id}")
             return False
 
-        try:
-            # Add expiry to session data for persistence
-            session_data = self.sessions[session_id].copy()
-            session_data["expiry"] = self.session_expiry.get(session_id, time.time() + self.default_expiry)
+        # Get session data
+        session_data = self.sessions[session_id]
 
-            filepath = os.path.join(self.persistence_dir, f"{session_id}.json")
-            async with aiofiles.open(filepath, 'w') as f:
-                await f.write(json.dumps(session_data, indent=2))
+        # Create filepath
+        filepath = os.path.join(self.persistence_dir, f"{session_id}.json")
+
+        # Use a temporary file to ensure atomic writes
+        temp_filepath = f"{filepath}.tmp"
+
+        try:
+            # Convert to JSON
+            json_data = json.dumps(session_data, indent=2)
+
+            # Write to temporary file first
+            async with aiofiles.open(temp_filepath, 'w') as f:
+                await f.write(json_data)
+
+            # Rename the temporary file to the final name (atomic operation)
+            os.replace(temp_filepath, filepath)
+
+            logger.info(f"Session persisted to file: {session_id}")
             return True
+
         except Exception as e:
             logger.error(f"Error persisting session {session_id}: {str(e)}")
-            raise IOError(f"Failed to persist session {session_id}: {str(e)}")
+            # Clean up the temporary file if it exists
+            if os.path.exists(temp_filepath):
+                try:
+                    os.remove(temp_filepath)
+                except Exception:
+                    pass
+            return False
 
     async def create_session(self, session_id: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -252,7 +251,16 @@ class SessionStore:
             return False
 
         # Update session data
-        session["data"] = {**session.get("data", {}), **data}
+        for key, value in data.items():
+            if key == "data" and isinstance(value, dict):
+                # Merge with existing data
+                if "data" not in session:
+                    session["data"] = {}
+                session["data"].update(value)
+            else:
+                # Direct replacement for other fields
+                session[key] = value
+
         session["updated_at"] = datetime.now().isoformat()
 
         # Refresh expiry time
@@ -264,18 +272,16 @@ class SessionStore:
         logger.info(f"Session updated: {session_id}")
         return True
 
-    async def add_question_response(self, session_id: str, question_id: str,
-                                   question: str, answer: Any,
-                                   metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def add_question_response(self, session_id: str, question_id: str, question_text: str, answer: Any, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Add a question response to the session.
+        Add a question response to a session.
 
         Args:
             session_id: The session ID
             question_id: The question ID
-            question: The question text
-            answer: The user's answer
-            metadata: Optional metadata about the question/response
+            question_text: The question text
+            answer: The answer provided
+            metadata: Optional additional metadata for the response
 
         Returns:
             True if successful, False otherwise
@@ -285,44 +291,30 @@ class SessionStore:
             logger.warning(f"Cannot add response to non-existent session: {session_id}")
             return False
 
-        # Add response to session
+        # Initialize responses array if not present
         if "responses" not in session:
             session["responses"] = []
 
-        timestamp = datetime.now().isoformat()
-
-        # Create response object with enhanced metadata
+        # Format the response
         response = {
             "question_id": question_id,
-            "question": question,
+            "question": question_text,
             "answer": answer,
-            "timestamp": timestamp,
-            "response_time_ms": metadata.get("response_time_ms") if metadata else None,
+            "timestamp": datetime.now().isoformat()
         }
 
-        # Include optional metadata if provided
-        if metadata:
+        # Add metadata if provided
+        if metadata and isinstance(metadata, dict):
             response["metadata"] = metadata
 
+        # Add response to the session
         session["responses"].append(response)
 
-        # Track questions asked
-        if "questions_asked" not in session:
-            session["questions_asked"] = []
-        session["questions_asked"].append(question_id)
+        # Update last activity timestamp
+        session["last_activity"] = datetime.now().isoformat()
 
-        # Update question count
-        session["questions_answered"] = len(session["responses"])
-        session["updated_at"] = timestamp
-
-        # Refresh expiry time
-        self.session_expiry[session_id] = time.time() + self.default_expiry
-
-        # Persist changes
-        await self._persist_session(session_id)
-
-        logger.info(f"Question response added to session {session_id}: {question_id}")
-        return True
+        # Persist the session
+        return await self.update_session(session_id, session)
 
     async def get_responses(self, session_id: str) -> List[Dict[str, Any]]:
         """
@@ -412,7 +404,7 @@ class SessionStore:
                 os.remove(filepath)
             except Exception as e:
                 logger.error(f"Error deleting session file {session_id}: {str(e)}")
-                raise IOError(f"Failed to delete session file: {str(e)}")
+                return False
 
         logger.info(f"Session deleted: {session_id}")
         return True
@@ -437,43 +429,35 @@ class SessionStore:
         self.last_cleanup = current_time
         return len(expired_sessions)
 
-    async def get_session_stats(self) -> Dict[str, Any]:
+    async def get_all_sessions(self) -> List[Dict[str, Any]]:
         """
-        Get statistics about sessions.
+        Get a list of all sessions with their metadata.
 
         Returns:
-            Dictionary with session statistics
+            List of session metadata
         """
-        active_count = len(self.sessions)
+        sessions_list = []
 
-        # Count sessions by confidence ranges
-        confidence_ranges = {
-            "low": 0,      # 0-40
-            "medium": 0,   # 40-70
-            "high": 0      # 70-100
-        }
+        # Add all in-memory sessions
+        for session_id, session_data in self.sessions.items():
+            sessions_list.append({
+                "session_id": session_id,
+                "created_at": session_data.get("created_at"),
+                "updated_at": session_data.get("updated_at"),
+                "expires_at": datetime.fromtimestamp(self.session_expiry.get(session_id, 0)).isoformat(),
+                "questions_answered": session_data.get("questions_answered", 0),
+                "confidence": session_data.get("current_confidence", 0)
+            })
 
-        for session in self.sessions.values():
-            confidence = session.get("current_confidence", 0)
-            if confidence >= 70:
-                confidence_ranges["high"] += 1
-            elif confidence >= 40:
-                confidence_ranges["medium"] += 1
-            else:
-                confidence_ranges["low"] += 1
+        return sessions_list
 
-        return {
-            "active_sessions": active_count,
-            "confidence_distribution": confidence_ranges,
-            "last_cleanup": datetime.fromtimestamp(self.last_cleanup).isoformat()
-        }
 
 # Singleton instance
-_instance = None
+_session_store = None
 
 def get_session_store() -> SessionStore:
     """Get or create the session store singleton"""
-    global _instance
-    if _instance is None:
-        _instance = SessionStore()
-    return _instance
+    global _session_store
+    if _session_store is None:
+        _session_store = SessionStore()
+    return _session_store

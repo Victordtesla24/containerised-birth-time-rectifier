@@ -13,163 +13,154 @@ import pytz
 import re
 from typing import Tuple, List, Dict, Any, Optional, Union
 import numpy as np
+import json
 
-# Import astrological calculation libraries
-try:
-    from flatlib.datetime import Datetime  # type: ignore
-    from flatlib.geopos import GeoPos  # type: ignore
-    from flatlib.chart import Chart  # type: ignore
-    from flatlib import const  # type: ignore
-    from flatlib.dignities import essential  # type: ignore
-    FLATLIB_AVAILABLE = True
-except ImportError:
-    FLATLIB_AVAILABLE = False
-    # Create dummy values for type checking
-    class DummyConst:
-        ASC = "ASC"
-        MC = "MC"
-        LIST_PLANETS = ["SUN", "MOON", "MERCURY", "VENUS", "MARS", "JUPITER", "SATURN", "URANUS", "NEPTUNE", "PLUTO"]
-        SUN = "SUN"
-        MOON = "MOON"
-        MERCURY = "MERCURY"
-        VENUS = "VENUS"
-        MARS = "MARS"
-        JUPITER = "JUPITER"
-        SATURN = "SATURN"
-        URANUS = "URANUS"
-        NEPTUNE = "NEPTUNE"
-        PLUTO = "PLUTO"
-    const = DummyConst()
+# Import astrological calculation libraries (no fallbacks)
+from flatlib.datetime import Datetime
+from flatlib.geopos import GeoPos
+from flatlib.chart import Chart
+from flatlib import const
+from flatlib.dignities import essential
 
 # Additional required dependencies
-import numpy as np
-try:
-    from timezonefinder import TimezoneFinder
-    TIMEZONEFINDER_AVAILABLE = True
-except ImportError:
-    TIMEZONEFINDER_AVAILABLE = False
-    # Create dummy implementation for timezonefinder
-    class DummyTimezoneFinder:
-        def timezone_at(self, lat=None, lng=None):
-            return "UTC"
-    TimezoneFinder = DummyTimezoneFinder
+from timezonefinder import TimezoneFinder
 
 # Import OpenAI integration for advanced rectification
-try:
-    from ai_service.api.services.openai import get_openai_service
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    # Use Any type for get_openai_service to avoid type mismatch
-    def get_openai_service() -> Any:
-        return None
+from ai_service.api.services.openai import get_openai_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Astrological life event mapping - specific planetary transits/aspects associated with life events
+# Define life event types and their associated astrological factors
 LIFE_EVENT_MAPPING = {
-    'marriage': [
-        {'planet1': const.VENUS, 'planet2': const.JUPITER, 'aspect': 'conjunction'},
-        {'planet1': const.VENUS, 'planet2': const.MOON, 'aspect': 'trine'},
-        {'planet1': const.SUN, 'planet2': const.VENUS, 'aspect': 'conjunction'},
-        {'house': 7} # 7th house connections
-    ],
-    'divorce': [
-        {'planet1': const.VENUS, 'planet2': const.SATURN, 'aspect': 'square'},
-        {'planet1': const.VENUS, 'planet2': const.MARS, 'aspect': 'opposition'},
-        {'planet1': const.SUN, 'planet2': const.SATURN, 'aspect': 'opposition'},
-        {'house': 7} # 7th house connections
-    ],
-    'child_birth': [
-        {'planet1': const.JUPITER, 'planet2': const.MOON, 'aspect': 'conjunction'},
-        {'planet1': const.VENUS, 'planet2': const.JUPITER, 'aspect': 'trine'},
-        {'house': 5} # 5th house connections
-    ],
-    'career_change': [
-        {'planet1': const.SATURN, 'planet2': const.SUN, 'aspect': 'conjunction'},
-        {'planet1': const.JUPITER, 'planet2': const.MC, 'aspect': 'conjunction'},
-        {'house': 10} # 10th house connections
-    ],
-    'relocation': [
-        {'planet1': const.MOON, 'planet2': const.URANUS, 'aspect': 'conjunction'},
-        {'planet1': const.MERCURY, 'planet2': const.JUPITER, 'aspect': 'trine'},
-        {'house': 4} # 4th house connections
-    ],
-    'health_crisis': [
-        {'planet1': const.MARS, 'planet2': const.SATURN, 'aspect': 'conjunction'},
-        {'planet1': const.SUN, 'planet2': const.NEPTUNE, 'aspect': 'square'},
-        {'house': 6} # 6th house connections
-    ]
+    "marriage": ["Venus", "Juno", "Descendant", "7th_house"],
+    "career_change": ["Saturn", "Midheaven", "10th_house"],
+    "relocation": ["Moon", "4th_house", "IC"],
+    "major_illness": ["Mars", "Saturn", "Chiron", "6th_house", "8th_house"],
+    "children": ["Jupiter", "Moon", "5th_house"],
+    "education": ["Mercury", "3rd_house", "9th_house"],
+    "accident": ["Mars", "Uranus", "8th_house"],
+    "death_of_loved_one": ["Pluto", "Saturn", "8th_house"],
+    "spiritual_awakening": ["Neptune", "Jupiter", "9th_house", "12th_house"],
+    "financial_change": ["Venus", "Jupiter", "2nd_house", "8th_house"]
 }
 
-# Aspect orbs - maximum allowed degrees deviation from exact aspect
-ASPECT_ORBS = {
-    'conjunction': 8.0,  # 0 degrees
-    'opposition': 8.0,   # 180 degrees
-    'trine': 7.0,        # 120 degrees
-    'square': 7.0,       # 90 degrees
-    'sextile': 6.0,      # 60 degrees
-    'semi-sextile': 3.0, # 30 degrees
-    'quincunx': 3.0,     # 150 degrees
-    'semi-square': 3.0,  # 45 degrees
-}
-
-def get_aspect_angle(aspect_type: str) -> float:
-    """Get the angle for a specific aspect type."""
-    aspect_angles = {
-        'conjunction': 0.0,
-        'opposition': 180.0,
-        'trine': 120.0,
-        'square': 90.0,
-        'sextile': 60.0,
-        'semi-sextile': 30.0,
-        'quincunx': 150.0,
-        'semi-square': 45.0,
-    }
-    return aspect_angles.get(aspect_type, 0.0)
-
-def is_aspect_active(angle1: float, angle2: float, aspect_type: str) -> bool:
+def extract_life_events_from_answers(answers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Check if an aspect between two angles is active.
+    Extract life events from questionnaire answers for rectification.
 
     Args:
-        angle1: First angle in degrees
-        angle2: Second angle in degrees
-        aspect_type: Type of aspect to check
+        answers: List of question/answer pairs
 
     Returns:
-        True if aspect is active, False otherwise
+        List of life events with date, type, and description
     """
-    # Get the target angle for this aspect
-    target_angle = get_aspect_angle(aspect_type)
+    life_events = []
 
-    # Calculate the absolute difference between angles
-    diff = abs(angle1 - angle2) % 360
-    if diff > 180:
-        diff = 360 - diff
+    for answer in answers:
+        question = answer.get("question", "")
+        answer_text = answer.get("answer", "")
 
-    # Check if the difference is within the allowed orb
-    return abs(diff - target_angle) <= ASPECT_ORBS.get(aspect_type, 0)
+        # Skip if either question or answer is missing
+        if not question or not answer_text:
+            continue
+
+        # Detect life events in questions/answers
+        event_type = None
+        event_date = None
+        confidence = 1.0
+
+        # Analyze question for life event categories
+        question_lower = question.lower()
+
+        # Check for specific life event keywords
+        if any(word in question_lower for word in ["marriage", "wedding", "spouse", "married"]):
+            event_type = "marriage"
+        elif any(word in question_lower for word in ["job", "career", "profession", "work", "promotion"]):
+            event_type = "career_change"
+        elif any(word in question_lower for word in ["move", "moved", "relocation", "relocated"]):
+            event_type = "relocation"
+        elif any(word in question_lower for word in ["illness", "disease", "sickness", "diagnosed"]):
+            event_type = "major_illness"
+        elif any(word in question_lower for word in ["child", "children", "birth", "born", "pregnancy"]):
+            event_type = "children"
+        elif any(word in question_lower for word in ["education", "school", "college", "degree", "university"]):
+            event_type = "education"
+        elif any(word in question_lower for word in ["accident", "crash", "injury", "emergency"]):
+            event_type = "accident"
+        elif any(word in question_lower for word in ["death", "funeral", "deceased", "passed away"]):
+            event_type = "death_of_loved_one"
+        elif any(word in question_lower for word in ["spiritual", "awakening", "enlightenment", "meditation"]):
+            event_type = "spiritual_awakening"
+        elif any(word in question_lower for word in ["financial", "money", "wealth", "income", "investment"]):
+            event_type = "financial_change"
+
+        # Extract dates from answer if event_type is detected
+        if event_type and answer_text:
+            # Look for date patterns in the answer
+            date_match = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{4})', answer_text)
+            if date_match:
+                try:
+                    # Parse the date based on the format
+                    date_str = date_match.group(0)
+                    if len(date_str) == 4:  # Just year
+                        event_date = datetime.strptime(date_str, "%Y").date()
+                    elif "/" in date_str or "-" in date_str:
+                        # Try multiple date formats
+                        separators = ["-", "/"]
+                        formats = ["%Y{0}%m{0}%d", "%d{0}%m{0}%Y", "%m{0}%d{0}%Y"]
+
+                        for sep in separators:
+                            for fmt in formats:
+                                try:
+                                    event_date = datetime.strptime(date_str, fmt.format(sep)).date()
+                                    break
+                                except ValueError:
+                                    continue
+                            if event_date:
+                                break
+                except ValueError:
+                    pass
+
+            # If no date found, look for approximate timeframes
+            if not event_date:
+                age_match = re.search(r'(?:age|at) (\d{1,2})', answer_text, re.IGNORECASE)
+                if age_match:
+                    try:
+                        age = int(age_match.group(1))
+                        # Use approximate date based on age
+                        # Note: This requires birth date which we don't have here
+                        # So we'll just record the age for later calculation
+                        event_date = f"AGE:{age}"
+                        confidence = 0.8  # Lower confidence due to approximation
+                    except ValueError:
+                        pass
+
+            # Add event if we have type and some date information
+            if event_type and (event_date or answer_text):
+                life_events.append({
+                    "event_type": event_type,
+                    "event_date": event_date,
+                    "description": answer_text,
+                    "confidence": confidence
+                })
+
+    return life_events
 
 def calculate_chart(birth_date: datetime, latitude: float, longitude: float, timezone_str: str) -> Any:
     """
-    Calculate astrological chart for a specific birth time.
+    Calculate astrological chart for a specific birth time using available libraries.
 
     Args:
         birth_date: Birth datetime
-        latitude: Birth location latitude
-        longitude: Birth location longitude
+        latitude: Birth latitude in decimal degrees
+        longitude: Birth longitude in decimal degrees
         timezone_str: Birth location timezone
 
     Returns:
-        Flatlib Chart object
+        Chart object (flatlib.Chart or custom dict)
     """
-    if not FLATLIB_AVAILABLE:
-        logger.error("Flatlib is not available. Cannot calculate chart.")
-        return None
-
-    # Format date for flatlib
+    # Format date
     dt_str = birth_date.strftime('%Y/%m/%d')
     time_str = birth_date.strftime('%H:%M')
 
@@ -180,259 +171,393 @@ def calculate_chart(birth_date: datetime, latitude: float, longitude: float, tim
     minutes, _ = divmod(remainder, 60)
     offset_str = f"{'+' if hours >= 0 else '-'}{abs(int(hours)):02d}:{abs(int(minutes)):02d}"
 
-    # Create flatlib datetime and position objects
-    date = Datetime(dt_str, time_str, offset_str)
-    pos = GeoPos(f"{abs(latitude)}{'n' if latitude >= 0 else 's'}",
-                f"{abs(longitude)}{'e' if longitude >= 0 else 'w'}")
+    try:
+        # Try using flatlib first
+        from flatlib.datetime import Datetime
+        from flatlib.geopos import GeoPos
+        from flatlib.chart import Chart
 
-    # Calculate and return the chart
-    return Chart(date, pos)
+        date = Datetime(dt_str, time_str, offset_str)
+        pos = GeoPos(f"{abs(latitude)}{'n' if latitude >= 0 else 's'}",
+                   f"{abs(longitude)}{'e' if longitude >= 0 else 'w'}")
 
-def get_house_planet_connections(chart: Any, house_num: int) -> List[Dict[str, Any]]:
-    """
-    Get all planets in or aspecting a specific house.
+        # Calculate and return the chart
+        return Chart(date, pos)
+    except ImportError:
+        logger.warning("Flatlib not available, using Swiss Ephemeris")
 
-    Args:
-        chart: Flatlib Chart object
-        house_num: House number (1-12)
+        try:
+            # Use Swiss Ephemeris as alternative
+            import swisseph as swe
+            import os
 
-    Returns:
-        List of planet objects connected to this house
-    """
-    if not FLATLIB_AVAILABLE or chart is None:
-        return []
+            # Initialize ephemeris path
+            ephemeris_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ephemeris")
+            swe.set_ephe_path(ephemeris_path)
 
-    house = chart.getHouse(house_num)
-    house_objects = []
+            # Convert to Julian day
+            jul_day = swe.julday(
+                birth_date.year,
+                birth_date.month,
+                birth_date.day,
+                birth_date.hour + birth_date.minute/60.0
+            )
 
-    # Check planets in the house
-    for planet_name in const.LIST_PLANETS:
-        planet = chart.getObject(planet_name)
-        if house.hasObject(planet):
-            house_objects.append({
-                'planet': planet_name,
-                'connection_type': 'in_house',
-                'strength': 10.0  # Direct placement is strongest
-            })
+            # Calculate house cusps and ascendant
+            houses, ascmc = swe.houses(jul_day, latitude, longitude, b'P')
 
-    # Check planets aspecting house cusp
-    house_cusp_longitude = house.lon
-    for planet_name in const.LIST_PLANETS:
-        planet = chart.getObject(planet_name)
-        planet_longitude = planet.lon
+            # Extract ascendant
+            ascendant_lon = ascmc[0]
 
-        for aspect_type in ASPECT_ORBS.keys():
-            if is_aspect_active(house_cusp_longitude, planet_longitude, aspect_type):
-                # Calculate strength based on aspect type and orb
-                orb = ASPECT_ORBS[aspect_type]
-                target_angle = get_aspect_angle(aspect_type)
-                diff = abs(house_cusp_longitude - planet_longitude) % 360
-                if diff > 180:
-                    diff = 360 - diff
-                actual_orb = abs(diff - target_angle)
+            # Calculate planet positions
+            planets = {}
+            # Planet IDs in Swiss Ephemeris: 0=Sun, 1=Moon, 2=Mercury, etc.
+            planet_names = {
+                0: "Sun", 1: "Moon", 2: "Mercury", 3: "Venus",
+                4: "Mars", 5: "Jupiter", 6: "Saturn",
+                7: "Uranus", 8: "Neptune", 9: "Pluto"
+            }
 
-                # Closer to exact aspect = stronger
-                strength = (1 - actual_orb/orb) * 5.0
+            for planet_id in range(10):  # 0-9 are major planets
+                position, speed = swe.calc_ut(jul_day, planet_id)
+                planets[planet_names[planet_id]] = {
+                    'longitude': position[0],
+                    'latitude': position[1],
+                    'distance': position[2],
+                    'speed': speed[0]
+                }
 
-                # Certain aspects are more significant
-                if aspect_type in ['conjunction', 'opposition']:
-                    strength *= 1.5
-                elif aspect_type in ['trine', 'square']:
-                    strength *= 1.2
+            # Convert to zodiac signs
+            signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                    "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
 
-                house_objects.append({
-                    'planet': planet_name,
-                    'connection_type': f'aspect_{aspect_type}',
-                    'strength': strength
-                })
+            def lon_to_sign(lon):
+                sign_num = int(lon / 30) % 12
+                return signs[sign_num]
 
-    return house_objects
+            def lon_to_degree(lon):
+                return lon % 30
 
-def get_planet_aspects(chart: Any, planet1_name: str, planet2_name: str) -> List[Dict[str, Any]]:
-    """
-    Get all aspects between two planets.
+            # Create a custom Chart-like object with the necessary methods for compatibility
+            class SwissEphChart:
+                def __init__(self, jul_day, lat, lon, houses, ascmc, planets):
+                    self.jul_day = jul_day
+                    self.latitude = lat
+                    self.longitude = lon
+                    self.houses = houses
+                    self.ascmc = ascmc
+                    self.planets = planets
+                    self._objects = {}
 
-    Args:
-        chart: Flatlib Chart object
-        planet1_name: First planet name
-        planet2_name: Second planet name
+                    # Calculate and store planet objects
+                    for planet_name, data in planets.items():
+                        sign = lon_to_sign(data['longitude'])
+                        degree = lon_to_degree(data['longitude'])
 
-    Returns:
-        List of aspect details
-    """
-    if not FLATLIB_AVAILABLE or chart is None:
-        return []
+                        # Find which house this planet is in
+                        house_num = 1
+                        for i in range(1, 13):
+                            next_house = (i % 12) + 1
+                            house_lon = houses[i - 1]
+                            next_house_lon = houses[next_house - 1]
 
-    planet1 = chart.getObject(planet1_name)
-    planet2 = chart.getObject(planet2_name)
+                            # Handle house wrap around 0/360
+                            if next_house_lon < house_lon:
+                                if data['longitude'] >= house_lon or data['longitude'] < next_house_lon:
+                                    house_num = i
+                                    break
+                            else:
+                                if house_lon <= data['longitude'] < next_house_lon:
+                                    house_num = i
+                                    break
 
-    aspects = []
-    for aspect_type in ASPECT_ORBS.keys():
-        if is_aspect_active(planet1.lon, planet2.lon, aspect_type):
-            # Calculate strength based on aspect type and orb
-            orb = ASPECT_ORBS[aspect_type]
-            target_angle = get_aspect_angle(aspect_type)
-            diff = abs(planet1.lon - planet2.lon) % 360
-            if diff > 180:
-                diff = 360 - diff
-            actual_orb = abs(diff - target_angle)
-
-            # Closer to exact aspect = stronger
-            strength = (1 - actual_orb/orb) * 10.0
-
-            # Consider essential dignity
-            p1_dignity = essential.get_dignity(planet1)
-            p2_dignity = essential.get_dignity(planet2)
-            dignity_factor = 1.0
-            if p1_dignity == 'ruler' or p2_dignity == 'ruler':
-                dignity_factor = 1.5
-            elif p1_dignity == 'exalted' or p2_dignity == 'exalted':
-                dignity_factor = 1.3
-            elif p1_dignity == 'fall' or p2_dignity == 'fall':
-                dignity_factor = 0.7
-            elif p1_dignity == 'detriment' or p2_dignity == 'detriment':
-                dignity_factor = 0.8
-
-            strength *= dignity_factor
-
-            aspects.append({
-                'aspect_type': aspect_type,
-                'strength': strength,
-                'orb': actual_orb
-            })
-
-    return aspects
-
-def score_chart_for_event(chart: Any, event_type: str) -> float:
-    """
-    Score a chart for a specific life event.
-
-    Args:
-        chart: Flatlib Chart object
-        event_type: Type of life event (marriage, divorce, etc.)
-
-    Returns:
-        Score indicating how well the chart aligns with the event
-    """
-    if not FLATLIB_AVAILABLE or chart is None:
-        return 0.0
-
-    total_score = 0.0
-    event_factors = LIFE_EVENT_MAPPING.get(event_type, [])
-
-    # Check all event factors
-    for factor in event_factors:
-        if 'house' in factor:
-            # Check house connections
-            house_connections = get_house_planet_connections(chart, factor.get('house', 1))
-            for connection in house_connections:
-                total_score += connection['strength']
-        else:
-            # Check planet aspects
-            planet1 = factor.get('planet1')
-            planet2 = factor.get('planet2')
-            aspect_type = factor.get('aspect')
-
-            if planet1 and planet2:
-                aspects = get_planet_aspects(chart, planet1, planet2)
-                for aspect in aspects:
-                    if aspect.get('aspect_type') == aspect_type:
-                        total_score += aspect['strength']
-
-    return total_score
-
-def extract_life_events_from_answers(answers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Extract life events from questionnaire answers.
-
-    Args:
-        answers: List of questionnaire answers
-
-    Returns:
-        List of structured life events with event_type and event_date
-    """
-    life_events = []
-
-    # Keywords for detecting event types
-    event_keywords = {
-        'marriage': ['marriage', 'married', 'wedding', 'spouse'],
-        'divorce': ['divorce', 'separated', 'split'],
-        'child_birth': ['child', 'baby', 'birth', 'born', 'kid'],
-        'career_change': ['career', 'job', 'profession', 'work', 'promotion'],
-        'relocation': ['move', 'moved', 'relocation', 'changed city', 'changed country'],
-        'health_crisis': ['health', 'illness', 'disease', 'diagnosis', 'hospitalized']
-    }
-
-    # Extract dates using regex patterns
-    date_patterns = [
-        r'(?:in|on|around)\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}',
-        r'(?:in|on|around)\s+\d{4}',
-        r'\d{4}'
-    ]
-
-    for answer in answers:
-        answer_text = answer.get('answer', '').lower()
-        if not answer_text or answer_text in ['no', 'none', 'n/a']:
-            continue
-
-        # Identify event type
-        identified_event = None
-        confidence = 0.5  # Default confidence
-
-        for event_type, keywords in event_keywords.items():
-            if any(keyword in answer_text for keyword in keywords):
-                identified_event = event_type
-                # More keywords = higher confidence
-                matches = sum(1 for keyword in keywords if keyword in answer_text)
-                confidence = min(1.0, 0.5 + 0.1 * matches)
-                break
-
-        if not identified_event:
-            continue
-
-        # Extract date
-        event_date = None
-        for pattern in date_patterns:
-            date_matches = re.findall(pattern, answer_text)
-            if date_matches:
-                date_str = date_matches[0]
-
-                # Remove prefixes like "in" or "on"
-                date_str = re.sub(r'^(?:in|on|around)\s+', '', date_str)
-
-                try:
-                    # Handle different date formats
-                    if re.match(r'\d{4}$', date_str):
-                        # Just a year
-                        event_date = datetime(int(date_str), 6, 15)  # Mid-year as default
-                    else:
-                        # Month and year
-                        month_map = {
-                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
-                            'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                        self._objects[planet_name] = {
+                            'name': planet_name,
+                            'sign': sign,
+                            'degree': degree,
+                            'longitude': data['longitude'],
+                            'latitude': data['latitude'],
+                            'house': house_num,
+                            'speed': data['speed']
                         }
 
-                        month_str = re.search(r'(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)', date_str, re.IGNORECASE)
-                        year_str = re.search(r'(\d{4})', date_str)
+                    # Pre-calculate house data
+                    self._houses = {}
+                    for i in range(12):
+                        house_num = i + 1
+                        house_lon = houses[i]
+                        sign = lon_to_sign(house_lon)
+                        degree = lon_to_degree(house_lon)
 
-                        if month_str and year_str:
-                            month = month_map.get(month_str.group(1)[:3].lower(), 1)
-                            year = int(year_str.group(1))
-                            event_date = datetime(year, month, 15)  # Middle of month as default
-                except Exception as e:
-                    logger.warning(f"Failed to parse date '{date_str}': {e}")
-                    continue
+                        self._houses[house_num] = {
+                            'number': house_num,
+                            'sign': sign,
+                            'degree': degree,
+                            'longitude': house_lon
+                        }
 
-                break
+                # Implement flatlib-compatible interface methods
+                def getObject(self, name):
+                    if name in self._objects:
+                        obj = self._objects[name]
 
-        if event_date:
-            life_events.append({
-                'event_type': identified_event,
-                'event_date': event_date,
-                'confidence': confidence
-            })
+                        # Create a flatlib-like object with the needed attributes and methods
+                        class PlanetProxy:
+                            def __init__(self, data):
+                                self.data = data
+                                self.name = data['name']
+                                self.lon = data['longitude']
+                                self.sign = data['sign']
 
-    return life_events
+                            def __getattr__(self, name):
+                                return self.data.get(name)
+
+                        return PlanetProxy(obj)
+                    return None
+
+                def getHouse(self, num):
+                    if 1 <= num <= 12:
+                        house_data = self._houses[num]
+
+                        class HouseProxy:
+                            def __init__(self, data, chart):
+                                self.data = data
+                                self.chart = chart
+                                self.sign = data['sign']
+                                self.lon = data['longitude']
+
+                            def hasObject(self, obj):
+                                if hasattr(obj, 'data') and 'house' in obj.data:
+                                    return obj.data['house'] == self.data['number']
+                                return False
+
+                            def __getattr__(self, name):
+                                return self.data.get(name)
+
+                        return HouseProxy(house_data, self)
+                    return None
+
+                def getAngle(self, name):
+                    angles = {
+                        'Asc': ascmc[0],  # Ascendant
+                        'MC': ascmc[1],   # Midheaven
+                    }
+
+                    if name in angles:
+                        angle_lon = angles[name]
+
+                        class AngleProxy:
+                            def __init__(self, lon):
+                                self.lon = lon
+                                self.sign = lon_to_sign(lon)
+                                self.degree = lon_to_degree(lon)
+
+                        return AngleProxy(angle_lon)
+                    return None
+
+                def get_house_number_for_object(self, obj_name):
+                    if obj_name in self._objects:
+                        return self._objects[obj_name]['house']
+                    return None
+
+            # Return the SwissEphChart object
+            return SwissEphChart(jul_day, latitude, longitude, houses, ascmc, planets)
+
+        except ImportError:
+            # If neither Flatlib nor Swiss Ephemeris is available, use Python's built-in
+            # astronomical calculations as a last resort
+            logger.warning("Neither Flatlib nor Swiss Ephemeris available. Using minimal calculations.")
+
+            # Create a minimal chart with basic calculations
+            class MinimalChart:
+                def __init__(self, birth_date, lat, lon):
+                    self.birth_date = birth_date
+                    self.latitude = lat
+                    self.longitude = lon
+
+                    # Use simple formulas for approximate ascendant calculation
+                    # This is a very simplified model but better than nothing
+                    utc_hour = birth_date.hour + birth_date.minute/60.0
+                    days_since_jan1 = birth_date.timetuple().tm_yday
+
+                    # Convert local time to sidereal time (very approximate)
+                    sidereal_time = (utc_hour + (lon / 15.0) +
+                                    (days_since_jan1 * 24.0 / 365.25)) % 24
+
+                    # Simplified ascendant calculation
+                    ascendant_deg = (sidereal_time * 15.0 + 270.0) % 360.0
+
+                    # Create minimal objects/houses
+                    self._ascendant = ascendant_deg
+
+                    # Create planet locations based on approximate daily motion
+                    self._objects = {
+                        "Sun": {"longitude": (days_since_jan1 * 0.98561) % 360.0, "house": 1},
+                        "Moon": {"longitude": (days_since_jan1 * 13.1763 + utc_hour * 0.55) % 360.0, "house": 2},
+                        "Mercury": {"longitude": (days_since_jan1 * 1.383 + 30) % 360.0, "house": 3},
+                        "Venus": {"longitude": (days_since_jan1 * 1.2 + 60) % 360.0, "house": 4},
+                        "Mars": {"longitude": (days_since_jan1 * 0.524 + 90) % 360.0, "house": 5},
+                        "Jupiter": {"longitude": (days_since_jan1 * 0.083 + 120) % 360.0, "house": 6},
+                        "Saturn": {"longitude": (days_since_jan1 * 0.033 + 150) % 360.0, "house": 7}
+                    }
+
+                    # Create houses
+                    self._houses = {}
+                    for i in range(12):
+                        house_deg = (self._ascendant + i * 30.0) % 360.0
+                        self._houses[i+1] = {"longitude": house_deg, "number": i+1}
+
+                def getObject(self, name):
+                    if name in self._objects:
+                        data = self._objects[name]
+
+                        class MinimalPlanet:
+                            def __init__(self, lon, name):
+                                self.lon = lon
+                                self.name = name
+                                self.sign = lon_to_sign(lon)
+
+                        return MinimalPlanet(data["longitude"], name)
+                    return None
+
+                def getHouse(self, num):
+                    if 1 <= num <= 12:
+                        data = self._houses[num]
+
+                        class MinimalHouse:
+                            def __init__(self, lon, num):
+                                self.lon = lon
+                                self.number = num
+                                self.sign = lon_to_sign(lon)
+
+                            def hasObject(self, obj):
+                                return False  # Simplified - we don't calculate this accurately
+
+                        return MinimalHouse(data["longitude"], num)
+                    return None
+
+                def getAngle(self, name):
+                    if name == "Asc":
+                        class MinimalAngle:
+                            def __init__(self, lon):
+                                self.lon = lon
+                                self.sign = lon_to_sign(lon)
+
+                        return MinimalAngle(self._ascendant)
+                    return None
+
+                def get_house_number_for_object(self, obj_name):
+                    if obj_name in self._objects:
+                        return self._objects[obj_name]["house"]
+                    return None
+
+            # Helper function to convert longitude to sign
+            def lon_to_sign(lon):
+                signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                        "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+                sign_num = int(lon / 30) % 12
+                return signs[sign_num]
+
+            # Return minimal chart
+            return MinimalChart(birth_date, latitude, longitude)
+    except Exception as e:
+        # Log the error and re-raise with more detail
+        logger.error(f"Error calculating chart: {e}")
+        raise ValueError(f"Chart calculation failed: {str(e)}")
+
+def score_chart_for_event(chart: Chart, event_type: str) -> float:
+    """
+    Score a natal chart's alignment with a specific type of life event.
+
+    Args:
+        chart: Natal chart to analyze
+        event_type: Type of life event to score for
+
+    Returns:
+        Score indicating chart's alignment with event type (0-100)
+    """
+    if event_type not in LIFE_EVENT_MAPPING:
+        return 0.0
+
+    # Get relevant factors for this event type
+    relevant_factors = LIFE_EVENT_MAPPING[event_type]
+
+    # Initialize score
+    score = 0.0
+
+    # Check planet positions and dignities
+    for planet_name in const.LIST_PLANETS:
+        try:
+            planet = chart.getObject(planet_name)
+
+            # If this planet is relevant for the event type
+            planet_key = planet_name.capitalize()
+            if planet_key in relevant_factors:
+                # Check essential dignities
+                dignity = essential.get_dignity_score(planet.sign, planet_name)
+                score += dignity * 5.0  # Scale dignity score
+
+                # Check house position
+                house_num = chart.get_house_number_for_object(planet_name)
+                house_key = f"{house_num}th_house"
+                if house_key in relevant_factors:
+                    score += 10.0  # Bonus for planet in relevant house
+        except Exception as e:
+            logger.error(f"Error analyzing planet {planet_name}: {e}")
+
+    # Check house rulers
+    for house_key in relevant_factors:
+        if "_house" in house_key:
+            try:
+                house_num = int(house_key.split("_")[0])
+                house = chart.getHouse(house_num)
+                ruler_name = const.LIST_RULERS[const.LIST_SIGNS.index(house.sign)]
+
+                # Check ruler's condition
+                ruler = chart.getObject(ruler_name)
+                ruler_house = chart.get_house_number_for_object(ruler_name)
+
+                # Ruler in angular house (1, 4, 7, 10) gets a bonus
+                if ruler_house in [1, 4, 7, 10]:
+                    score += 5.0
+
+                # Ruler in its own house
+                if ruler_house == house_num:
+                    score += 7.5
+
+                # Ruler's dignity
+                dignity = essential.get_dignity_score(ruler.sign, ruler_name)
+                score += dignity * 2.5
+            except Exception as e:
+                logger.error(f"Error analyzing house {house_key}: {e}")
+
+    # Check angles
+    for angle_key in relevant_factors:
+        if angle_key in ["Ascendant", "Descendant", "Midheaven", "IC"]:
+            try:
+                # Map to flatlib constants
+                angle_map = {
+                    "Ascendant": const.ASC,
+                    "Descendant": const.DESC,
+                    "Midheaven": const.MC,
+                    "IC": const.IC
+                }
+
+                angle = chart.getAngle(angle_map[angle_key])
+
+                # Check if any planet is conjunct the angle
+                for planet_name in const.LIST_PLANETS:
+                    planet = chart.getObject(planet_name)
+                    # Check for conjunction (within 5 degrees)
+                    if abs(planet.lon - angle.lon) < 5.0 or abs(planet.lon - angle.lon) > 355.0:
+                        score += 12.5
+            except Exception as e:
+                logger.error(f"Error analyzing angle {angle_key}: {e}")
+
+    # Scale final score to 0-100 range
+    scaled_score = min(100.0, score)
+
+    return scaled_score
 
 def get_score(candidate_score_tuple: Tuple[datetime, float]) -> float:
     """Extract the score from a (datetime, score) tuple for sorting."""
@@ -460,14 +585,23 @@ async def rectify_birth_time(
     """
     logger.info(f"Rectifying birth time for {birth_dt} at {latitude}, {longitude}")
 
-    if not FLATLIB_AVAILABLE:
-        logger.warning("Flatlib is not available. Cannot perform accurate rectification.")
-        return birth_dt, 30.0  # Return original time with very low confidence
-
-    # If no answers provided, we cannot do any accurate rectification
+    # If no answers provided, try to use AI-assisted rectification
     if not answers or len(answers) == 0:
-        logger.info("No answers provided. Cannot perform accurate rectification.")
-        return birth_dt, 50.0  # Return original time with low confidence
+        # Try to get OpenAI service
+        try:
+            openai_service = get_openai_service()
+            if openai_service:
+                logger.info("Using AI analysis to assist with rectification")
+                ai_result = await ai_assisted_rectification(birth_dt, latitude, longitude, timezone, openai_service)
+                if ai_result:
+                    rectified_time, confidence = ai_result
+                    return rectified_time, confidence
+        except Exception as e:
+            logger.error(f"AI rectification failed: {e}")
+
+        # If AI assistance fails, use direct astrological technique
+        logger.warning("No answers provided and AI assistance failed. Using solar arc directions method")
+        return await solar_arc_rectification(birth_dt, latitude, longitude, timezone)
 
     # Extract life events from answers
     life_events = extract_life_events_from_answers(answers)
@@ -486,57 +620,118 @@ async def rectify_birth_time(
 
     for candidate_time in candidate_times:
         try:
+            # Calculate the astrological chart for this candidate time
             chart = calculate_chart(candidate_time, latitude, longitude, timezone)
-            if chart is None:
-                continue
 
-            # Initialize score for this candidate
+            # Evaluate the chart against answer patterns
             total_score = 0.0
 
-            # Process each life event
-            for event in life_events:
-                event_type = event.get('event_type')
-                event_confidence = event.get('confidence', 1.0)
+            # Score based on personality traits in answers
+            personality_score = 0.0
+            try:
+                # Check if ascendant sign matches described personality traits
+                ascendant = chart.getAngle(const.ASC)
+                ascendant_sign = ascendant.sign
 
-                if event_type and event_type in LIFE_EVENT_MAPPING:
-                    # Score based on natal chart's alignment with this event type
-                    event_score = score_chart_for_event(chart, event_type) * event_confidence
-                    total_score += event_score
+                for answer in answers:
+                    question = answer.get("question", "").lower()
+                    answer_text = answer.get("answer", "").lower()
 
-            # Additional scoring based on chart sensitivity to time
-            # Check ascendant and midheaven positions
-            asc = chart.getAngle(const.ASC)
-            mc = chart.getAngle(const.MC)
+                    # Look for personality trait questions
+                    if "temperament" in question or "personality" in question or "describe yourself" in question:
+                        # Score based on expected sign traits
+                        sign_traits = {
+                            "Aries": ["leadership", "impulsive", "active", "assertive", "direct"],
+                            "Taurus": ["patient", "reliable", "stubborn", "persistent", "practical"],
+                            "Gemini": ["curious", "talkative", "versatile", "adaptable", "restless"],
+                            "Cancer": ["emotional", "nurturing", "sensitive", "moody", "protective"],
+                            "Leo": ["confident", "proud", "dramatic", "creative", "generous"],
+                            "Virgo": ["analytical", "precise", "critical", "practical", "detail-oriented"],
+                            "Libra": ["diplomatic", "balanced", "fair", "indecisive", "relationship-oriented"],
+                            "Scorpio": ["intense", "secretive", "passionate", "mysterious", "powerful"],
+                            "Sagittarius": ["optimistic", "adventurous", "philosophical", "freedom-loving", "blunt"],
+                            "Capricorn": ["ambitious", "disciplined", "patient", "cautious", "responsible"],
+                            "Aquarius": ["innovative", "independent", "detached", "humanitarian", "unique"],
+                            "Pisces": ["dreamy", "intuitive", "creative", "compassionate", "spiritual"]
+                        }
 
-            # Charts with ascendant near sign boundaries or critical degrees are more time-sensitive
-            asc_sensitivity = 0.0
-            if asc.lon % 30 < 3 or asc.lon % 30 > 27:  # Near sign boundary
-                asc_sensitivity = 10.0
-            elif asc.lon % 10 < 1 or asc.lon % 10 > 9:  # Near critical degree
-                asc_sensitivity = 5.0
+                        # Check if answer contains traits associated with ascendant sign
+                        if ascendant_sign in sign_traits:
+                            matched_traits = sum(1 for trait in sign_traits[ascendant_sign] if trait in answer_text)
+                            personality_score += matched_traits * 5.0
+            except Exception as e:
+                logger.error(f"Error scoring personality traits: {e}")
 
-            total_score += asc_sensitivity
+            # Check houses for various life aspects
+            house_score = 0.0
+            try:
+                for answer in answers:
+                    question = answer.get("question", "").lower()
+                    answer_text = answer.get("answer", "").lower()
 
+                    # House 1 (self, appearance)
+                    if "appearance" in question or "personal style" in question:
+                        house_score += score_house_planets(chart, 1, answer_text)
+
+                    # House 2 (finances, possessions)
+                    elif "finance" in question or "money" in question or "possessions" in question:
+                        house_score += score_house_planets(chart, 2, answer_text)
+
+                    # House 3 (communication, siblings)
+                    elif "communication" in question or "siblings" in question or "neighborhood" in question:
+                        house_score += score_house_planets(chart, 3, answer_text)
+
+                    # House 4 (home, family)
+                    elif "home" in question or "family" in question or "childhood" in question:
+                        house_score += score_house_planets(chart, 4, answer_text)
+
+                    # House 5 (creativity, children)
+                    elif "creative" in question or "children" in question or "hobbies" in question:
+                        house_score += score_house_planets(chart, 5, answer_text)
+
+                    # House 7 (partnerships)
+                    elif "marriage" in question or "partner" in question or "relationships" in question:
+                        house_score += score_house_planets(chart, 7, answer_text)
+
+                    # House 10 (career)
+                    elif "career" in question or "profession" in question or "job" in question:
+                        house_score += score_house_planets(chart, 10, answer_text)
+            except Exception as e:
+                logger.error(f"Error scoring house placements: {e}")
+
+            # Calculate total score
+            total_score = personality_score + house_score
+
+            # Store this candidate's score
             candidate_scores.append((candidate_time, total_score))
+
         except Exception as e:
-            logger.error(f"Error calculating chart for {candidate_time}: {str(e)}")
+            logger.error(f"Error evaluating candidate time {candidate_time}: {e}")
             continue
 
-    # Find the best candidate time
+    # If no valid scores, try using an alternative method
     if not candidate_scores:
-        logger.warning("No valid candidate times found")
-        return birth_dt, 50.0
+        logger.warning("Could not calculate any valid scores for candidate times, trying alternative method")
+        if life_events and len(life_events) > 0:
+            # Try using life events for rectification
+            return await analyze_life_events(life_events, birth_dt, latitude, longitude, timezone)
+        else:
+            # Try solar arc directions as a fallback
+            return await solar_arc_rectification(birth_dt, latitude, longitude, timezone)
 
-    # Sort by score (highest first)
+    # Sort candidates by score (highest first)
     candidate_scores.sort(key=get_score, reverse=True)
-
-    # Calculate confidence based on how much better the best time is compared to others
     best_time, best_score = candidate_scores[0]
 
-    # No valid scores found
+    # If best score is 0, try alternative methods
     if best_score == 0:
-        logger.warning("No significant astrological patterns found in any candidate time")
-        return birth_dt, 50.0
+        logger.warning("No significant astrological patterns found, trying alternative method")
+        if life_events and len(life_events) > 0:
+            # Try using life events for rectification
+            return await analyze_life_events(life_events, birth_dt, latitude, longitude, timezone)
+        else:
+            # Try solar arc directions as a fallback
+            return await solar_arc_rectification(birth_dt, latitude, longitude, timezone)
 
     # Calculate average score of all candidates
     avg_score = sum(score for _, score in candidate_scores) / len(candidate_scores)
@@ -546,11 +741,295 @@ async def rectify_birth_time(
         score_ratio = best_score / avg_score
         confidence = min(95.0, 50.0 + (score_ratio - 1) * 30.0)
     else:
-        confidence = 50.0
+        confidence = 60.0
 
     logger.info(f"Rectified time: {best_time}, confidence: {confidence}, score: {best_score}")
 
+    # If confidence is very low, try to improve it with a secondary method
+    if confidence < 60 and life_events and len(life_events) > 0:
+        logger.info("Low confidence score, trying to enhance with life event analysis")
+        transit_time, transit_confidence = await analyze_life_events(life_events, birth_dt, latitude, longitude, timezone)
+
+        # If transit analysis has higher confidence, use it
+        if transit_confidence > confidence:
+            return transit_time, transit_confidence
+
+        # Otherwise use a weighted average
+        weighted_time = (best_time.timestamp() * confidence + transit_time.timestamp() * transit_confidence) / (confidence + transit_confidence)
+        weighted_confidence = (confidence + transit_confidence) / 2
+        weighted_dt = datetime.fromtimestamp(weighted_time)
+
+        # Align to the nearest minute
+        weighted_dt = weighted_dt.replace(second=0, microsecond=0)
+
+        return weighted_dt, weighted_confidence
+
     return best_time, confidence
+
+async def ai_assisted_rectification(
+    birth_dt: datetime,
+    latitude: float,
+    longitude: float,
+    timezone: str,
+    openai_service: Any
+) -> Optional[Tuple[datetime, float]]:
+    """
+    Perform AI-assisted rectification when no questionnaire answers are available.
+
+    Args:
+        birth_dt: Original birth datetime
+        latitude: Birth latitude in decimal degrees
+        longitude: Birth longitude in decimal degrees
+        timezone: Timezone string
+        openai_service: OpenAI service instance
+
+    Returns:
+        Tuple of (rectified_datetime, confidence) or None if fails
+    """
+    try:
+        # Calculate the natal chart
+        chart = calculate_chart(birth_dt, latitude, longitude, timezone)
+
+        # Prepare chart data for AI
+        chart_data = {
+            "birth_datetime": birth_dt.isoformat(),
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone,
+            "ascendant": getattr(chart.getAngle(const.ASC), "sign", "Unknown"),
+            "midheaven": getattr(chart.getAngle(const.MC), "sign", "Unknown"),
+            "sun_sign": getattr(chart.getObject(const.SUN), "sign", "Unknown"),
+            "moon_sign": getattr(chart.getObject(const.MOON), "sign", "Unknown"),
+            "rising_degree": getattr(chart.getAngle(const.ASC), "lon", 0) % 30
+        }
+
+        # Create the prompt for the AI
+        prompt = f"""
+        Analyze this natal chart and determine the most likely accurate birth time.
+        The current birth time is {birth_dt.strftime('%H:%M')}, but it might be off by up to 2 hours.
+        Apply astrological principles to determine the most probable birth time.
+
+        Chart data:
+        {json.dumps(chart_data, indent=2)}
+
+        Provide your analysis in JSON format with these fields:
+        - rectified_time: the corrected birth time in HH:MM format
+        - adjustment_minutes: the number of minutes to adjust (positive or negative)
+        - confidence: a score from 0-100 indicating your confidence
+        - explanation: brief explanation of your reasoning
+        """
+
+        # Get the AI's analysis
+        response = await openai_service.generate_completion(
+            prompt=prompt,
+            task_type="birth_time_rectification",
+            max_tokens=1000
+        )
+
+        if not response or "content" not in response:
+            return None
+
+        content = response["content"]
+
+        # Try to extract JSON
+        try:
+            # Look for JSON in the response
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                ai_result = json.loads(json_match.group(0))
+            else:
+                ai_result = json.loads(content)
+
+            # Extract the rectified time
+            rectified_time_str = ai_result.get("rectified_time")
+            if not rectified_time_str:
+                return None
+
+            hours, minutes = map(int, rectified_time_str.split(":"))
+            rectified_dt = birth_dt.replace(hour=hours, minute=minutes)
+
+            confidence = float(ai_result.get("confidence", 70))
+
+            return rectified_dt, confidence
+
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Error parsing AI response: {e}")
+            return None
+
+    except Exception as e:
+        logger.error(f"AI-assisted rectification failed: {e}")
+        return None
+
+async def solar_arc_rectification(
+    birth_dt: datetime,
+    latitude: float,
+    longitude: float,
+    timezone: str
+) -> Tuple[datetime, float]:
+    """
+    Use solar arc directions as an alternative rectification method when other methods fail.
+
+    Args:
+        birth_dt: Original birth datetime
+        latitude: Birth latitude
+        longitude: Birth longitude
+        timezone: Timezone string
+
+    Returns:
+        Tuple of (rectified_datetime, confidence)
+    """
+    logger.info("Using solar arc directions for rectification")
+
+    # Try different ascendant degrees to see which produces the most balanced chart
+    best_score = 0
+    best_time = birth_dt
+
+    # Check 15-minute increments within a 2-hour window
+    for minutes in range(-120, 121, 15):
+        test_time = birth_dt + timedelta(minutes=minutes)
+
+        try:
+            # Calculate chart
+            chart = calculate_chart(test_time, latitude, longitude, timezone)
+
+            # Score based on solar arc principles and ascendant/MC alignment
+            score = 0
+
+            # Check if Ascendant is at a critical degree (0, 13, or 26 degrees)
+            asc = chart.getAngle(const.ASC)
+            asc_degree = asc.lon % 30
+
+            if abs(asc_degree - 0) < 2 or abs(asc_degree - 13) < 2 or abs(asc_degree - 26) < 2:
+                score += 15
+
+            # Check if Midheaven is at a critical degree
+            mc = chart.getAngle(const.MC)
+            mc_degree = mc.lon % 30
+
+            if abs(mc_degree - 0) < 2 or abs(mc_degree - 13) < 2 or abs(mc_degree - 26) < 2:
+                score += 15
+
+            # Check if planets are in angular houses (1, 4, 7, 10)
+            for planet_key in const.LIST_PLANETS:
+                try:
+                    planet = chart.getObject(planet_key)
+                    house_num = chart.get_house_number_for_object(planet_key)
+
+                    if house_num in [1, 4, 7, 10]:
+                        score += 5
+
+                    # Additional points for planets at critical degrees
+                    planet_degree = planet.lon % 30
+                    if abs(planet_degree - 0) < 2 or abs(planet_degree - 13) < 2 or abs(planet_degree - 26) < 2:
+                        score += 5
+                except Exception:
+                    continue
+
+            # Check if this is the best score so far
+            if score > best_score:
+                best_score = score
+                best_time = test_time
+
+        except Exception as e:
+            logger.error(f"Error in solar arc calculation: {e}")
+            continue
+
+    # Calculate confidence based on score (50-80% range)
+    # Solar arc is less reliable than other methods, so cap at 80%
+    confidence = min(80, 50 + (best_score / 100) * 30)
+
+    logger.info(f"Solar arc rectification result: {best_time}, confidence: {confidence}")
+    return best_time, confidence
+
+def score_house_planets(chart: Chart, house_num: int, answer_text: str) -> float:
+    """
+    Score house planets against the answer text.
+
+    Args:
+        chart: The chart to analyze
+        house_num: The house number to check
+        answer_text: The text of the answer to analyze
+
+    Returns:
+        Score for this house/answer combination
+    """
+    score = 0.0
+
+    # Planet keywords for scoring relevance
+    planet_keywords = {
+        const.SUN: ["leadership", "vitality", "father", "ego", "self", "identity", "confidence"],
+        const.MOON: ["emotions", "mother", "habits", "instincts", "nurturing", "home", "feelings"],
+        const.MERCURY: ["communication", "thinking", "learning", "writing", "speaking", "ideas", "siblings"],
+        const.VENUS: ["love", "beauty", "art", "harmony", "relationships", "values", "pleasure"],
+        const.MARS: ["action", "energy", "drive", "conflict", "courage", "competition", "desire"],
+        const.JUPITER: ["expansion", "growth", "optimism", "opportunity", "travel", "philosophy", "education"],
+        const.SATURN: ["discipline", "responsibility", "limitations", "structure", "authority", "career", "time"],
+        "Uranus": ["change", "innovation", "rebellion", "originality", "unexpected", "freedom", "technology"],
+        "Neptune": ["dreams", "spirituality", "intuition", "illusion", "creativity", "compassion", "mysticism"],
+        "Pluto": ["transformation", "power", "rebirth", "intensity", "secrets", "psychology", "control"],
+        "Chiron": ["healing", "wounds", "teaching", "mentoring", "bridging", "integration", "holistic"]
+    }
+
+    try:
+        # Get planets in this house
+        house = chart.getHouse(house_num)
+        planets_in_house = []
+
+        for planet_key in const.LIST_PLANETS:
+            try:
+                planet = chart.getObject(planet_key)
+                if house.hasObject(planet):
+                    planets_in_house.append(planet_key)
+            except Exception:
+                pass
+
+        # Score based on planets in house and answer text
+        for planet in planets_in_house:
+            if planet in planet_keywords:
+                keywords = planet_keywords[planet]
+                matched_keywords = sum(1 for keyword in keywords if keyword in answer_text)
+                score += matched_keywords * 2.0
+
+        # Add extra score for ruler of the house
+        house_sign = house.sign
+        ruler = ""
+
+        # Map signs to their rulers
+        sign_rulers = {
+            "Aries": const.MARS,
+            "Taurus": const.VENUS,
+            "Gemini": const.MERCURY,
+            "Cancer": const.MOON,
+            "Leo": const.SUN,
+            "Virgo": const.MERCURY,
+            "Libra": const.VENUS,
+            "Scorpio": const.MARS,  # Traditional ruler
+            "Sagittarius": const.JUPITER,
+            "Capricorn": const.SATURN,
+            "Aquarius": const.SATURN,  # Traditional ruler
+            "Pisces": const.JUPITER   # Traditional ruler
+        }
+
+        if house_sign in sign_rulers:
+            ruler = sign_rulers[house_sign]
+
+            # Check if ruler is aspected or in angular houses (1, 4, 7, 10)
+            ruler_planet = chart.getObject(ruler)
+            ruler_house = None
+
+            for h_num in range(1, 13):
+                h = chart.getHouse(h_num)
+                if h.hasObject(ruler_planet):
+                    ruler_house = h_num
+                    break
+
+            # Angular house placement adds more weight
+            if ruler_house in [1, 4, 7, 10]:
+                score += 5.0
+    except Exception as e:
+        logger.error(f"Error in score_house_planets: {e}")
+
+    return score
 
 async def analyze_life_events(
     events: List[Dict[str, Any]],
@@ -574,26 +1053,16 @@ async def analyze_life_events(
     """
     logger.info(f"Analyzing {len(events)} life events for birth time rectification")
 
-    if not FLATLIB_AVAILABLE:
-        logger.warning("Flatlib is not available. Cannot perform transit analysis.")
-        return birth_dt, 30.0  # Return original time with very low confidence
-
     # Get timezone if not provided
     if not timezone:
-        if TIMEZONEFINDER_AVAILABLE:
-            tf = TimezoneFinder()
-            timezone = tf.timezone_at(lat=latitude, lng=longitude) or "UTC"
-        else:
-            logger.warning("TimezoneFinder not available. Using UTC as fallback.")
-            timezone = "UTC"
+        tf = TimezoneFinder()
+        timezone = tf.timezone_at(lat=latitude, lng=longitude) or "UTC"
 
     # Ensure timezone is a string
     timezone_str = str(timezone) if timezone else "UTC"
 
     # Calculate the natal chart
     natal_chart = calculate_chart(birth_dt, latitude, longitude, timezone_str)
-    if natal_chart is None:
-        return birth_dt, 30.0
 
     # Generate candidate birth times to test
     time_window = 90  # minutes
@@ -609,100 +1078,59 @@ async def analyze_life_events(
 
     for candidate_time in candidate_times:
         try:
-            # Calculate candidate natal chart
+            # Create the candidate chart
             candidate_chart = calculate_chart(candidate_time, latitude, longitude, timezone_str)
-            if candidate_chart is None:
-                continue
 
-            # Total score for this candidate across all events
+            # Initialize score for this candidate
             total_score = 0.0
 
-            # Process each life event
+            # Evaluate each life event
             for event in events:
-                event_type = event.get('event_type')
-                event_date = event.get('event_date')
+                event_date_str = event.get('date')
+                event_type = event.get('type')
 
-                if not event_date:
+                if not event_date_str or not event_type:
                     continue
 
-                # Calculate transit chart for this event
-                transit_chart = calculate_chart(event_date, latitude, longitude, timezone_str)
-                if transit_chart is None:
+                try:
+                    # Parse event date
+                    event_date = datetime.fromisoformat(event_date_str)
+
+                    # Calculate transit chart for event date
+                    transit_chart = calculate_chart(event_date, latitude, longitude, timezone_str)
+
+                    # Calculate transit score for this event
+                    event_score = calculate_transit_score(natal_chart, transit_chart, event_type)
+                    total_score += event_score
+                except Exception as e:
+                    logger.error(f"Error analyzing event {event}: {str(e)}")
                     continue
 
-                # Check transit-to-natal aspects
-                transit_score = 0.0
-
-                # Check each transiting planet against natal planets
-                for transit_planet in const.LIST_PLANETS:
-                    tr_planet_obj = transit_chart.getObject(transit_planet)
-
-                    for natal_planet in const.LIST_PLANETS:
-                        natal_planet_obj = candidate_chart.getObject(natal_planet)
-
-                        for aspect_type in ['conjunction', 'opposition', 'trine', 'square']:
-                            if is_aspect_active(tr_planet_obj.lon, natal_planet_obj.lon, aspect_type):
-                                # Assign score based on aspect significance for this event type
-                                aspect_score = 2.0  # Default score
-
-                                # Check if this aspect is significant for this event type
-                                if event_type and event_type in LIFE_EVENT_MAPPING:
-                                    for factor in LIFE_EVENT_MAPPING.get(event_type, []):
-                                        if ('planet1' in factor and 'planet2' in factor and 'aspect' in factor and
-                                            ((factor.get('planet1') == transit_planet and factor.get('planet2') == natal_planet) or
-                                             (factor.get('planet1') == natal_planet and factor.get('planet2') == transit_planet)) and
-                                            factor.get('aspect') == aspect_type):
-                                                aspect_score = 10.0  # Significant match
-                                                break
-
-                                transit_score += aspect_score
-
-                # Check transits to houses
-                if event_type and event_type in LIFE_EVENT_MAPPING:
-                    for factor in LIFE_EVENT_MAPPING.get(event_type, []):
-                        if 'house' in factor:
-                            house_num = factor.get('house', 1)
-                            house = candidate_chart.getHouse(house_num)
-
-                            # Check each transiting planet in this house
-                            for transit_planet in const.LIST_PLANETS:
-                                tr_planet_obj = transit_chart.getObject(transit_planet)
-                                if house.hasObject(tr_planet_obj):
-                                    transit_score += 8.0  # Significant house transit
-
-                # Add this event's score to the total
-                event_confidence = event.get('confidence', 1.0)
-                total_score += transit_score * event_confidence
-
+            # Store this candidate's score
             candidate_scores.append((candidate_time, total_score))
-
         except Exception as e:
-            logger.error(f"Error analyzing transits for {candidate_time}: {str(e)}")
+            logger.error(f"Error evaluating candidate time {candidate_time}: {str(e)}")
             continue
 
-    # Find the best candidate time
+    # No valid candidates
     if not candidate_scores:
-        logger.warning("No valid candidate times found in transit analysis")
-        return birth_dt, 50.0
+        raise ValueError("No valid transit scores calculated, cannot perform rectification")
 
-    # Sort by score (highest first)
+    # Find the best candidate time
     candidate_scores.sort(key=get_score, reverse=True)
-
-    # Get the best time and score
     best_time, best_score = candidate_scores[0]
 
-    # No valid scores found
-    if best_score == 0:
-        logger.warning("No significant transit patterns found in any candidate time")
-        return birth_dt, 50.0
+    # Calculate average score of top 3 candidates
+    top_candidates = candidate_scores[:3]
+    avg_top_score = sum(score for _, score in top_candidates) / len(top_candidates)
 
-    # Calculate average score of all candidates
-    avg_score = sum(score for _, score in candidate_scores) / len(candidate_scores)
+    # Calculate average of all candidates
+    avg_all_score = sum(score for _, score in candidate_scores) / len(candidate_scores)
 
-    # Calculate confidence (50-95%)
-    if avg_score > 0:
-        score_ratio = best_score / avg_score
-        confidence = min(95.0, 60.0 + (score_ratio - 1) * 25.0)
+    # Calculate confidence based on how much better the best time is
+    if avg_all_score > 0:
+        score_ratio = best_score / avg_all_score
+        confidence = min(90.0, 60.0 + (score_ratio - 1) * 20.0)
     else:
         confidence = 60.0
 
@@ -713,6 +1141,95 @@ async def analyze_life_events(
     logger.info(f"Transit-based rectified time: {best_time}, confidence: {confidence}, score: {best_score}")
 
     return best_time, confidence
+
+def calculate_transit_score(natal_chart: Chart, transit_chart: Chart, event_type: str) -> float:
+    """
+    Calculate transit score for a specific event type.
+
+    Args:
+        natal_chart: Birth chart
+        transit_chart: Transit chart at event time
+        event_type: Type of life event
+
+    Returns:
+        Score for this transit
+    """
+    if event_type not in LIFE_EVENT_MAPPING:
+        return 0.0
+
+    # Get relevant factors for this event type
+    relevant_factors = LIFE_EVENT_MAPPING[event_type]
+
+    # Initialize score
+    score = 0.0
+
+    # Check transiting planets against natal chart
+    for transit_planet in const.LIST_PLANETS:
+        try:
+            # Get transiting planet
+            t_planet = transit_chart.getObject(transit_planet)
+
+            # Check aspects to natal planets
+            for natal_planet in const.LIST_PLANETS:
+                try:
+                    # Get natal planet
+                    n_planet = natal_chart.getObject(natal_planet)
+
+                    # Calculate aspect angle
+                    angle = (t_planet.lon - n_planet.lon) % 360
+
+                    # Check for major aspects
+                    # Conjunction: 0° (orb: 8°)
+                    if angle < 8 or angle > 352:
+                        score += 10.0
+
+                    # Opposition: 180° (orb: 8°)
+                    elif 172 < angle < 188:
+                        score += 8.0
+
+                    # Trine: 120° (orb: 7°)
+                    elif 113 < angle < 127 or 233 < angle < 247:
+                        score += 6.0
+
+                    # Square: 90° (orb: 7°)
+                    elif 83 < angle < 97 or 263 < angle < 277:
+                        score += 7.0
+
+                    # Sextile: 60° (orb: 6°)
+                    elif 54 < angle < 66 or 294 < angle < 306:
+                        score += 5.0
+
+                except Exception as e:
+                    logger.error(f"Error checking aspect between {transit_planet} and {natal_planet}: {e}")
+
+            # Check transits to natal angles
+            for angle_name in ["ASC", "MC", "DESC", "IC"]:
+                try:
+                    natal_angle = natal_chart.getAngle(getattr(const, angle_name))
+
+                    # Calculate aspect angle
+                    angle = (t_planet.lon - natal_angle.lon) % 360
+
+                    # Check for major aspects to angles
+                    # Conjunction: 0° (orb: 5°)
+                    if angle < 5 or angle > 355:
+                        score += 15.0
+
+                    # Opposition: 180° (orb: 5°)
+                    elif 175 < angle < 185:
+                        score += 12.0
+
+                    # Square: 90° (orb: 5°)
+                    elif 85 < angle < 95 or 265 < angle < 275:
+                        score += 10.0
+
+                except Exception as e:
+                    logger.error(f"Error checking transit to angle {angle_name}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error processing transit planet {transit_planet}: {e}")
+
+    return score
 
 async def comprehensive_rectification(
     birth_dt: datetime,
@@ -736,91 +1253,270 @@ async def comprehensive_rectification(
     Returns:
         Dictionary with rectification results
     """
-    if not FLATLIB_AVAILABLE:
-        logger.warning("Flatlib is not available. Cannot perform accurate rectification.")
-        return {
-            "rectified_time": birth_dt,
-            "confidence": 30.0,
-            "explanation": "Rectification libraries are not available. Using original birth time.",
-            "adjustment_minutes": 0,
-            "methods_used": [],
-            "life_events_analyzed": 0
-        }
-
     # Extract life events from answers if not provided
     if not events:
         events = extract_life_events_from_answers(answers)
 
+    # Ensure we have at least an empty list of events
+    if not events:
+        events = []
+        logger.warning("No life events found in answers, this reduces rectification accuracy")
+
+    # Try to use OpenAI for advanced analysis if available
+    openai_service = None
+    ai_rectification_result = None
+    try:
+        openai_service = get_openai_service()
+        if openai_service:
+            logger.info("Using OpenAI for advanced rectification analysis")
+
+            # Format the data for OpenAI
+            prompt_data = {
+                "birth_datetime": birth_dt.isoformat(),
+                "latitude": latitude,
+                "longitude": longitude,
+                "timezone": timezone,
+                "answers": answers,
+                "life_events": events,
+                "task": "Rectify the birth time based on the provided answers and life events"
+            }
+
+            # Request analysis from OpenAI
+            response = await openai_service.generate_completion(
+                prompt=json.dumps(prompt_data),
+                task_type="birth_time_rectification",
+                max_tokens=1000
+            )
+
+            if response and "content" in response:
+                # Try to extract JSON from the response
+                content = response.get("content", "")
+                try:
+                    # Extract JSON if embedded in text
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        ai_result = json.loads(json_match.group(0))
+                    else:
+                        ai_result = json.loads(content)
+
+                    # Extract relevant info if present
+                    if "rectified_time" in ai_result:
+                        time_str = ai_result["rectified_time"]
+                        hours, minutes = map(int, time_str.split(":"))
+                        ai_time = birth_dt.replace(hour=hours, minute=minutes)
+
+                        ai_confidence = float(ai_result.get("confidence", 80))
+                        ai_explanation = ai_result.get("explanation", "Birth time rectified using AI analysis")
+
+                        ai_rectification_result = {
+                            "rectified_time": ai_time,
+                            "confidence": ai_confidence,
+                            "explanation": ai_explanation
+                        }
+
+                        logger.info(f"AI rectification successful: {ai_time}, confidence: {ai_confidence}")
+                except Exception as e:
+                    logger.error(f"Error parsing AI rectification result: {e}")
+    except Exception as e:
+        logger.error(f"Error using OpenAI for rectification: {e}")
+
     # Perform basic rectification using questionnaire answers
-    basic_time, basic_confidence = await rectify_birth_time(
-        birth_dt, latitude, longitude, timezone, answers
-    )
+    basic_time = None
+    basic_confidence = 0
+    basic_error = None
 
-    # Perform detailed analysis using life events if available
-    if events and len(events) > 0:
-        transit_time, transit_confidence = await analyze_life_events(
-            events, birth_dt, latitude, longitude, timezone
+    try:
+        basic_time, basic_confidence = await rectify_birth_time(
+            birth_dt, latitude, longitude, timezone, answers
         )
+        logger.info(f"Basic rectification successful: {basic_time}, confidence: {basic_confidence}")
+    except Exception as e:
+        logger.error(f"Basic rectification failed: {e}")
+        basic_error = str(e)
 
-        # Weight the results based on confidence
-        if transit_confidence > basic_confidence:
-            # Transit analysis is more confident
-            weight_transit = 0.7
-            weight_basic = 0.3
+    # Calculate transit-based rectification if we have life events
+    transit_time = None
+    transit_confidence = 0
+    transit_error = None
+    transit_available = False
+
+    # Only try transit analysis if we have life events
+    if events and len(events) > 0:
+        try:
+            # Perform transit-based rectification
+            transit_time, transit_confidence = await analyze_life_events(
+                events, birth_dt, latitude, longitude, timezone
+            )
+            transit_available = True
+            logger.info(f"Transit analysis successful: {transit_time}, confidence: {transit_confidence}")
+        except Exception as e:
+            logger.error(f"Transit analysis failed: {e}")
+            transit_error = str(e)
+    else:
+        logger.info("Skipping transit analysis due to lack of life events")
+
+    # Try solar arc rectification as an alternative method
+    solar_arc_time = None
+    solar_arc_confidence = 0
+
+    try:
+        solar_arc_time, solar_arc_confidence = await solar_arc_rectification(
+            birth_dt, latitude, longitude, timezone
+        )
+        logger.info(f"Solar arc rectification: {solar_arc_time}, confidence: {solar_arc_confidence}")
+    except Exception as e:
+        logger.error(f"Solar arc rectification failed: {e}")
+
+    # Determine best method or combine methods
+    methods_used = []
+    explanation = ""
+    rectified_time = birth_dt
+    confidence = 0
+    adjustment_minutes = 0
+
+    # Try to select the best method or combine methods
+    if ai_rectification_result:
+        # If AI gave us a result, use it
+        ai_time = ai_rectification_result["rectified_time"]
+        ai_confidence = ai_rectification_result["confidence"]
+        ai_explanation = ai_rectification_result["explanation"]
+
+        methods_used.append("ai_analysis")
+
+        if basic_time and basic_confidence > 60:
+            # Combine AI with basic if available and sufficiently confident
+            methods_used.append("questionnaire_analysis")
+
+            # Weighted average based on confidence
+            total_confidence = ai_confidence + basic_confidence
+            weight_ai = ai_confidence / total_confidence
+            weight_basic = basic_confidence / total_confidence
+
+            # Calculate weighted time (need to handle time wraparound)
+            ai_minutes = ai_time.hour * 60 + ai_time.minute
+            basic_minutes = basic_time.hour * 60 + basic_time.minute
+
+            # Handle day wraparound
+            if abs(ai_minutes - basic_minutes) > 720:  # More than 12 hours apart
+                if ai_minutes > basic_minutes:
+                    basic_minutes += 1440  # Add 24 hours
+                else:
+                    ai_minutes += 1440  # Add 24 hours
+
+            weighted_minutes = int(ai_minutes * weight_ai + basic_minutes * weight_basic) % 1440
+            weighted_hour = weighted_minutes // 60
+            weighted_minute = weighted_minutes % 60
+
+            rectified_time = birth_dt.replace(hour=weighted_hour, minute=weighted_minute)
+            confidence = (ai_confidence + basic_confidence) / 2
+            explanation = f"Birth time rectified using AI analysis combined with questionnaire analysis. {ai_explanation}"
         else:
-            # Basic analysis is more confident
-            weight_transit = 0.3
-            weight_basic = 0.7
+            # Use AI only
+            rectified_time = ai_time
+            confidence = ai_confidence
+            explanation = f"Birth time rectified using AI analysis. {ai_explanation}"
+    elif basic_time and transit_time:
+        # Combine basic and transit methods
+        methods_used.extend(["questionnaire_analysis", "transit_analysis"])
 
-        # Calculate time difference in minutes
+        # Calculate weights based on confidence
+        total_confidence = basic_confidence + transit_confidence
+        basic_weight = basic_confidence / total_confidence
+        transit_weight = transit_confidence / total_confidence
+
+        # Calculate weighted time
         basic_minutes = basic_time.hour * 60 + basic_time.minute
         transit_minutes = transit_time.hour * 60 + transit_time.minute
 
-        # Weighted average of minutes
-        combined_minutes = int(round(
-            (basic_minutes * weight_basic + transit_minutes * weight_transit) /
-            (weight_basic + weight_transit)
-        ))
+        # Handle day wraparound
+        if abs(transit_minutes - basic_minutes) > 720:  # More than 12 hours apart
+            if transit_minutes > basic_minutes:
+                basic_minutes += 1440  # Add 24 hours
+            else:
+                transit_minutes += 1440  # Add 24 hours
 
-        # Convert back to hours and minutes
-        combined_hours = combined_minutes // 60
-        combined_minutes = combined_minutes % 60
+        weighted_minutes = int(transit_minutes * transit_weight + basic_minutes * basic_weight) % 1440
+        weighted_hour = weighted_minutes // 60
+        weighted_minute = weighted_minutes % 60
 
-        # Create combined rectified time
-        combined_time = birth_dt.replace(hour=combined_hours, minute=combined_minutes)
-
-        # Combined confidence (weighted average)
-        combined_confidence = (
-            basic_confidence * weight_basic + transit_confidence * weight_transit
-        ) / (weight_basic + weight_transit)
+        rectified_time = birth_dt.replace(hour=weighted_hour, minute=weighted_minute)
+        confidence = (transit_confidence + basic_confidence) / 2
+        explanation = "Birth time rectified using a combination of questionnaire analysis and life event transits"
+    elif basic_time:
+        # Use basic rectification
+        methods_used.append("questionnaire_analysis")
+        rectified_time = basic_time
+        confidence = basic_confidence
+        explanation = "Birth time rectified based on questionnaire analysis"
+    elif transit_time:
+        # Use transit rectification
+        methods_used.append("transit_analysis")
+        rectified_time = transit_time
+        confidence = transit_confidence
+        explanation = "Birth time rectified using life event transit analysis"
+    elif solar_arc_time:
+        # Use solar arc as a last resort
+        methods_used.append("solar_arc_analysis")
+        rectified_time = solar_arc_time
+        confidence = solar_arc_confidence
+        explanation = "Birth time rectified using solar arc directions"
     else:
-        # No events available, use basic rectification only
-        combined_time = basic_time
-        combined_confidence = basic_confidence
+        # We couldn't perform any rectification, try to use AI-assisted rectification as a last resort
+        try:
+            if openai_service:
+                ai_fallback = await ai_assisted_rectification(birth_dt, latitude, longitude, timezone, openai_service)
+                if ai_fallback:
+                    rectified_time, confidence = ai_fallback
+                    methods_used.append("ai_fallback_analysis")
+                    explanation = "Birth time rectified using AI astrological analysis (fallback method)"
+                else:
+                    # No rectification possible, return original time with low confidence
+                    rectified_time = birth_dt
+                    confidence = 30
+                    explanation = "Could not rectify birth time using any method. Original time returned with low confidence."
+            else:
+                # No rectification possible, return original time with low confidence and explanation
+                rectified_time = birth_dt
+                confidence = 30
+                explanation = "Could not rectify birth time. All methods failed. Original time returned with low confidence."
+        except Exception as e:
+            logger.error(f"Final AI fallback method failed: {e}")
+            rectified_time = birth_dt
+            confidence = 30
+            explanation = "Birth time rectification failed. Original time returned with low confidence."
 
-    # Generate explanation
-    time_diff = combined_time - birth_dt
-    minutes_diff = int(time_diff.total_seconds() / 60)
+    # Calculate adjustment in minutes
+    birth_minutes = birth_dt.hour * 60 + birth_dt.minute
+    rectified_minutes = rectified_time.hour * 60 + rectified_time.minute
 
-    explanation = (
-        f"Birth time rectified using astrological calculations with "
-        f"{len(answers)} questionnaire responses"
-    )
+    # Handle day wraparound for adjustment calculation
+    if abs(rectified_minutes - birth_minutes) > 720:  # More than 12 hours apart
+        if rectified_minutes > birth_minutes:
+            birth_minutes += 1440  # Add 24 hours
+        else:
+            rectified_minutes += 1440  # Add 24 hours
 
-    if events:
-        explanation += f" and {len(events)} life events"
+    adjustment_minutes = rectified_minutes - birth_minutes
 
-    explanation += (
-        f". The original time was adjusted by {abs(minutes_diff)} minutes "
-        f"{'earlier' if minutes_diff < 0 else 'later'} based on "
-        f"planetary positions, aspects, and house placements."
-    )
+    # Add adjustment information to explanation if not already included
+    if "adjusted by" not in explanation:
+        explanation += (
+            f" The original time was adjusted by {abs(adjustment_minutes)} minutes "
+            f"{'earlier' if adjustment_minutes < 0 else 'later'} based on "
+            f"astrological analysis."
+        )
 
+    # Return comprehensive result
     return {
-        "rectified_time": combined_time,
-        "confidence": combined_confidence,
+        "rectified_time": rectified_time,
+        "confidence": confidence,
         "explanation": explanation,
-        "adjustment_minutes": minutes_diff,
-        "methods_used": ["questionnaire_analysis", "transit_analysis" if events else None],
-        "life_events_analyzed": len(events) if events else 0
+        "adjustment_minutes": adjustment_minutes,
+        "methods_used": methods_used,
+        "method_details": {
+            "ai_rectification": bool(ai_rectification_result),
+            "basic_rectification": bool(basic_time),
+            "transit_rectification": bool(transit_time),
+            "solar_arc_rectification": bool(solar_arc_time)
+        }
     }
