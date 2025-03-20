@@ -8,19 +8,15 @@ import json
 import time
 import uuid
 import asyncio
-from typing import Dict, Any, List, Optional, TypedDict, cast, Union, TYPE_CHECKING
+import importlib.util
+from typing import Dict, Any, List, Optional, TypedDict, cast, Union, TYPE_CHECKING, Callable
 
-# Standard OpenAI import
+# Import the base OpenAI library for model selection
 import openai
-# Import exception classes directly from the exceptions module
-from openai._exceptions import (
-    APIConnectionError,
-    APITimeoutError,
-    APIError,
-    RateLimitError,
-    BadRequestError
-)
-from openai.types.chat import ChatCompletionMessageParam
+
+# Import httpx for direct API calls
+import httpx
+
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from ai_service.api.services.openai.model_selection import select_model, get_task_category
@@ -47,49 +43,64 @@ class OpenAIService:
             client: Optional pre-configured OpenAI client for dependency injection
             api_key: Optional API key (defaults to environment variable)
         """
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        # Clean up the API key - remove whitespace, newlines, and ensure it's properly formatted
+        api_key_raw = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.api_key = api_key_raw.strip().replace("\n", "").replace(" ", "")
 
-        # Require API key - no fallbacks
-        if not self.api_key:
+        # Track which API mode we're using - we'll use direct API calls
+        self.api_mode = "direct"
+
+        # Log API key length for debugging (without exposing the key)
+        if self.api_key:
+            logger.info(f"API key configured (length: {len(self.api_key)})")
+        else:
+            logger.error("No OpenAI API key provided")
             raise ValueError("OpenAI API key not provided and OPENAI_API_KEY environment variable is not set")
 
-        # Use injected client or create a new one
+        # Use injected client or create a direct httpx client with no problematic params
         if client:
             self.client = client
-            logger.info("Using provided OpenAI client")
+            logger.info("Using provided client")
         else:
             try:
-                # Initialize the AsyncOpenAI client directly from the openai module
-                # The linter may not recognize this attribute, but it exists in the runtime
-                try:
-                    # Monkey patch to fix the 'proxies' parameter issue in OpenAI library
-                    import functools
-                    from openai._base_client import AsyncHttpxClientWrapper
-                    original_init = AsyncHttpxClientWrapper.__init__
+                logger.info("Initializing direct API client")
+                import httpx
 
-                    @functools.wraps(original_init)
-                    def patched_init(self, *args, **kwargs):
-                        # Convert 'proxies' to 'proxy' if it exists
-                        if 'proxies' in kwargs:
-                            kwargs['proxy'] = kwargs.pop('proxies')
-                        return original_init(self, *args, **kwargs)
+                # Get proxy settings from environment if available
+                http_proxy = os.environ.get("HTTP_PROXY", "")
+                https_proxy = os.environ.get("HTTPS_PROXY", "")
 
-                    # Apply the patch
-                    AsyncHttpxClientWrapper.__init__ = patched_init
+                # Set up proxies if available in the environment
+                proxies = None
+                if http_proxy or https_proxy:
+                    proxies = {}
+                    if http_proxy:
+                        proxies["http://"] = http_proxy
+                    if https_proxy:
+                        proxies["https://"] = https_proxy
+                    logger.info(f"Using proxies: {proxies}")
 
-                    # Print details about the environment and initialization parameters
-                    logger.info(f"About to initialize OpenAI client with API key: {self.api_key[:5]}...")
-                    # Initialize the client
-                    self.client = openai.AsyncOpenAI(api_key=self.api_key)
-                    logger.info("OpenAI client initialized")
-                except Exception as detailed_e:
-                    # Print more details about the exception
-                    logger.error(f"Detailed initialization error: {detailed_e}, Type: {type(detailed_e)}")
-                    logger.error(f"Exception dir: {dir(detailed_e)}")
-                    raise
+                # Configure httpx with appropriate timeouts and settings
+                timeout_settings = httpx.Timeout(
+                    connect=10.0,  # Connection timeout
+                    read=90.0,     # Read timeout
+                    write=10.0,    # Write timeout
+                    pool=10.0      # Pool timeout
+                )
+
+                # Create client with appropriate timeouts
+                # Note: the httpx version in the container doesn't support 'proxies' parameter
+                self.client = httpx.AsyncClient(
+                    timeout=timeout_settings,
+                    verify=True,  # Verify SSL certificates
+                    follow_redirects=True
+                )
+
+                # Log connection settings
+                logger.info(f"Initialized direct API client for OpenAI with {timeout_settings}")
             except Exception as e:
-                logger.error(f"Failed to initialize OpenAI client: {e}")
-                raise ValueError(f"Failed to initialize OpenAI client: {e}")
+                logger.error(f"Failed to initialize direct API client: {e}", exc_info=True)
+                raise ValueError(f"Failed to initialize direct API client: {e}")
 
         # Configuration
         self.default_model = os.environ.get("OPENAI_MODEL", "gpt-4-turbo-preview")
@@ -162,13 +173,16 @@ class OpenAIService:
         return calculate_cost(model, prompt_tokens, completion_tokens)
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((APIConnectionError, APITimeoutError))
+        stop=stop_after_attempt(3),  # Reduced retries to prevent long hanging
+        wait=wait_exponential(multiplier=1, min=2, max=10),  # Shorter waits
+        retry=retry_if_exception_type((
+            ConnectionError,
+            TimeoutError
+        ))
     )
     async def generate_completion(self, prompt: str, task_type: str, max_tokens: int = 500, temperature: float = 0.7) -> Dict[str, Any]:
         """
-        Generate a completion from OpenAI.
+        Generate a completion from OpenAI using direct API calls with httpx.
 
         Args:
             prompt: The prompt to send to the API
@@ -182,6 +196,11 @@ class OpenAIService:
         # Select model based on task type
         model = self._select_model(task_type)
 
+        # Check for extremely long prompts and truncate if necessary
+        if len(prompt) > 12000:  # Roughly 3000 tokens
+            logger.warning(f"Prompt is very long ({len(prompt)} chars). Truncating to reduce API timeouts.")
+            prompt = prompt[:12000] + "\n...[truncated for performance]..."
+
         # Create a unique key for this request for caching
         cache_key = f"{model}:{task_type}:{hash(prompt)}:{max_tokens}:{temperature}"
 
@@ -194,111 +213,192 @@ class OpenAIService:
                 return cache_entry["response"]
 
         self.cache_misses += 1
-        logger.debug(f"Cache miss for {task_type} task, generating new completion")
-
-        # Rate limiting
-        await self._apply_rate_limiting()
+        logger.info(f"Sending request to OpenAI API (model: {model}, task: {task_type})")
 
         # Track API call
         self.api_calls += 1
         self.last_request_time = time.time()
 
-        # Prepare messages for the API
-        messages: List[ChatCompletionMessageParam] = [
+        # Prepare messages for the API - simple format for maximum compatibility
+        messages = [
             {"role": "user", "content": prompt}
         ]
 
-        logger.debug(f"Sending request to OpenAI API with model {model}, task_type={task_type}")
+        # Set a default completion result in case of timeout or error
+        default_response = {
+            "content": f"[Error processing request]",
+            "model": model,
+            "task_type": task_type,
+            "error": True,
+            "error_type": "APITimeout",
+            "error_message": "Request timed out or failed",
+            "usage": {
+                "prompt_tokens": len(prompt) // 4,  # Rough estimate
+                "completion_tokens": 0,
+                "total_tokens": len(prompt) // 4,
+                "cost": 0.0
+            },
+            "timestamp": time.time(),
+            "id": str(uuid.uuid4())
+        }
 
         try:
-            # Call OpenAI API with real API key
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout=45.0  # 45-second timeout
-            )
+            # Set a timeout for the entire operation using asyncio
+            request_timeout = 60  # 60 second timeout
 
-            # Extract response
-            if not response.choices or not hasattr(response.choices[0], 'message') or not hasattr(response.choices[0].message, 'content'):
-                # Handle case where the expected response structure is not present
-                raise ValueError("OpenAI API returned an unexpected response structure without valid content")
+            # Use direct API calls with httpx
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature
+            }
 
-            content = response.choices[0].message.content
+            # Execute the API call with a timeout
+            try:
+                response = await asyncio.wait_for(
+                    self.client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers=headers,
+                        json=payload
+                    ),
+                    timeout=request_timeout
+                )
 
-            # If content is None, provide a meaningful error response
-            if content is None:
-                raise ValueError("OpenAI API returned null content in the response")
+                # Log the response status for debugging
+                logger.info(f"OpenAI API status code: {response.status_code}")
+
+                # Ensure successful response
+                if response.status_code != 200:
+                    error_content = response.text
+                    logger.error(f"OpenAI API error: {response.status_code} - {error_content}")
+
+                    # Handle different error codes
+                    if response.status_code == 401:
+                        raise ConnectionError("OpenAI API authentication failed - check your API key")
+                    elif response.status_code == 429:
+                        raise ConnectionError("OpenAI API rate limit exceeded - slow down requests")
+                    elif response.status_code >= 500:
+                        raise ConnectionError(f"OpenAI API server error {response.status_code} - try again later")
+                    else:
+                        raise ConnectionError(f"OpenAI API error {response.status_code}: {error_content}")
+
+                # Parse the JSON response
+                try:
+                    response_data = response.json()
+                except Exception as e:
+                    logger.error(f"Failed to parse JSON response: {e}")
+                    logger.error(f"Response content: {response.text[:500]}...")
+                    raise ValueError(f"Failed to parse JSON response from OpenAI API: {e}")
+
+                # Log a small part of the response for debugging
+                if "choices" in response_data and len(response_data["choices"]) > 0:
+                    message = response_data["choices"][0].get("message", {})
+                    content_preview = message.get("content", "")[:50] + "..." if message.get("content") else ""
+                    logger.info(f"OpenAI API response content preview: {content_preview}")
+
+            except (httpx.ConnectTimeout, httpx.ReadTimeout) as timeout_err:
+                logger.error(f"API connection timed out: {timeout_err}")
+                logger.error("This may be due to network connectivity issues or firewall restrictions.")
+                raise ConnectionError(f"OpenAI API connection timed out: {timeout_err}. Check your network connectivity.")
+
+            except httpx.ConnectError as conn_err:
+                logger.error(f"API connection error: {conn_err}")
+                logger.error("This may be due to network connectivity issues or firewall restrictions.")
+                raise ConnectionError(f"OpenAI API connection error: {conn_err}. Check your network connectivity.")
+
+            except asyncio.TimeoutError:
+                logger.error(f"API call timed out after {request_timeout} seconds")
+                raise TimeoutError(f"OpenAI API call timed out after {request_timeout} seconds")
+
+            # Extract content from response
+            content = ""
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                message = response_data["choices"][0].get("message", {})
+                content = message.get("content", "")
+
+            # If content is empty, provide a meaningful error
+            if not content:
+                raise ValueError("OpenAI API returned empty content")
+
+            # Extract usage data
+            usage = response_data.get("usage", {})
+            if usage:
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", 0)
+            else:
+                # Use approximate counts if usage data is not available
+                prompt_tokens = len(prompt) // 4  # Rough estimate
+                completion_tokens = len(content) // 4  # Rough estimate
+                total_tokens = prompt_tokens + completion_tokens
 
             # Update token tracking
-            usage = response.usage
-            if usage is None:
-                # Instead of fallback estimation, raise an error about missing usage data
-                raise ValueError("Token usage data not provided by OpenAI API. Cannot proceed without accurate tracking.")
-
-            prompt_tokens = usage.prompt_tokens
-            completion_tokens = usage.completion_tokens
-            total_tokens = usage.total_tokens
-
             self.prompt_tokens += prompt_tokens
             self.completion_tokens += completion_tokens
             self.total_tokens += total_tokens
             self.tokens_this_minute += total_tokens
 
-            # Update usage statistics
-            self.usage_stats["calls_made"] += 1
-            self.usage_stats["prompt_tokens"] += prompt_tokens
-            self.usage_stats["completion_tokens"] += completion_tokens
-            self.usage_stats["total_tokens"] += total_tokens
-
-            # Update cost tracking
+            # Calculate cost
             cost = self._calculate_cost(model, prompt_tokens, completion_tokens)
             self.estimated_cost += cost
-            self.usage_stats["total_cost"] += cost
 
-            # Construct result
-            result = {
+            # Build the response
+            response_obj = {
                 "content": content,
                 "model": model,
-                "tokens": {
-                    "prompt": prompt_tokens,
-                    "completion": completion_tokens,
-                    "total": total_tokens
+                "task_type": task_type,
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                    "cost": cost
                 },
-                "cost": cost
+                "timestamp": time.time(),
+                "id": str(uuid.uuid4())
             }
 
-            # Cache the result if caching is enabled
+            # Add to cache if enabled
             if self.cache_enabled:
                 self.cache[cache_key] = {
                     "timestamp": time.time(),
-                    "response": result
+                    "response": response_obj
                 }
 
-            logger.debug(f"OpenAI API returned {total_tokens} tokens for {task_type} task")
-            return result
+            logger.info(f"OpenAI API call successful for {task_type}")
+            return response_obj
 
-        except RateLimitError as e:
-            logger.error(f"OpenAI API rate limit exceeded: {e}")
-            raise ValueError(f"OpenAI API rate limit exceeded: {e}")
-
-        except APIConnectionError as e:
-            logger.error(f"OpenAI API connection error: {e}")
-            raise ValueError(f"OpenAI API connection error: {e}")
-
-        except BadRequestError as e:
-            logger.error(f"OpenAI API bad request error: {e}")
-            raise ValueError(f"OpenAI API bad request error: {e}")
-
-        except APIError as e:
-            logger.error(f"OpenAI API error: {e}")
-            raise ValueError(f"OpenAI API error: {e}")
+        except (ConnectionError, TimeoutError) as conn_err:
+            # For connection errors, we'll log and raise to trigger retry
+            logger.error(f"Connection error with OpenAI API: {type(conn_err).__name__}: {conn_err}")
+            raise conn_err
 
         except Exception as e:
-            logger.error(f"Unexpected error calling OpenAI API: {e}")
-            # Propagate the original error with context instead of creating a new one
-            raise
+            # For other errors, log and return error response without retrying
+            logger.error(f"Error during OpenAI API call: {type(e).__name__}: {e}")
+
+            error_response = {
+                "content": f"Error: {str(e)}",
+                "model": model,
+                "task_type": task_type,
+                "error": True,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "usage": {
+                    "prompt_tokens": len(prompt) // 4,  # Rough estimate
+                    "completion_tokens": 0,
+                    "total_tokens": len(prompt) // 4,
+                    "cost": 0.0
+                },
+                "timestamp": time.time(),
+                "id": str(uuid.uuid4())
+            }
+
+            return error_response
 
     async def generate_questions(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """

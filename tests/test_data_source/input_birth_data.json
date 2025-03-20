@@ -4,7 +4,7 @@
 
   "birthDate": "1985-10-24",
   "birthTime": "14:30:00",
-  "birthPlace": "Pune, India",
+  "birthPlace": "Pune, Maharashtra, India",
 
   "_field_descriptions": {
     "birthDate": "YYYY-MM-DD format. This is the date of birth to be used for chart calculation.",
@@ -17,11 +17,7 @@
     "latitude": 18.5204,
     "longitude": 73.8567,
     "timezone": "Asia/Kolkata",
-
-    "_field_descriptions": {
-      "latitude": "Decimal degrees format (positive for North, negative for South)",
-      "longitude": "Decimal degrees format (positive for East, negative for West)",
-      "timezone": "IANA timezone database name (e.g., 'America/New_York', 'Europe/London')"
-    }
+    "name": "Olir",
+    "email": "olu@abc.com"
   }
 }

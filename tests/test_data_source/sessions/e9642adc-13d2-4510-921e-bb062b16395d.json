@@ -1,0 +1,19 @@
+{
+  "created_at": "2025-03-20T13:09:04.389276",
+  "updated_at": "2025-03-20T13:09:04.389276",
+  "data": {
+    "created_at": "2025-03-20T13:09:04.389267",
+    "updated_at": "2025-03-20T13:09:04.389273",
+    "status": "active",
+    "test_sequence": true
+  },
+  "responses": [],
+  "current_confidence": 20.0,
+  "questions_asked": [],
+  "questions_answered": 0,
+  "session_metadata": {
+    "client_ip": null,
+    "user_agent": null,
+    "started_at": "2025-03-20T13:09:04.389277"
+  }
+}
