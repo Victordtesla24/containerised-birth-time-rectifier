@@ -21,6 +21,22 @@ import numpy as np
 from datetime import datetime
 import io
 import base64
+import tempfile
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.patches as patches
+from matplotlib.table import Table
+from matplotlib.axes._subplots import Axes3DType  # type: ignore
+
+# Import PDF generation libraries
+import reportlab
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table as RLTable, TableStyle, Paragraph, Spacer, Image
+from reportlab.pdfgen import canvas
+import matplotlib.font_manager as fm
+from PIL import Image as PILImage
 
 from ai_service.core.chart_calculator import normalize_longitude
 
@@ -66,18 +82,18 @@ PLANET_SYMBOLS = {
 }
 
 PLANET_COLORS = {
-    "Sun": "#FFD700",      # Gold
-    "Moon": "#C0C0C0",     # Silver
-    "Mercury": "#32CD32",  # Lime Green
-    "Venus": "#FF69B4",    # Hot Pink
-    "Mars": "#FF0000",     # Red
-    "Jupiter": "#FFA500",  # Orange
-    "Saturn": "#4682B4",   # Steel Blue
-    "Uranus": "#9370DB",   # Medium Purple
-    "Neptune": "#00BFFF",  # Deep Sky Blue
-    "Pluto": "#8B4513",    # Saddle Brown
-    "Rahu": "#800080",     # Purple
-    "Ketu": "#8B0000",     # Dark Red
+    "Sun": "#FFB900",
+    "Moon": "#C0C0C0",
+    "Mercury": "#9999FF",
+    "Venus": "#00C000",
+    "Mars": "#FF0000",
+    "Jupiter": "#FFA500",
+    "Saturn": "#0000A0",
+    "Uranus": "#00FFFF",
+    "Neptune": "#800080",
+    "Pluto": "#A52A2A",
+    "Rahu": "#708090",
+    "Ketu": "#808000",
     "Ascendant": "#000000" # Black
 }
 
@@ -695,3 +711,280 @@ def modify_chart_for_harmonic(chart_data: Dict[str, Any], harmonic_number: int) 
     modified_data["planets"] = planets_data
 
     return modified_data
+
+def generate_chart_image(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
+    """
+    Generate a chart image based on the chart data.
+
+    Args:
+        chart_data: Dictionary containing chart data
+        output_path: Optional path to save the chart image
+
+    Returns:
+        Base64 encoded image data or path to saved image
+    """
+    try:
+        # Determine the type of chart to generate
+        chart_type = chart_data.get("chart_type", "vedic_square")
+
+        # Generate the chart based on its type
+        if chart_type == "vedic_square":
+            return render_vedic_square_chart(chart_data, output_path)
+        elif chart_type == "vedic":
+            return render_vedic_chart(chart_data, output_path)
+        elif chart_type in ["western", "jpg", "jpeg", "png"]:
+            # Generate a Western-style chart with planets and houses
+            fig, ax = plt.subplots(figsize=(10, 10))
+
+            # Draw the chart circle
+            chart_circle = patches.Circle((0, 0), 0.9, fill=False, color='black', linewidth=2)
+            ax.add_patch(chart_circle)
+
+            # Draw the ascendant line (usually at 9 o'clock position)
+            ax.plot([0, -0.9], [0, 0], 'r-', linewidth=2)
+
+            # Calculate house cusps
+            houses = chart_data.get("houses", [])
+            house_angles = []
+
+            for house in houses:
+                # Convert house positions to angles (0 = Aries, 30 = Taurus, etc.)
+                house_num = house.get("number", 0)
+                sign = house.get("sign", "")
+                degree = house.get("degree", 0)
+
+                # Calculate sign index (0 = Aries, 1 = Taurus, etc.)
+                sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
+                            "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
+                            "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
+
+                # Calculate total angle (0 = Aries at 0°, 360 = Pisces at 30°)
+                angle = (sign_index * 30 + degree) * math.pi / 180
+
+                # Convert to cartesian coordinates (rotate 90° counter-clockwise for traditional chart layout)
+                x = 0.9 * math.cos(angle - math.pi/2)
+                y = 0.9 * math.sin(angle - math.pi/2)
+
+                # Store house cusp information
+                house_angles.append((house_num, angle, x, y))
+
+                # Draw house cusps
+                ax.plot([0, x], [0, y], 'k-', linewidth=1)
+
+                # Add house numbers
+                text_x = 1.0 * math.cos(angle - math.pi/2)
+                text_y = 1.0 * math.sin(angle - math.pi/2)
+                ax.text(text_x, text_y, str(house_num), fontsize=12)
+
+            # Plot planets
+            planets = chart_data.get("planets", [])
+            if isinstance(planets, list):
+                for planet in planets:
+                    if isinstance(planet, dict):
+                        name = planet.get("name", "")
+                        sign = planet.get("sign", "")
+                        degree = planet.get("degree", 0)
+
+                        # Calculate sign index (0 = Aries, 1 = Taurus, etc.)
+                        sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
+                                    "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
+                                    "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
+
+                        # Calculate total angle
+                        angle = (sign_index * 30 + degree) * math.pi / 180
+
+                        # Plot at 75% of radius for planets
+                        x = 0.75 * math.cos(angle - math.pi/2)
+                        y = 0.75 * math.sin(angle - math.pi/2)
+
+                        # Plot planet
+                        ax.plot(x, y, 'bo', markersize=8)
+
+                        # Add planet symbol or abbreviation
+                        symbols = {
+                            "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂",
+                            "Jupiter": "♃", "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇",
+                            "Rahu": "☊", "Ketu": "☋"
+                        }
+
+                        symbol = symbols.get(name, name[:2])
+                        ax.text(x + 0.05, y + 0.05, symbol, fontsize=12)
+            elif isinstance(planets, dict):
+                # Handle planets stored as dictionary with planet names as keys
+                for name, planet_data in planets.items():
+                    if isinstance(planet_data, dict):
+                        sign = planet_data.get("sign", "")
+                        degree = planet_data.get("degree", 0)
+
+                        # Calculate sign index
+                        sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
+                                    "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
+                                    "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
+
+                        # Calculate total angle
+                        angle = (sign_index * 30 + degree) * math.pi / 180
+
+                        # Plot at 75% of radius for planets
+                        x = 0.75 * math.cos(angle - math.pi/2)
+                        y = 0.75 * math.sin(angle - math.pi/2)
+
+                        # Plot planet
+                        ax.plot(x, y, 'bo', markersize=8)
+
+                        # Add planet symbol or abbreviation
+                        symbols = {
+                            "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂",
+                            "Jupiter": "♃", "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇",
+                            "Rahu": "☊", "Ketu": "☋"
+                        }
+
+                        symbol = symbols.get(name, name[:2])
+                        ax.text(x + 0.05, y + 0.05, symbol, fontsize=12)
+
+            # Add chart title
+            birth_details = chart_data.get("birth_details", {})
+            birth_date = birth_details.get("birth_date", "")
+            birth_time = birth_details.get("birth_time", "")
+            location = birth_details.get("location", "")
+
+            plt.title(f"Birth Chart\n{birth_date} {birth_time}\n{location}")
+
+            # Set equal aspect ratio and remove axis ticks
+            ax.set_aspect('equal')
+            ax.set_xlim(-1.1, 1.1)
+            ax.set_ylim(-1.1, 1.1)
+            plt.axis('off')
+
+            # Save the chart
+            if output_path:
+                plt.savefig(output_path, dpi=300, bbox_inches='tight')
+                plt.close(fig)
+                return output_path
+            else:
+                # Return as base64 encoded image
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+                plt.close(fig)
+                buf.seek(0)
+                img_str = base64.b64encode(buf.read()).decode('utf-8')
+                return img_str
+
+        elif chart_type == "3d":
+            return generate_3d_chart(chart_data, output_path)
+        elif chart_type == "planet_table":
+            return generate_planet_table(chart_data, output_path)
+        else:
+            logger.error(f"Unknown chart type: {chart_type}")
+            raise ValueError("Unknown chart type")
+
+    except Exception as e:
+        logger.error(f"Error generating chart image: {e}")
+        raise
+
+def save_chart_as_pdf(chart_data: Dict[str, Any], output_path: str) -> str:
+    """
+    Save a chart as a PDF file with full chart details.
+
+    Args:
+        chart_data: Dictionary containing chart data
+        output_path: Path to save the PDF file
+
+    Returns:
+        Path to the saved PDF file
+    """
+    try:
+        # Create temporary directory for images
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Generate different chart images
+            chart_images = {}
+
+            # Vedic square chart
+            vedic_path = os.path.join(temp_dir, "vedic_chart.png")
+            chart_images["vedic"] = render_vedic_square_chart(chart_data, vedic_path)
+
+            # Planet table
+            table_path = os.path.join(temp_dir, "planet_table.png")
+            chart_images["table"] = generate_planet_table(chart_data, table_path)
+
+            # Create PDF document
+            doc = SimpleDocTemplate(
+                output_path,
+                pagesize=letter,
+                rightMargin=72,
+                leftMargin=72,
+                topMargin=72,
+                bottomMargin=72
+            )
+
+            # Get styles
+            styles = getSampleStyleSheet()
+            title_style = styles["Title"]
+            heading_style = styles["Heading2"]
+            normal_style = styles["Normal"]
+
+            # Create content elements
+            elements = []
+
+            # Add title
+            title = "Astrological Chart Analysis"
+            elements.append(Paragraph(title, title_style))
+            elements.append(Spacer(1, 12))
+
+            # Add birth details
+            birth_details = chart_data.get("birth_details", {})
+            birth_date = birth_details.get("birth_date", birth_details.get("birthDate", "Unknown"))
+            birth_time = birth_details.get("birth_time", birth_details.get("birthTime", "Unknown"))
+            birth_place = birth_details.get("location", birth_details.get("birthPlace", "Unknown"))
+
+            details_text = f"Date: {birth_date}<br/>Time: {birth_time}<br/>Location: {birth_place}"
+            elements.append(Paragraph("Birth Details", heading_style))
+            elements.append(Paragraph(details_text, normal_style))
+            elements.append(Spacer(1, 12))
+
+            # Add Vedic chart image
+            elements.append(Paragraph("Chart Diagram", heading_style))
+            if os.path.exists(vedic_path):
+                img_width = 400
+                img = Image(vedic_path, width=img_width, height=img_width)
+                elements.append(img)
+                elements.append(Spacer(1, 12))
+
+            # Add planet positions table
+            elements.append(Paragraph("Planetary Positions", heading_style))
+            if os.path.exists(table_path):
+                img_width = 450
+                table_img = Image(table_path, width=img_width, height=img_width*0.6)
+                elements.append(table_img)
+                elements.append(Spacer(1, 12))
+
+            # Add planetary aspects analysis
+            elements.append(Paragraph("Planetary Aspects", heading_style))
+            aspects = chart_data.get("aspects", [])
+            aspects_text = ""
+
+            if aspects:
+                for aspect in aspects[:10]:  # Limit to first 10 aspects
+                    planet1 = aspect.get("planet1", "")
+                    planet2 = aspect.get("planet2", "")
+                    aspect_type = aspect.get("type", "")
+                    aspects_text += f"{planet1} {aspect_type} {planet2}<br/>"
+            else:
+                aspects_text = "No significant aspects found."
+
+            elements.append(Paragraph(aspects_text, normal_style))
+            elements.append(Spacer(1, 12))
+
+            # Add interpretation if available
+            if "interpretation" in chart_data:
+                elements.append(Paragraph("Chart Interpretation", heading_style))
+                interp = chart_data.get("interpretation", "No interpretation available.")
+                elements.append(Paragraph(interp, normal_style))
+
+            # Build the PDF
+            doc.build(elements)
+
+            return output_path
+
+    except Exception as e:
+        logger.error(f"Error saving chart as PDF: {e}")
+        raise
