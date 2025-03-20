@@ -22,6 +22,7 @@ from api_gateway.websocket_proxy import proxy as websocket_proxy
 
 # Import routers
 from api_gateway.routes.chart import router as chart_router
+from api_gateway.routes.questionnaire import router as questionnaire_router
 
 # Create logs directory if it doesn't exist
 os.makedirs("logs", exist_ok=True)
@@ -86,6 +87,7 @@ async def health_check():
 # Include routers
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(chart_router, prefix="/chart", tags=["Chart"])
+v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
 
 # Add session endpoint
 @v1_router.get("/session/init")

@@ -10,8 +10,8 @@ PyJWT==2.8.0  # Added for JWT token handling
 pyswisseph==2.10.3.2
 
 # Utilities
-python-multipart==0.0.18
-httpx>=0.24.0
+python-multipart==0.0.19
+httpx>=0.26.0
 psutil==5.9.5
 python-jose==3.4.0
 passlib==1.7.4

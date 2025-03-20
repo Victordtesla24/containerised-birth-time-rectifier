@@ -18,6 +18,9 @@ from datetime import datetime
 import importlib
 from typing import Dict, Any, Callable, Awaitable
 
+# Import FastAPI for health_app to be used in tests
+from fastapi import FastAPI
+
 # Configure logging for the wrapper
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +43,38 @@ HEALTH_CHECK_PATHS = [
     "/api/v1/health/liveness",
     "/system/health/liveness"
 ]
+
+# Create a FastAPI app for health checks that can be imported for testing
+health_app = FastAPI(title="Health Check API", description="API for health checks")
+
+@health_app.get("/", tags=["Health"])
+async def health():
+    """Health check endpoint that returns the service status."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "ai_service",
+        "middleware_bypassed": True,
+        "path": "/"
+    }
+
+@health_app.get("/readiness", tags=["Health"])
+async def readiness():
+    """Readiness check endpoint that returns if the service is ready to accept requests."""
+    return {
+        "status": "ready",
+        "timestamp": datetime.now().isoformat(),
+        "service": "ai_service"
+    }
+
+@health_app.get("/liveness", tags=["Health"])
+async def liveness():
+    """Liveness check endpoint that returns if the service is running."""
+    return {
+        "status": "alive",
+        "timestamp": datetime.now().isoformat(),
+        "service": "ai_service"
+    }
 
 async def create_health_response(path: str, send: Callable) -> None:
     """

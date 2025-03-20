@@ -1,0 +1,800 @@
+{
+  "_description": "Output data from the birth time rectification process",
+  "original_birth_details": {
+    "birth_date": "1985-10-24",
+    "birth_time": "14:30:00",
+    "birth_place": "Pune, India",
+    "latitude": 18.5204,
+    "longitude": 73.8567,
+    "timezone": "Asia/Kolkata"
+  },
+  "original_chart": {
+    "chart_id": "chart_38eb756182",
+    "ascendant": "",
+    "midheaven": "",
+    "houses": [
+      324.7415360770807,
+      1.8903564883737722,
+      35.37731281678567,
+      63.58365153813526,
+      88.88336477759339,
+      114.66648137046286,
+      144.7415360770807,
+      181.89035648837378,
+      215.37731281678566,
+      243.58365153813526,
+      268.8833647775934,
+      294.66648137046286
+    ],
+    "planets": {
+      "sun": {
+        "longitude": 210.8977741925018,
+        "latitude": -0.00012051889112933258,
+        "distance": 0.9945151477979439,
+        "speed": 0.9960970663580884
+      },
+      "moon": {
+        "longitude": 342.7741786093929,
+        "latitude": -4.4102249315574875,
+        "distance": 0.002651704338907011,
+        "speed": 12.37270058387176
+      },
+      "mercury": {
+        "longitude": 230.16742706619564,
+        "latitude": -1.8966167037692008,
+        "distance": 1.259512743585995,
+        "speed": 1.4012204652223939
+      },
+      "venus": {
+        "longitude": 189.71871266608184,
+        "latitude": 1.563222303961077,
+        "distance": 1.5492429004851647,
+        "speed": 1.2433417716221409
+      },
+      "mars": {
+        "longitude": 177.95456795746352,
+        "latitude": 1.2046493932973226,
+        "distance": 2.4097058902834534,
+        "speed": 0.627518140046957
+      },
+      "jupiter": {
+        "longitude": 307.8432438035345,
+        "latitude": -0.854065982028982,
+        "distance": 4.8383608962420785,
+        "speed": 0.06780180240639679
+      },
+      "saturn": {
+        "longitude": 237.25833977553157,
+        "latitude": 1.8418045325075567,
+        "distance": 10.842141516721876,
+        "speed": 0.11072330174136573
+      },
+      "uranus": {
+        "longitude": 255.5451643638154,
+        "latitude": -0.04767338200301359,
+        "distance": 19.80053298647258,
+        "speed": 0.04753822566435317
+      },
+      "neptune": {
+        "longitude": 271.3241692940657,
+        "latitude": 1.0894794095309666,
+        "distance": 30.72899651078565,
+        "speed": 0.022117732060009016
+      },
+      "pluto": {
+        "longitude": 214.52760416943627,
+        "latitude": 16.09181608255971,
+        "distance": 30.698861291826713,
+        "speed": 0.04037789789829622
+      },
+      "mean_node": {
+        "longitude": 39.45432210297417,
+        "latitude": 0.0,
+        "distance": 0.0025695552897999907,
+        "speed": -0.052982415903602566
+      },
+      "true_node": {
+        "longitude": 39.22498124776106,
+        "latitude": 0.0,
+        "distance": 0.0026974964221236513,
+        "speed": -0.01924623464179879
+      },
+      "mean_apog": {
+        "longitude": 46.016543237672714,
+        "latitude": 0.589591932084359,
+        "distance": 0.0027106251317225456,
+        "speed": 0.11072997714718455
+      },
+      "chiron": {
+        "longitude": 74.03161478938928,
+        "latitude": -4.915527551924762,
+        "distance": 13.395410612243358,
+        "speed": -0.036804216472138884
+      }
+    },
+    "aspects": [
+      {
+        "planet1": "sun",
+        "planet2": "mars",
+        "aspect": "semi-sextile",
+        "orb": 2.943206235038275,
+        "angle": 30,
+        "applying": false
+      },
+      {
+        "planet1": "sun",
+        "planet2": "jupiter",
+        "aspect": "square",
+        "orb": 6.945469611032706,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "sun",
+        "planet2": "saturn",
+        "aspect": "semi-sextile",
+        "orb": 3.639434416970232,
+        "angle": 30,
+        "applying": true
+      },
+      {
+        "planet1": "sun",
+        "planet2": "neptune",
+        "aspect": "sextile",
+        "orb": 0.42639510156391225,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "sun",
+        "planet2": "pluto",
+        "aspect": "conjunction",
+        "orb": 3.6298299769344737,
+        "angle": 0,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "mercury",
+        "aspect": "trine",
+        "orb": 7.393248456802752,
+        "angle": 120,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "venus",
+        "aspect": "quincunx",
+        "orb": 3.0554659433110487,
+        "angle": 150,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "uranus",
+        "aspect": "square",
+        "orb": 2.7709857544224974,
+        "angle": 90,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "mean_node",
+        "aspect": "sextile",
+        "orb": 3.3198565064187164,
+        "angle": 60,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "true_node",
+        "aspect": "sextile",
+        "orb": 3.5491973616318546,
+        "angle": 60,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "mean_apog",
+        "aspect": "sextile",
+        "orb": 3.2423646282798018,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "chiron",
+        "aspect": "square",
+        "orb": 1.2574361799963754,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "mercury",
+        "planet2": "saturn",
+        "aspect": "conjunction",
+        "orb": 7.0909127093359245,
+        "angle": 0,
+        "applying": false
+      },
+      {
+        "planet1": "mercury",
+        "planet2": "mean_apog",
+        "aspect": "opposition",
+        "orb": 4.150883828522922,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "venus",
+        "planet2": "jupiter",
+        "aspect": "trine",
+        "orb": 1.8754688625473364,
+        "angle": 120,
+        "applying": true
+      },
+      {
+        "planet1": "venus",
+        "planet2": "uranus",
+        "aspect": "sextile",
+        "orb": 5.826451697733546,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "venus",
+        "planet2": "mean_node",
+        "aspect": "quincunx",
+        "orb": 0.26439056310766773,
+        "angle": 150,
+        "applying": false
+      },
+      {
+        "planet1": "venus",
+        "planet2": "true_node",
+        "aspect": "quincunx",
+        "orb": 0.4937314183207775,
+        "angle": 150,
+        "applying": false
+      },
+      {
+        "planet1": "venus",
+        "planet2": "chiron",
+        "aspect": "trine",
+        "orb": 4.312902123307438,
+        "angle": 120,
+        "applying": true
+      },
+      {
+        "planet1": "mars",
+        "planet2": "saturn",
+        "aspect": "sextile",
+        "orb": 0.6962281819319571,
+        "angle": 60,
+        "applying": true
+      },
+      {
+        "planet1": "mars",
+        "planet2": "neptune",
+        "aspect": "square",
+        "orb": 3.3696013366021873,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "pluto",
+        "aspect": "square",
+        "orb": 3.3156396340982326,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "mean_node",
+        "aspect": "square",
+        "orb": 1.6110782994396686,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "true_node",
+        "aspect": "square",
+        "orb": 1.3817374442265304,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "chiron",
+        "aspect": "trine",
+        "orb": 6.18837098585476,
+        "angle": 120,
+        "applying": false
+      },
+      {
+        "planet1": "uranus",
+        "planet2": "mean_apog",
+        "aspect": "quincunx",
+        "orb": 0.4713788738573328,
+        "angle": 150,
+        "applying": true
+      },
+      {
+        "planet1": "uranus",
+        "planet2": "chiron",
+        "aspect": "opposition",
+        "orb": 1.513549574426122,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "neptune",
+        "planet2": "pluto",
+        "aspect": "sextile",
+        "orb": 3.2034348753705615,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "neptune",
+        "planet2": "true_node",
+        "aspect": "trine",
+        "orb": 7.900811953695353,
+        "angle": 120,
+        "applying": false
+      },
+      {
+        "planet1": "pluto",
+        "planet2": "mean_node",
+        "aspect": "opposition",
+        "orb": 4.926717933537901,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "pluto",
+        "planet2": "true_node",
+        "aspect": "opposition",
+        "orb": 4.6973770783247915,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "mean_node",
+        "planet2": "true_node",
+        "aspect": "conjunction",
+        "orb": 0.22934085521310976,
+        "angle": 0,
+        "applying": true
+      },
+      {
+        "planet1": "mean_node",
+        "planet2": "mean_apog",
+        "aspect": "conjunction",
+        "orb": 6.562221134698547,
+        "angle": 0,
+        "applying": true
+      },
+      {
+        "planet1": "true_node",
+        "planet2": "mean_apog",
+        "aspect": "conjunction",
+        "orb": 6.791561989911656,
+        "angle": 0,
+        "applying": true
+      },
+      {
+        "planet1": "mean_apog",
+        "planet2": "chiron",
+        "aspect": "semi-sextile",
+        "orb": 1.9849284482834335,
+        "angle": 30,
+        "applying": true
+      }
+    ]
+  },
+  "rectification_details": {
+    "rectification_id": "rect_6901581c",
+    "confidence_score": 0,
+    "time_adjustment": "",
+    "analysis_method": "",
+    "questionnaire_id": "test-questionnaire-ed93225c",
+    "answers_analyzed": 0
+  },
+  "rectified_birth_details": {
+    "birth_date": "",
+    "birth_time": "",
+    "birth_place": "",
+    "latitude": 0,
+    "longitude": 0,
+    "timezone": ""
+  },
+  "rectified_chart": {
+    "chart_id": "chart_e25d5f54db",
+    "ascendant": "",
+    "midheaven": "",
+    "houses": [
+      264.12755241653076,
+      295.0007138801285,
+      328.3783185483169,
+      2.074699747809518,
+      32.69641380123693,
+      59.43138472010503,
+      84.12755241653076,
+      115.0007138801285,
+      148.37831854831688,
+      182.07469974780955,
+      212.69641380123693,
+      239.43138472010503
+    ],
+    "planets": {
+      "sun": {
+        "longitude": 210.73314799027008,
+        "latitude": -0.0001235545122474238,
+        "distance": 0.9945611177899117,
+        "speed": 0.9960175613542831
+      },
+      "moon": {
+        "longitude": 340.7262852822706,
+        "latitude": -4.511493812050228,
+        "distance": 0.002647763436959728,
+        "speed": 12.408808232701865
+      },
+      "mercury": {
+        "longitude": 229.93564992199296,
+        "latitude": -1.8808462125013232,
+        "distance": 1.261515199708242,
+        "speed": 1.4034774715949077
+      },
+      "venus": {
+        "longitude": 189.51322382034678,
+        "latitude": 1.5629237610054416,
+        "distance": 1.5486254346030308,
+        "speed": 1.2432489657675483
+      },
+      "mars": {
+        "longitude": 177.85085104303482,
+        "latitude": 1.2047340247439757,
+        "distance": 2.4106271499370626,
+        "speed": 0.6275444088454923
+      },
+      "jupiter": {
+        "longitude": 307.8320792265232,
+        "latitude": -0.854254239073396,
+        "distance": 4.83581861139613,
+        "speed": 0.06729899384023008
+      },
+      "saturn": {
+        "longitude": 237.2400470211994,
+        "latitude": 1.8421262103878224,
+        "distance": 10.840924876284083,
+        "speed": 0.11063443839936174
+      },
+      "uranus": {
+        "longitude": 255.5373147102136,
+        "latitude": -0.04765271757679595,
+        "distance": 19.798548937874823,
+        "speed": 0.04744902913785093
+      },
+      "neptune": {
+        "longitude": 271.3205199133041,
+        "latitude": 1.0895896234213778,
+        "distance": 30.72655118624449,
+        "speed": 0.02204270187822895
+      },
+      "pluto": {
+        "longitude": 214.5209311270698,
+        "latitude": 16.09197171911695,
+        "distance": 30.698749653899554,
+        "speed": 0.04037375428308973
+      },
+      "mean_node": {
+        "longitude": 39.463078804607875,
+        "latitude": 0.0,
+        "distance": 0.0025695552897999903,
+        "speed": -0.05298101988843895
+      },
+      "true_node": {
+        "longitude": 39.2281666253126,
+        "latitude": 0.0,
+        "distance": 0.002696476174537291,
+        "speed": -0.019283845927436892
+      },
+      "mean_apog": {
+        "longitude": 45.99824192732076,
+        "latitude": 0.5871716106016818,
+        "distance": 0.0027106251317225456,
+        "speed": 0.1107312260172528
+      },
+      "chiron": {
+        "longitude": 74.03768470749834,
+        "latitude": -4.9145655929252285,
+        "distance": 13.397573869093348,
+        "speed": -0.03664643823189583
+      }
+    },
+    "aspects": [
+      {
+        "planet1": "sun",
+        "planet2": "mars",
+        "aspect": "semi-sextile",
+        "orb": 2.882296947235261,
+        "angle": 30,
+        "applying": false
+      },
+      {
+        "planet1": "sun",
+        "planet2": "saturn",
+        "aspect": "semi-sextile",
+        "orb": 3.493100969070696,
+        "angle": 30,
+        "applying": true
+      },
+      {
+        "planet1": "sun",
+        "planet2": "neptune",
+        "aspect": "sextile",
+        "orb": 0.5873719230340271,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "sun",
+        "planet2": "pluto",
+        "aspect": "conjunction",
+        "orb": 3.7877831367997032,
+        "angle": 0,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "venus",
+        "aspect": "quincunx",
+        "orb": 1.213061461923843,
+        "angle": 150,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "jupiter",
+        "aspect": "semi-sextile",
+        "orb": 2.894206055747418,
+        "angle": 30,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "uranus",
+        "aspect": "square",
+        "orb": 4.8110294279429695,
+        "angle": 90,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "pluto",
+        "aspect": "trine",
+        "orb": 6.205354155200837,
+        "angle": 120,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "mean_node",
+        "aspect": "sextile",
+        "orb": 1.2632064776627203,
+        "angle": 60,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "true_node",
+        "aspect": "sextile",
+        "orb": 1.4981186569580132,
+        "angle": 60,
+        "applying": true
+      },
+      {
+        "planet1": "moon",
+        "planet2": "mean_apog",
+        "aspect": "sextile",
+        "orb": 5.271956645050125,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "moon",
+        "planet2": "chiron",
+        "aspect": "square",
+        "orb": 3.3113994252277053,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "mercury",
+        "planet2": "saturn",
+        "aspect": "conjunction",
+        "orb": 7.304397099206426,
+        "angle": 0,
+        "applying": false
+      },
+      {
+        "planet1": "mercury",
+        "planet2": "mean_apog",
+        "aspect": "opposition",
+        "orb": 3.937407994672185,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "venus",
+        "planet2": "jupiter",
+        "aspect": "trine",
+        "orb": 1.681144593823575,
+        "angle": 120,
+        "applying": true
+      },
+      {
+        "planet1": "venus",
+        "planet2": "mean_node",
+        "aspect": "quincunx",
+        "orb": 0.05014501573890584,
+        "angle": 150,
+        "applying": false
+      },
+      {
+        "planet1": "venus",
+        "planet2": "true_node",
+        "aspect": "quincunx",
+        "orb": 0.28505719503417026,
+        "angle": 150,
+        "applying": false
+      },
+      {
+        "planet1": "venus",
+        "planet2": "chiron",
+        "aspect": "trine",
+        "orb": 4.524460887151562,
+        "angle": 120,
+        "applying": true
+      },
+      {
+        "planet1": "mars",
+        "planet2": "saturn",
+        "aspect": "sextile",
+        "orb": 0.6108040218354347,
+        "angle": 60,
+        "applying": true
+      },
+      {
+        "planet1": "mars",
+        "planet2": "neptune",
+        "aspect": "square",
+        "orb": 3.469668870269288,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "pluto",
+        "aspect": "square",
+        "orb": 3.311148099453419,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "mean_node",
+        "aspect": "square",
+        "orb": 1.6309995780846975,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "true_node",
+        "aspect": "square",
+        "orb": 1.3960873987894047,
+        "angle": 90,
+        "applying": false
+      },
+      {
+        "planet1": "jupiter",
+        "planet2": "chiron",
+        "aspect": "trine",
+        "orb": 6.205605480975123,
+        "angle": 120,
+        "applying": false
+      },
+      {
+        "planet1": "uranus",
+        "planet2": "mean_apog",
+        "aspect": "quincunx",
+        "orb": 0.46092721710715523,
+        "angle": 150,
+        "applying": true
+      },
+      {
+        "planet1": "uranus",
+        "planet2": "chiron",
+        "aspect": "opposition",
+        "orb": 1.4996300027152643,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "neptune",
+        "planet2": "pluto",
+        "aspect": "sextile",
+        "orb": 3.200411213765676,
+        "angle": 60,
+        "applying": false
+      },
+      {
+        "planet1": "neptune",
+        "planet2": "true_node",
+        "aspect": "trine",
+        "orb": 7.9076467120085,
+        "angle": 120,
+        "applying": false
+      },
+      {
+        "planet1": "pluto",
+        "planet2": "mean_node",
+        "aspect": "opposition",
+        "orb": 4.942147677538088,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "pluto",
+        "planet2": "true_node",
+        "aspect": "opposition",
+        "orb": 4.707235498242824,
+        "angle": 180,
+        "applying": true
+      },
+      {
+        "planet1": "mean_node",
+        "planet2": "true_node",
+        "aspect": "conjunction",
+        "orb": 0.23491217929527153,
+        "angle": 0,
+        "applying": true
+      },
+      {
+        "planet1": "mean_node",
+        "planet2": "mean_apog",
+        "aspect": "conjunction",
+        "orb": 6.535163122712888,
+        "angle": 0,
+        "applying": true
+      },
+      {
+        "planet1": "true_node",
+        "planet2": "mean_apog",
+        "aspect": "conjunction",
+        "orb": 6.770075302008159,
+        "angle": 0,
+        "applying": true
+      },
+      {
+        "planet1": "mean_apog",
+        "planet2": "chiron",
+        "aspect": "semi-sextile",
+        "orb": 1.9605572198224195,
+        "angle": 30,
+        "applying": true
+      }
+    ]
+  },
+  "comparison": {
+    "time_difference": "",
+    "ascendant_difference": "",
+    "midheaven_difference": "",
+    "major_changes": [],
+    "interpretation": ""
+  }
+}

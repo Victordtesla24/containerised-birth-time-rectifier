@@ -61,8 +61,32 @@ class OpenAIService:
             try:
                 # Initialize the AsyncOpenAI client directly from the openai module
                 # The linter may not recognize this attribute, but it exists in the runtime
-                self.client = openai.AsyncOpenAI(api_key=self.api_key)  # type: ignore
-                logger.info("OpenAI client initialized")
+                try:
+                    # Monkey patch to fix the 'proxies' parameter issue in OpenAI library
+                    import functools
+                    from openai._base_client import AsyncHttpxClientWrapper
+                    original_init = AsyncHttpxClientWrapper.__init__
+
+                    @functools.wraps(original_init)
+                    def patched_init(self, *args, **kwargs):
+                        # Convert 'proxies' to 'proxy' if it exists
+                        if 'proxies' in kwargs:
+                            kwargs['proxy'] = kwargs.pop('proxies')
+                        return original_init(self, *args, **kwargs)
+
+                    # Apply the patch
+                    AsyncHttpxClientWrapper.__init__ = patched_init
+
+                    # Print details about the environment and initialization parameters
+                    logger.info(f"About to initialize OpenAI client with API key: {self.api_key[:5]}...")
+                    # Initialize the client
+                    self.client = openai.AsyncOpenAI(api_key=self.api_key)
+                    logger.info("OpenAI client initialized")
+                except Exception as detailed_e:
+                    # Print more details about the exception
+                    logger.error(f"Detailed initialization error: {detailed_e}, Type: {type(detailed_e)}")
+                    logger.error(f"Exception dir: {dir(detailed_e)}")
+                    raise
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
                 raise ValueError(f"Failed to initialize OpenAI client: {e}")
@@ -197,7 +221,15 @@ class OpenAIService:
             )
 
             # Extract response
+            if not response.choices or not hasattr(response.choices[0], 'message') or not hasattr(response.choices[0].message, 'content'):
+                # Handle case where the expected response structure is not present
+                raise ValueError("OpenAI API returned an unexpected response structure without valid content")
+
             content = response.choices[0].message.content
+
+            # If content is None, provide a meaningful error response
+            if content is None:
+                raise ValueError("OpenAI API returned null content in the response")
 
             # Update token tracking
             usage = response.usage
@@ -265,7 +297,8 @@ class OpenAIService:
 
         except Exception as e:
             logger.error(f"Unexpected error calling OpenAI API: {e}")
-            raise ValueError(f"Error generating completion: {e}")
+            # Propagate the original error with context instead of creating a new one
+            raise
 
     async def generate_questions(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """

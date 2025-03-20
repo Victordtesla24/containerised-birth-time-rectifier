@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List
 import logging
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 
 # Load .env file
 load_dotenv()
@@ -72,13 +72,20 @@ class Settings(BaseSettings):
     DEFAULT_ZODIAC_TYPE: str = os.getenv("DEFAULT_ZODIAC_TYPE", "sidereal")
     DEFAULT_AYANAMSA: float = float(os.getenv("DEFAULT_AYANAMSA", "23.6647"))
 
-    @validator("DATABASE_URL", pre=True)
-    def assemble_db_url(cls, v: Optional[str], values: Dict[str, Any]) -> str:
+    @field_validator("DATABASE_URL", mode="before")
+    def assemble_db_url(cls, v: Optional[str], info) -> str:
         if v and len(v) > 0:
             return v
 
         # Build the URL from separate components
-        return f"postgresql://{values.get('DB_USER')}:{values.get('DB_PASSWORD')}@{values.get('DB_HOST')}:{values.get('DB_PORT')}/{values.get('DB_NAME')}"
+        # Access values from info.data instead of the values parameter
+        db_user = info.data.get('DB_USER')
+        db_password = info.data.get('DB_PASSWORD')
+        db_host = info.data.get('DB_HOST')
+        db_port = info.data.get('DB_PORT')
+        db_name = info.data.get('DB_NAME')
+
+        return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

@@ -62,10 +62,10 @@ async def test_questionnaire_next_question_real_api():
             'longitude': -74.0060
         }
 
-        # Make a real API call to generate the next question
+        # Test with empty previous answers
         result = await questionnaire_service.generate_next_question(
             birth_details=birth_details,
-            previous_answers={}
+            previous_answers=[]
         )
 
         # Validate the response structure
@@ -104,17 +104,14 @@ async def test_questionnaire_with_previous_answers_real_api():
         }
 
         # Create sample previous answers
-        previous_answers = {
-            "responses": [
-                {
-                    "question_id": "q1",
-                    "question": "Did you experience any significant life events around age 25?",
-                    "answer": "Yes, I got married and changed careers.",
-                    "topic": "life_events",
-                    "quality": 0.8
-                }
-            ]
-        }
+        previous_answers = [
+            {
+                "question_id": "q1",
+                "question": "Did you experience any significant life events around age 25?",
+                "answer": "Yes, I got married and changed careers.",
+                "category": "life_events"
+            }
+        ]
 
         # Make a real API call to generate the next question
         result = await questionnaire_service.generate_next_question(
@@ -161,7 +158,7 @@ async def test_full_questionnaire_flow_real_api():
         }
 
         # Initial empty answers
-        previous_answers = {"responses": []}
+        previous_answers = []
 
         # Generate 3 questions in sequence
         for i in range(3):
@@ -182,7 +179,7 @@ async def test_full_questionnaire_flow_real_api():
             assert "id" in next_question, "Missing question_id in next_question"
 
             # Add a simulated answer to this question
-            previous_answers["responses"].append({
+            previous_answers.append({
                 "question_id": next_question.get("id"),
                 "question": next_question.get("text"),
                 "answer": f"Test answer for question {i+1}",
@@ -194,10 +191,10 @@ async def test_full_questionnaire_flow_real_api():
             logger.info(f"Answer {i+1}: Test answer for question {i+1}")
 
         # Verify we have 3 responses stored
-        assert len(previous_answers["responses"]) == 3, "Should have 3 responses"
+        assert len(previous_answers) == 3, "Should have 3 responses"
 
         # Check that all question IDs are different
-        question_ids = [resp["question_id"] for resp in previous_answers["responses"]]
+        question_ids = [resp["question_id"] for resp in previous_answers]
         assert len(question_ids) == len(set(question_ids)), "All question IDs should be unique"
 
         logger.info("Successfully completed full questionnaire flow with real API")
