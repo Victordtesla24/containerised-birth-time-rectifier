@@ -8,7 +8,7 @@ It handles the business logic for astrological chart operations using real data 
 import logging
 import uuid
 from typing import Dict, List, Any, Optional, Union, cast
-from datetime import datetime, timezone, UTC, timedelta
+from datetime import datetime, timezone, UTC, timedelta, date
 import asyncio
 import os
 import json
@@ -17,6 +17,8 @@ import time
 import pytz
 import sys
 import base64
+import tempfile
+import math
 
 # Import real data sources and calculation utilities
 from ai_service.utils.constants import ZODIAC_SIGNS
@@ -31,6 +33,13 @@ from ai_service.core.config import settings
 
 # Setup logging
 logger = logging.getLogger(__name__)
+
+# Create a custom JSON encoder to handle date and datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 
 class ChartVerifier:
     """
@@ -190,106 +199,104 @@ class ChartVerifier:
             logger.error("Empty response from OpenAI API")
             raise ValueError("Empty response from OpenAI API")
 
+        # Normalize response by removing unnecessary whitespace
+        normalized_response = response.strip()
+
         # Step 1: Try direct JSON parsing first
         try:
-            return json.loads(response)
+            return json.loads(normalized_response)
         except json.JSONDecodeError:
             # Not a direct JSON response, continue to extraction
             pass
 
         # Step 2: Try to extract JSON from the response using regex
-        try:
-            # Look for a complete JSON object pattern
-            json_pattern = r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}'
-            match = re.search(json_pattern, response)
+        # Look for anything that looks like a JSON object
+        json_pattern = r'(\{[\s\S]*\})'
+        json_match = re.search(json_pattern, normalized_response)
 
-            if match:
-                json_str = match.group(0)
-                # Replace single quotes with double quotes for valid JSON
-                json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
-                # Fix boolean values
-                json_str = re.sub(r':\s*true\b', r': true', json_str)
-                json_str = re.sub(r':\s*false\b', r': false', json_str)
+        if json_match:
+            json_str = json_match.group(1)
+            # Clean up the extracted JSON by removing markdown code block markers
+            json_str = re.sub(r'```(?:json)?|```', '', json_str).strip()
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                # Continue to next method
+                pass
 
+        # Step 3: Look for JSON in code blocks
+        code_block_pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+        code_blocks = re.findall(code_block_pattern, normalized_response)
+
+        if code_blocks:
+            for block in code_blocks:
                 try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    logger.warning(f"Found JSON-like structure but couldn't parse it: {e}")
-                    # Continue to next method
+                    if '{' in block and '}' in block:  # Only try to parse JSON-like blocks
+                        return json.loads(block.strip())
+                except json.JSONDecodeError:
+                    continue
 
-            # Step 3: Try to find a JSON block using markdown code block indicators
-            code_block_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
-            code_matches = re.findall(code_block_pattern, response, re.DOTALL)
+        # Step 4: Look for specific fields like "verified" and "confidence_score"
+        result = {}
 
-            if code_matches:
-                for code_match in code_matches:
-                    try:
-                        # Clean up and fix common issues
-                        json_str = code_match.strip()
-                        json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
-                        json_str = re.sub(r':\s*true\b', r': true', json_str)
-                        json_str = re.sub(r':\s*false\b', r': false', json_str)
+        # Check for verified status
+        verified_match = re.search(r'"verified"\s*:\s*(true|false)', normalized_response, re.IGNORECASE)
+        if verified_match:
+            result["verified"] = verified_match.group(1).lower() == "true"
 
-                        return json.loads(json_str)
-                    except json.JSONDecodeError:
-                        continue  # Try the next match if available
+        # Check for confidence score
+        confidence_match = re.search(r'"confidence_score"\s*:\s*([0-9.]+)', normalized_response)
+        if confidence_match:
+            try:
+                result["confidence_score"] = float(confidence_match.group(1))
+            except ValueError:
+                result["confidence_score"] = 70.0  # Default if conversion fails
+        else:
+            result["confidence_score"] = 70.0  # Default if not found
 
-            # Step 4: Try to extract key-value pairs manually if all else fails
-            verified_match = re.search(r'"?verified"?\s*:\s*(true|false)', response, re.IGNORECASE)
-            confidence_match = re.search(r'"?confidence_score"?\s*:\s*(\d+(?:\.\d+)?)', response)
-            message_match = re.search(r'"?message"?\s*:\s*"([^"]*)"', response)
+        # Check for message
+        message_match = re.search(r'"message"\s*:\s*"([^"]+)"', normalized_response)
+        if message_match:
+            result["message"] = message_match.group(1)
+        else:
+            result["message"] = "Verification completed, extracted from text response."
 
-            if verified_match or confidence_match:
-                result = {}
+        # Include empty corrections array for consistency
+        result["corrections"] = []
 
-                if verified_match:
-                    result["verified"] = verified_match.group(1).lower() == "true"
+        # Only return the result if we have at least verified status
+        if "verified" in result:
+            return result
 
-                if confidence_match:
-                    result["confidence_score"] = float(confidence_match.group(1))
-                else:
-                    result["confidence_score"] = 70.0  # Default if not found
+        # Step 5: If we couldn't extract structured data, analyze the text
+        logger.warning("Could not extract JSON structure from response, analyzing text content")
 
-                if message_match:
-                    result["message"] = message_match.group(1)
-                else:
-                    result["message"] = "Verification completed, extracted from text response."
+        # Check if the response generally indicates success
+        positive_indicators = ["verified", "correct", "accurate", "valid", "consistent"]
+        negative_indicators = ["error", "incorrect", "inaccurate", "invalid", "inconsistent"]
 
-                result["corrections"] = []
+        # Count positive and negative indicators
+        positive_count = sum(1 for word in positive_indicators if word.lower() in normalized_response.lower())
+        negative_count = sum(1 for word in negative_indicators if word.lower() in normalized_response.lower())
 
-                return result
+        # Determine if verified based on indicator counts
+        verified = positive_count > negative_count
 
-            # Step 5: Last resort - create a basic response based on text analysis
-            logger.warning("Could not extract JSON structure from response, using text analysis")
-            # Check if the response generally indicates success
-            positive_indicators = ["verified", "correct", "accurate", "valid", "consistent"]
-            negative_indicators = ["error", "incorrect", "inaccurate", "invalid", "inconsistent"]
+        # Calculate a simple confidence score based on the ratio of positive to total indicators
+        total_indicators = positive_count + negative_count
+        confidence_score = 70.0  # Default middle value with slight positive bias
 
-            # Count positive and negative indicators
-            positive_count = sum(1 for word in positive_indicators if word.lower() in response.lower())
-            negative_count = sum(1 for word in negative_indicators if word.lower() in response.lower())
+        if total_indicators > 0:
+            confidence_score = min(100.0, max(50.0, (positive_count / total_indicators) * 100))
 
-            # Determine if verified based on indicator counts
-            verified = positive_count > negative_count
-
-            # Calculate a simple confidence score based on the ratio of positive to total indicators
-            total_indicators = positive_count + negative_count
-            confidence_score = 50.0  # Default middle value
-
-            if total_indicators > 0:
-                confidence_score = min(100.0, max(0.0, (positive_count / total_indicators) * 100))
-
-            return {
-                "verified": verified,
-                "confidence_score": confidence_score,
-                "corrections": [],
-                "message": f"Verification based on text analysis: {positive_count} positive vs {negative_count} negative indicators",
-                "raw_response": response[:500]  # Include truncated raw response for debugging
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to parse verification response: {str(e)}")
-            raise ValueError(f"Failed to parse verification response: {str(e)}")
+        # Create and return result
+        return {
+            "verified": verified,
+            "confidence_score": confidence_score,
+            "corrections": [],
+            "message": f"Verification based on text analysis: {positive_count} positive vs {negative_count} negative indicators",
+            "raw_response": normalized_response[:500]  # Include truncated raw response for debugging
+        }
 
 class ChartService:
     """Service for chart operations including generation, validation, and retrieval"""
@@ -773,6 +780,32 @@ class ChartService:
             "compared_at": datetime.now(UTC).isoformat()
         }
 
+        # Generate comparison visualization
+        if comparison_type.lower() in ["full", "with_visualization"]:
+            from ai_service.utils.chart_visualizer import generate_comparison_chart
+
+            # Create a unique filename for the comparison chart
+            visualization_dir = os.path.join(settings.MEDIA_ROOT, "comparisons")
+            os.makedirs(visualization_dir, exist_ok=True)
+
+            visualization_path = os.path.join(visualization_dir, f"comparison_{comparison_id}.png")
+
+            # Generate the comparison chart
+            try:
+                chart_path = generate_comparison_chart(chart1, chart2, visualization_path)
+
+                # Add visualization URL to response
+                if os.path.exists(chart_path):
+                    visualization_url = f"/api/chart/comparison/{comparison_id}/visualization"
+                    response["visualization"] = {
+                        "url": visualization_url,
+                        "file_path": chart_path,
+                        "format": "png"
+                    }
+            except Exception as e:
+                logger.error(f"Error generating comparison visualization: {e}")
+                # Continue without visualization if there's an error
+
         # Add summary for "full" or "summary" comparison types
         if comparison_type.lower() in ["full", "summary"]:
             # Calculate meaningful changes
@@ -1156,59 +1189,24 @@ class ChartService:
         rectification_steps = []
         rectification_steps.append("Retrieved original chart data")
 
-        # Per sequence diagram: AI Analysis Algorithm determines birth time
-        # Thorough implementation of AI-powered rectification
+        # Use AI analysis for advanced rectification if OpenAI service is available
         ai_rectification_result = None
         if self.openai_service:
             try:
                 rectification_steps.append("Starting AI-powered birth time analysis")
 
-                # Enrich input data for more accurate analysis
-                # Include aspect data and more relevant astrological factors
+                # Format existing chart data for OpenAI analysis
                 chart_planets = []
-                aspects = []
-
-                # Process planets data for AI analysis
-                if isinstance(original_chart.get("planets", {}), dict):
-                    # Handle dictionary format
-                    for planet_name, planet_data in original_chart.get("planets", {}).items():
-                        if isinstance(planet_data, dict):
-                            chart_planets.append({
-                                "name": planet_name,
-                                "sign": planet_data.get("sign", ""),
-                                "degree": planet_data.get("degree", 0),
-                                "house": planet_data.get("house", 0),
-                                "retrograde": planet_data.get("retrograde", False),
-                                "longitude": planet_data.get("longitude", 0)
-                            })
-                else:
-                    # Handle list format
-                    for planet in original_chart.get("planets", []):
-                        if isinstance(planet, dict):
-                            chart_planets.append({
-                                "name": planet.get("name", ""),
-                                "sign": planet.get("sign", ""),
-                                "degree": planet.get("degree", 0),
-                                "house": planet.get("house", 0),
-                                "retrograde": planet.get("retrograde", False),
-                                "longitude": planet.get("longitude", 0)
-                            })
-
-                # Include aspects for better analysis
-                for aspect in original_chart.get("aspects", []):
-                    if isinstance(aspect, dict):
-                        aspects.append({
-                            "planet1": aspect.get("planet1", ""),
-                            "planet2": aspect.get("planet2", ""),
-                            "type": aspect.get("type", ""),
-                            "orb": aspect.get("orb", 0),
-                            "applying": aspect.get("applying", False)
+                for planet in original_chart.get("planets", []):
+                    if isinstance(planet, dict):
+                        chart_planets.append({
+                            "name": planet.get("name"),
+                            "sign": planet.get("sign"),
+                            "degree": planet.get("degree", 0),
+                            "house": planet.get("house", 0)
                         })
 
-                # Extract birth time indicators from answers
-                birth_time_indicators = self._extract_birth_time_indicators(answers)
-
-                # Prepare enhanced data for AI analysis
+                # Prepare data for AI analysis
                 rectification_prompt = {
                     "task": "birth_time_rectification",
                     "birth_details": {
@@ -1216,198 +1214,91 @@ class ChartService:
                         "time": birth_time,
                         "latitude": latitude,
                         "longitude": longitude,
-                        "timezone": timezone,
-                        "location": birth_details.get("location", "")
+                        "timezone": timezone
                     },
                     "questionnaire_data": {
                         "questions_and_answers": answers,
-                        "total_questions": len(answers),
-                        "birth_time_indicators": birth_time_indicators
+                        "total_questions": len(answers)
                     },
                     "chart_data": {
                         "ascendant": original_chart.get("ascendant", {}),
-                        "planets": chart_planets,
-                        "houses": original_chart.get("houses", []),
-                        "aspects": aspects
+                        "planets": chart_planets
                     },
-                    "analysis_requirements": [
-                        "Analyze questionnaire answers for timing indicators using Vedic and Western principles",
-                        "Apply both traditional astrological rules and AI pattern analysis to determine birth time",
-                        "Consider planetary aspects, house positions, and transits in your analysis",
-                        "Provide confidence level and detailed explanation for the rectification",
-                        "Specify adjustment in minutes (positive or negative) from original time",
-                        "Include astrological factors that support your conclusion"
+                    "requirements": [
+                        "Analyze questionnaire answers for timing indicators",
+                        "Apply astrological principles to determine the most likely birth time",
+                        "Provide confidence level and explanation for the rectification",
+                        "Specify adjustment in minutes (positive or negative) from original time"
                     ]
                 }
 
-                rectification_steps.append("Sending enhanced data to OpenAI for astrological analysis")
+                rectification_steps.append("Sending data to OpenAI for astrological analysis")
 
-                # Get detailed rectification analysis from OpenAI
+                # Get rectification from OpenAI
                 response = await self.openai_service.generate_completion(
-                    prompt=json.dumps(rectification_prompt),
-                    task_type="birth_time_rectification",
-                    max_tokens=1200,   # Increased token limit for more detailed analysis
-                    temperature=0.2    # Lower temperature for more deterministic results
+                    prompt=json.dumps(rectification_prompt, cls=DateTimeEncoder),
+                    task_type="rectification",
+                    max_tokens=1200,
+                    temperature=0.2
                 )
 
                 if response and "content" in response:
                     rectification_steps.append("Received AI analysis results")
 
-                    # Parse the AI response with improved handling of different formats
+                    # Parse the AI response
                     content = response["content"]
-                    ai_result = {}
 
-                    # Try multiple parsing approaches for reliability
-                    try:
-                        # Try direct JSON parsing first
+                    # Extract JSON if embedded in text
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        ai_result = json.loads(json_match.group(0))
+                    else:
                         try:
                             ai_result = json.loads(content)
-                            rectification_steps.append("Successfully parsed JSON response")
                         except json.JSONDecodeError:
-                            # Extract JSON if embedded in text
-                            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                            if json_match:
-                                ai_result = json.loads(json_match.group(0))
-                                rectification_steps.append("Extracted JSON from text response")
-                            else:
-                                # Extract from markdown code blocks if present
-                                code_block_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
-                                code_matches = re.findall(code_block_pattern, content, re.DOTALL)
-                                if code_matches:
-                                    for code_match in code_matches:
-                                        try:
-                                            ai_result = json.loads(code_match.strip())
-                                            rectification_steps.append("Extracted JSON from code block")
-                                            break
-                                        except:
-                                            continue
-                    except Exception as parse_error:
-                        logger.warning(f"Error parsing JSON response: {parse_error}")
-                        rectification_steps.append(f"JSON parsing error: {str(parse_error)}")
+                            # Extract key information from text response
+                            time_pattern = re.search(r'rectified_time["\s:]+([0-2]?[0-9]:[0-5][0-9])', content)
+                            confidence_pattern = re.search(r'confidence["\s:]+(\d+\.?\d*)', content)
+                            adjustment_pattern = re.search(r'adjustment_minutes["\s:]+(-?\d+)', content)
 
-                    # If JSON parsing failed, extract structured data from text
-                    if not ai_result:
-                        rectification_steps.append("Falling back to text extraction")
-                        # Extract key information from text response with improved patterns
-                        time_pattern = re.search(r'(?:rectified_time|rectified birth time)["\s:]+([0-2]?[0-9]:[0-5][0-9](?::[0-5][0-9])?)', content, re.IGNORECASE)
-                        confidence_pattern = re.search(r'confidence(?:_score|[ _]level)?["\s:]+(\d+\.?\d*)', content, re.IGNORECASE)
-                        adjustment_pattern = re.search(r'adjustment_?minutes?["\s:]+(-?\d+)', content, re.IGNORECASE)
-                        explanation_pattern = re.search(r'explanation["\s:]+["\'](.*?)["\'],["\s}]', content, re.IGNORECASE)
+                            ai_result = {}
+                            if time_pattern:
+                                ai_result["rectified_time"] = time_pattern.group(1)
+                            if confidence_pattern:
+                                ai_result["confidence"] = float(confidence_pattern.group(1))
+                            if adjustment_pattern:
+                                ai_result["adjustment_minutes"] = int(adjustment_pattern.group(1))
 
-                        if time_pattern:
-                            ai_result["rectified_time"] = time_pattern.group(1)
-                        if confidence_pattern:
-                            ai_result["confidence"] = float(confidence_pattern.group(1))
-                        if adjustment_pattern:
-                            ai_result["adjustment_minutes"] = int(adjustment_pattern.group(1))
-                        if explanation_pattern:
-                            ai_result["explanation"] = explanation_pattern.group(1)
-                        else:
-                            # Extract a meaningful explanation from the content
-                            explanation_candidates = [
-                                line.strip() for line in content.split('\n')
-                                if len(line.strip()) > 30
-                                and "explanation" not in line.lower()
-                                and "rectifi" in line.lower()
-                            ]
-                            if explanation_candidates:
-                                ai_result["explanation"] = explanation_candidates[0]
-                            else:
-                                # Find any substantial text block
-                                substantial_lines = [line.strip() for line in content.split('\n') if len(line.strip()) > 40]
-                                if substantial_lines:
-                                    ai_result["explanation"] = substantial_lines[0]
+                            explanation_lines = [line for line in content.split('\n') if 'explanation' not in line.lower() and len(line) > 20]
+                            if explanation_lines:
+                                ai_result["explanation"] = explanation_lines[0]
 
-                        # Find astrological factors if available
-                        astrological_factors = []
-                        for line in content.split('\n'):
-                            if any(factor in line.lower() for factor in [
-                                'transit', 'aspect', 'moon', 'ascendant', 'house', 'planet',
-                                'conjunction', 'trine', 'square', 'opposition', 'sextile'
-                            ]):
-                                factor = line.strip()
-                                if factor and len(factor) > 10:
-                                    astrological_factors.append(factor)
-
-                        if astrological_factors:
-                            ai_result["astrological_factors"] = astrological_factors[:5]  # Limit to top 5 factors
-
-                    # Enhanced extraction and processing of rectification details
+                    # Extract rectification details
                     if "rectified_time" in ai_result:
                         ai_adjusted_time = ai_result["rectified_time"]
                         ai_confidence = ai_result.get("confidence", 75.0)
                         ai_explanation = ai_result.get("explanation", "Birth time rectified using AI analysis")
                         ai_adjustment_minutes = ai_result.get("adjustment_minutes", 0)
-                        astrological_factors = ai_result.get("astrological_factors", [])
 
-                        # Parse the AI-suggested time with improved handling
+                        # Parse the AI-suggested time
                         if ":" in ai_adjusted_time:
-                            time_parts = ai_adjusted_time.split(":")
-                            hours = int(time_parts[0])
-                            minutes = int(time_parts[1])
+                            hours, minutes = map(int, ai_adjusted_time.split(":")[:2])
 
-                            # Handle seconds if provided
-                            seconds = 0
-                            if len(time_parts) > 2:
-                                try:
-                                    seconds = int(time_parts[2])
-                                except (ValueError, IndexError):
-                                    pass
+                            # Create adjusted datetime
+                            rectified_time_dt = birth_dt.replace(hour=hours, minute=minutes)
 
-                            # Create adjusted datetime with proper validation
-                            try:
-                                # Ensure hours and minutes are within valid ranges
-                                hours = max(0, min(23, hours))
-                                minutes = max(0, min(59, minutes))
-                                seconds = max(0, min(59, seconds))
+                            # Format as string for display
+                            rectified_time = rectified_time_dt.strftime("%H:%M")
 
-                                rectified_time_dt = birth_dt.replace(
-                                    hour=hours,
-                                    minute=minutes,
-                                    second=seconds
-                                )
+                            ai_rectification_result = {
+                                "rectified_time": rectified_time_dt,
+                                "confidence": ai_confidence,
+                                "explanation": ai_explanation,
+                                "adjustment_minutes": ai_adjustment_minutes,
+                                "methods_used": ["ai_analysis", "questionnaire_analysis"],
+                            }
 
-                                # Format as string for display
-                                rectified_time = rectified_time_dt.strftime("%H:%M:%S")
-
-                                # Calculate adjustment minutes more precisely
-                                if not ai_adjustment_minutes:
-                                    # Convert both times to minutes since midnight and find difference
-                                    original_minutes = birth_dt.hour * 60 + birth_dt.minute
-                                    rectified_minutes = hours * 60 + minutes
-                                    ai_adjustment_minutes = rectified_minutes - original_minutes
-
-                                    # Adjust for day boundary crossings
-                                    if ai_adjustment_minutes > 720:  # More than 12 hours positive
-                                        ai_adjustment_minutes -= 1440  # Subtract a day
-                                    elif ai_adjustment_minutes < -720:  # More than 12 hours negative
-                                        ai_adjustment_minutes += 1440  # Add a day
-
-                                # Construct enhanced result with additional astrological factors
-                                ai_rectification_result = {
-                                    "rectified_time": rectified_time_dt,
-                                    "rectified_time_str": rectified_time,
-                                    "confidence": ai_confidence,
-                                    "explanation": ai_explanation,
-                                    "adjustment_minutes": ai_adjustment_minutes,
-                                    "methods_used": [
-                                        "ai_powered_analysis",
-                                        "questionnaire_analysis",
-                                        "astrological_pattern_matching",
-                                        "vedic_transit_analysis"
-                                    ],
-                                    "astrological_factors": astrological_factors
-                                }
-
-                                rectification_steps.append(f"AI analysis successful: adjusted time to {rectified_time}")
-                                rectification_steps.append(f"Adjustment: {ai_adjustment_minutes} minutes with {ai_confidence}% confidence")
-
-                                if astrological_factors:
-                                    rectification_steps.append(f"Based on {len(astrological_factors)} astrological factors")
-
-                            except ValueError as time_error:
-                                rectification_steps.append(f"Error applying rectified time: {str(time_error)}")
-                                logger.error(f"Error applying AI rectified time: {str(time_error)}")
+                            rectification_steps.append(f"AI analysis successful: adjusted time to {rectified_time}")
             except Exception as e:
                 logger.error(f"Error in AI rectification analysis: {e}")
                 rectification_steps.append(f"Error in AI analysis: {str(e)}")
@@ -1555,17 +1446,7 @@ class ChartService:
 
     async def export_chart(self, chart_id: str, format: str = "pdf") -> Dict[str, Any]:
         """
-        Generate an exportable version of a chart with actual file generation.
-
-        This implements the Chart Export component of the sequence diagram,
-        generating the PDF or image files as specified in the requirements.
-
-        Args:
-            chart_id: ID of the chart to export
-            format: Format of the export (pdf, jpg, png)
-
-        Returns:
-            Dictionary containing export details
+        Generate an exportable version of a chart.
         """
         logger.info(f"Exporting chart {chart_id} in {format} format")
 
@@ -1585,32 +1466,23 @@ class ChartService:
         filename = f"{chart_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         export_path = os.path.join(export_dir, filename)
 
-        # Import visualization utilities
-        from ai_service.utils.chart_visualizer import (
-            save_chart_as_pdf,
-            generate_chart_image,
-            generate_multiple_charts,
-            generate_planet_table
-        )
-
-        file_path = ""
-
         # Generate the export based on requested format
         if format.lower() == "pdf":
-            # Use proper PDF generation with full chart details
+            # Generate PDF file using reportlab
             pdf_path = f"{export_path}.pdf"
+            from ai_service.utils.chart_visualizer import save_chart_as_pdf
             file_path = save_chart_as_pdf(chart_data, pdf_path)
 
             # Verify the file was created
             if not os.path.exists(file_path):
                 raise ValueError(f"Failed to generate PDF file at {file_path}")
 
-            logger.info(f"PDF chart exported successfully to {file_path}")
             download_url = f"/api/chart/download/{export_id}/pdf"
 
         elif format.lower() in ["jpg", "jpeg", "png"]:
             # Generate image using chart_visualizer
             img_path = f"{export_path}.{format.lower()}"
+            from ai_service.utils.chart_visualizer import generate_chart_image
 
             # Use chart_type to specify visualization style
             chart_data["chart_type"] = format.lower()
@@ -1620,7 +1492,6 @@ class ChartService:
             if not os.path.exists(file_path):
                 raise ValueError(f"Failed to generate image file at {file_path}")
 
-            logger.info(f"Chart image exported successfully to {file_path}")
             download_url = f"/api/chart/download/{export_id}/{format.lower()}"
 
         elif format.lower() == "multi":
@@ -1628,6 +1499,7 @@ class ChartService:
             multi_dir = f"{export_path}_multi"
             os.makedirs(multi_dir, exist_ok=True)
 
+            from ai_service.utils.chart_visualizer import generate_multiple_charts
             chart_files = generate_multiple_charts(chart_data, multi_dir)
 
             # Create a zip file with all charts
@@ -1862,7 +1734,7 @@ class ChartService:
                 # Get verification from OpenAI with proper error handling
                 try:
                     response = await openai_service.generate_completion(
-                        prompt=vedic_prompt,
+                        prompt=json.dumps(vedic_prompt, cls=DateTimeEncoder),
                         task_type="vedic_chart_verification",
                         max_tokens=800,
                         temperature=0.2  # Lower temperature for more deterministic verification
@@ -2412,7 +2284,7 @@ class ChartService:
         try:
             # Request interpretation from OpenAI
             response = await self.openai_service.generate_completion(
-                prompt=json.dumps(prompt),
+                prompt=json.dumps(prompt, cls=DateTimeEncoder),
                 task_type="chart_interpretation",
                 max_tokens=1000,
                 temperature=0.7  # Slightly creative but still factual

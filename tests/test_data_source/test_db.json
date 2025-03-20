@@ -1,0 +1,807 @@
+{
+  "_description": "This file serves as a temporary database for integration testing. It stores all intermediate data generated during the test execution. The test will read from and write to this database as it progresses through the application sequence flow.",
+  "_instructions": "This file is automatically updated by the test. Do not modify it manually unless you need to reset the test data.",
+  "charts": {
+    "_description": "Collection of astrological charts calculated during the test. Each chart contains the complete mathematical representation of planetary positions, houses, and aspects.",
+    "_fields": {
+      "id": "Unique identifier for the chart",
+      "birth_date": "Date of birth in YYYY-MM-DD format",
+      "birth_time": "Time of birth in HH:MM:SS format",
+      "latitude": "Birth location latitude in decimal degrees",
+      "longitude": "Birth location longitude in decimal degrees",
+      "timezone": "IANA timezone database name",
+      "location": "Human-readable birth location",
+      "generated_at": "ISO timestamp when chart was calculated",
+      "verification": "Results of chart verification with OpenAI",
+      "planets": "Positions of all planets and points",
+      "houses": "House cusps and positions",
+      "angles": "Chart angles (Ascendant, Midheaven, etc.)",
+      "aspects": "Aspects between planets and points"
+    },
+    "items": [
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T05:59:31.121184",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0,
+          "corrections": [
+            {
+              "type": "planet_positions",
+              "details": "Positions appear to be in tropical zodiac terms; need conversion to sidereal."
+            },
+            {
+              "type": "house_system",
+              "details": "Vedic astrology typically uses the whole sign house system or equal house system starting from the ascendant. Calculation method for houses not specified."
+            },
+            {
+              "type": "ascendant_calculation",
+              "details": "Ascendant calculation in sidereal terms is necessary for Vedic astrology."
+            }
+          ],
+          "message": "Without the ability to apply precise astronomical and astrological calculations, including the conversion from the tropical to the sidereal zodiac, and knowing the specific house calculation system used (e.g., Placidus, Whole Sign), a full verification cannot be provided. The data appears to be based on Western astrology conventions and requires adjustments to align with Vedic standards."
+        },
+        "id": "chart_870c7cb481"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:02:11.963690",
+        "verification": {
+          "verified": false,
+          "confidence_score": 50.0,
+          "message": "Verification completed, extracted from text response.",
+          "corrections": []
+        },
+        "id": "chart_2448ded720"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:03:53.276736",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0.0,
+          "message": "Verification completed, extracted from text response.",
+          "corrections": []
+        },
+        "id": "chart_1d9a83125e"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:06:18.445606",
+        "verification": {
+          "verified": false,
+          "confidence_score": 70.0,
+          "message": "Verification completed, extracted from text response.",
+          "corrections": []
+        },
+        "id": "chart_d51c36a32f"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:19:59.739464",
+        "verification": {
+          "verified": false,
+          "confidence_score": 50,
+          "corrections": [
+            {
+              "field": "General",
+              "correction": "Unable to precisely verify without exact ayanamsa calculation. The positions need to be recalculated using a specific ayanamsa for Vedic astrology."
+            }
+          ],
+          "message": "Without applying a specific ayanamsa, it's challenging to verify the accuracy of planet positions, house calculations, and the ascendant calculation according to Indian Vedic Astrological standards. Typically, Vedic astrology uses the sidereal zodiac, which might result in different zodiac sign placements compared to the tropical zodiac used in Western astrology. The provided positions seem to be based on the tropical zodiac without adjusting for the ayanamsa, which makes them likely inaccurate for Vedic astrology purposes. Specific software or tools are required to adjust these positions accurately and to verify them against the Vedic standards."
+        },
+        "id": "chart_041fae682a"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:54:29.016498",
+        "verification": {
+          "verified": false,
+          "confidence_score": 50.0,
+          "message": "Verification completed, extracted from text response.",
+          "corrections": []
+        },
+        "id": "chart_49f5bb2567"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:56:31.608626",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0,
+          "corrections": [],
+          "message": "Without access to real-time astrological calculation tools or databases, it's impossible to manually verify the accuracy of the provided astrological chart data against Indian Vedic Astrological standards. The verification of planet positions, house calculations, and the ascendant calculation requires precise astronomical data and complex calculations that are beyond the scope of this format. For accurate verification, it is recommended to consult a professional astrologer or use specialized astrological software designed for Vedic astrology."
+        },
+        "id": "chart_b4ad92e588"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T06:57:47.836245",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0,
+          "corrections": [],
+          "message": "Unable to verify the accuracy of the provided astrological chart data without specific calculations through Vedic astrological software or tools. It is recommended to use a reputable Vedic astrology software to calculate the chart accurately based on the sidereal zodiac system and to check for any inconsistencies. The positions of planets, house calculations, and the ascendant degree require precise calculations that account for the sidereal zodiac adjustments. For detailed analysis and accurate readings, consulting a professional Vedic astrologer is advised."
+        },
+        "id": "chart_4a112e64f1"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T07:02:09.622874",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0.0,
+          "message": "Verification completed, extracted from text response.",
+          "corrections": []
+        },
+        "id": "chart_ee90430ce1"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T07:04:27.673586",
+        "verification": {
+          "verified": true,
+          "confidence_score": 75.0,
+          "corrections": [],
+          "message": "Verification based on text analysis: 3 positive vs 1 negative indicators",
+          "raw_response": "To verify the accuracy of an astrological chart according to Indian Vedic Astrological standards, it involves several steps including recalculating the planetary positions, house calculations, and ascendant (Lagna) based on the given birth details. These calculations are complex and require specialized software or deep astrological knowledge, especially since Vedic astrology uses the sidereal zodiac system, which is different from the tropical zodiac used in Western astrology.\n\nGiven the complex"
+        },
+        "id": "chart_6e1ee1d26e"
+      },
+      {
+        "birth_date": "1990-01-15",
+        "birth_time": "14:30:00",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "location": "New York, NY, USA",
+        "generated_at": "2025-03-20T07:06:14.814329",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0,
+          "corrections": [],
+          "message": "Without access to real-time astrological computations or proprietary databases, it's technically challenging to verify the accuracy of the specified planetary positions, house calculations, and the ascendant calculation based on Indian Vedic Astrology standards. Verification requires comparison against an authoritative Vedic astrology software or database that accounts for the Ayanamsa (the precession of the equinoxes) adjustments specific to Vedic astrology, such as Lahiri, Raman, or Krishnamurti, which affect precise planetary positions and house calculations. It's recommended to consult a professional Vedic astrologer or a reliable Vedic astrology software for accurate verification."
+        },
+        "id": "chart_21be161ab7",
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_1efe189808/pdf",
+            "generated_at": "2025-03-20T07:07:46.802218"
+          }
+        }
+      },
+      {
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_ba18df2782/pdf",
+            "generated_at": "2025-03-20T07:07:46.809463"
+          }
+        },
+        "id": "chart_f7bd12da99"
+      },
+      {
+        "birth_date": "1985-10-24",
+        "birth_time": "14:30:00",
+        "latitude": 18.5204,
+        "longitude": 73.8567,
+        "timezone": "Asia/Kolkata",
+        "location": "Pune, India",
+        "generated_at": "2025-03-20T07:13:51.192882",
+        "verification": {
+          "verified": false,
+          "confidence_score": 0,
+          "corrections": [],
+          "message": "Unable to verify the accuracy without cross-referencing with a sidereal ephemeris or Vedic astrology software. Please consult a trusted Vedic astrology software or professional astrologer for precise verification."
+        },
+        "id": "chart_70ac8d8850",
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_3a6dbe3e62/pdf",
+            "generated_at": "2025-03-20T07:15:21.574603"
+          }
+        }
+      },
+      {
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_64e9ea3c11/pdf",
+            "generated_at": "2025-03-20T07:15:21.578514"
+          }
+        },
+        "id": "chart_653e3b0be4"
+      },
+      {
+        "birth_date": "1985-10-24",
+        "birth_time": "14:30:00",
+        "latitude": 18.5204,
+        "longitude": 73.8567,
+        "timezone": "Asia/Kolkata",
+        "location": "Pune, India",
+        "generated_at": "2025-03-20T07:23:13.994512",
+        "verification": {
+          "verified": false,
+          "confidence_score": 50,
+          "corrections": [],
+          "message": "Without access to real-time astrological calculation software or databases, it's challenging to confirm the accuracy of the provided astrological chart details according to Indian Vedic Astrological standards. Verification of planet positions, house calculations, and the ascendant requires cross-referencing with a reliable Vedic astrology software or database, which is not possible in this context. It is recommended to consult a professional astrologer or use specialized software for precise verification."
+        },
+        "id": "chart_de7cedbd0c",
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_6ebe63f08b/pdf",
+            "generated_at": "2025-03-20T07:24:16.083981"
+          }
+        }
+      },
+      {
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_3dc8fef9d6/pdf",
+            "generated_at": "2025-03-20T07:24:16.089415"
+          }
+        },
+        "id": "chart_6583c7337a"
+      },
+      {
+        "birth_date": "1985-10-24",
+        "birth_time": "14:30:00",
+        "latitude": 18.5204,
+        "longitude": 73.8567,
+        "timezone": "Asia/Kolkata",
+        "location": "Pune, India",
+        "generated_at": "2025-03-20T07:33:57.969061",
+        "verification": {
+          "verified": false,
+          "confidence_score": 70.0,
+          "corrections": [],
+          "message": "Verification based on text analysis: 0 positive vs 0 negative indicators",
+          "raw_response": "To verify the astrological chart data provided for its accuracy according to Indian Vedic Astrological standards, we would have to cross-reference the planet positions and house calculations with an authoritative Vedic astrology software or ephemeris for the specified date, time, and location. While I can provide a general assessment based on the information given and standard astrological principles, I do not have access to real-time calculations or the ability to perform precise astrological c"
+        },
+        "id": "chart_38eb756182",
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_40facadc45/pdf",
+            "generated_at": "2025-03-20T07:34:51.473595"
+          }
+        }
+      },
+      {
+        "exports": {
+          "pdf": {
+            "url": "/api/chart/download/export_7b67ec8f54/pdf",
+            "generated_at": "2025-03-20T07:34:51.478398"
+          }
+        },
+        "id": "chart_e25d5f54db"
+      }
+    ]
+  },
+  "questionnaires": {
+    "_description": "Collection of questionnaire sessions with questions and answers used for birth time rectification. Contains the full conversation history with each question and the corresponding answer.",
+    "_fields": {
+      "id": "Unique identifier for the questionnaire session",
+      "chart_id": "ID of the chart this questionnaire is associated with",
+      "session_id": "ID of the user session",
+      "questions_and_answers": "Array of question-answer pairs",
+      "started_at": "ISO timestamp when questionnaire was started",
+      "completed_at": "ISO timestamp when questionnaire was completed",
+      "status": "Current status of the questionnaire session"
+    },
+    "items": [
+      {
+        "chart_id": "chart_1d9a83125e",
+        "session_id": "test-session-5b344d24",
+        "questions_and_answers": [
+          {
+            "question_id": "question_2",
+            "question": "Can you describe a significant event in your life related to a major change in your career, education, or living situation, and provide the exact date when this event occurred?",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a significant relationship event, such as the beginning or end of a major romantic relationship, marriage, or a significant development within a close partnership? Please provide the exact date of when this event occurred.",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a significant health-related event in your life or a close family member's life, such as a major illness, surgery, or a significant health scare? Please provide the exact date and as much detail about the timing (morning, afternoon, evening, or night) as possible.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-b12ec3ba"
+      },
+      {
+        "chart_id": "chart_d51c36a32f",
+        "session_id": "test-session-a3ebad42",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a significant event or transformation in your life that aligns with either starting a new job, a major move, or a significant change in your relationship status? Please provide the specific date of this event.",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Reflecting on your health history, can you identify a time when you faced a significant health challenge or underwent a major surgery? Please specify the date and nature of the event.",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you remember a period in your life when you experienced a significant shift in your health or well-being, such as a major illness, surgery, or a notable improvement in your health? Please specify the exact date of this event.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-38ca36bc"
+      },
+      {
+        "chart_id": "chart_041fae682a",
+        "session_id": "test-session-574dfbdf",
+        "questions_and_answers": [
+          {
+            "question_id": "2",
+            "question": "Can you mention any major life events (e.g., graduation, marriage, significant career changes, major relocations, births, deaths) and the approximate dates these occurred?",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced any significant health issues or surgeries, and if so, can you provide the dates and brief details of these events?",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "Unique identifier (will be automatically generated)",
+            "question": "Have you experienced any significant events that felt like a new beginning or a significant end in any aspect of your life, such as starting a new relationship, ending an important relationship, beginning a new career path, or concluding an important phase of your life? Please provide the dates and brief descriptions of these events.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-34b4550f"
+      },
+      {
+        "chart_id": "chart_49f5bb2567",
+        "session_id": "test-session-6779684d",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a significant life event that led to a major transformation in your personality or life direction? Please specify the date.",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced any significant health issues or surgeries, and if so, could you specify the dates and brief details of these events?",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced a significant event related to career advancement or notable success in your professional life, such as receiving a major award or recognition, starting a new business, or making a pivotal career decision? Please specify the date and briefly describe the event.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-953ee6be"
+      },
+      {
+        "chart_id": "chart_b4ad92e588",
+        "session_id": "test-session-d62a3619",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall any significant life events that occurred around the ages of 14, 29, or 58? Please specify the dates and a brief description of these events.",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced any significant relationship events, such as the beginning or end of a significant partnership, marriage, or a profound transformation within a close relationship? If so, please specify the dates and brief details of these events.",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced any significant relationships starting, ending, or undergoing major transformations? Please specify the dates and a brief description of these events.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-ca490af8"
+      },
+      {
+        "chart_id": "chart_4a112e64f1",
+        "session_id": "test-session-f84c9ca7",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a significant event in your life that brought about a major change in your identity, career, or personal life? Please provide the date of this event.",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced a significant relationship beginning or ending that felt destined or transformative? Please provide the exact date if possible.",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you ever undergone a significant transformation in your personal values or relationships that felt like a rebirth or major turning point? If so, please provide the date of this event.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-b2fd6a91"
+      },
+      {
+        "chart_id": "chart_ee90430ce1",
+        "session_id": "test-session-cefb0664",
+        "questions_and_answers": [
+          {
+            "question_id": "Unique identifier (will be automatically generated)",
+            "question": "Can you identify a period in your life when you experienced a significant transformation or a major turning point? Please provide the date(s) of this event.",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "automatically_generated",
+            "question": "Can you recall a period of significant health issues or surgeries, especially those that led to a transformation in your lifestyle or perspective towards health and wellness? Please provide the date(s) of these events.",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you describe a significant relationship initiation or ending, such as the start or end of a major romantic relationship, marriage, or a business partnership, including the exact date if possible? This event should have had a profound impact on your personal or professional life.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-92081170"
+      },
+      {
+        "chart_id": "chart_6e1ee1d26e",
+        "session_id": "test-session-ed3e092d",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a significant life event or transition that happened around the ages of 14, 29, 42, or 56? Please specify the event and its exact date if possible.",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced any significant health issues or major surgeries, and if so, could you specify the event and its exact date if possible?",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Have you experienced any significant changes in your residence or family environment, such as moving houses, getting married, or significant changes in family structure, during the Saturn return periods, which occur roughly around the ages of 29-30, 58-60, or specifically during any Saturn transit through the 4th or 7th house? Please specify the event and its exact date if possible.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-41570b9d"
+      },
+      {
+        "chart_id": "chart_21be161ab7",
+        "session_id": "test-session-b466120d",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you describe a significant event in your life that brought about a major transformation, including the exact date if possible?",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a period of significant health changes or major surgeries, including the exact dates if possible?",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a period in your life when you felt a significant shift in your personal identity, confidence, or appearance? Please specify the date and describe the event.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-6e9495f9"
+      },
+      {
+        "chart_id": "chart_70ac8d8850",
+        "session_id": "test-session-c71d55f7",
+        "questions_and_answers": [
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall a year or period in your life when you experienced a significant career breakthrough or a major shift in your professional path?",
+            "answer": "I experienced a major career change on June 15, 2015 when I got promoted to senior management. It was a transformative period in my life and occurred around 10 AM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you remember a time in your life when you underwent a significant relationship change, such as the beginning or end of a major romantic relationship, marriage, or a transformative partnership in business?",
+            "answer": "My father had a serious health crisis on August 23, 2018 that changed our family dynamics. I remember it was late evening, around 9 PM."
+          },
+          {
+            "question_id": "auto_generated",
+            "question": "Can you recall experiencing a major change in your home or family life, such as moving to a new place, a significant renovation, the birth of a child, or a major event involving your parents? Please specify the date and details of the event.",
+            "answer": "I met my spouse on February 14, 2012 at a Valentine's Day event. It was love at first sight and happened around 7 PM in the evening."
+          }
+        ],
+        "id": "test-questionnaire-1133be2a"
+      }
+    ]
+  },
+  "rectifications": {
+    "_description": "Collection of birth time rectification calculations and results. Each entry contains the original chart ID, rectified chart ID, and details about the rectification process.",
+    "_fields": {
+      "id": "Unique identifier for the rectification record",
+      "original_chart_id": "ID of the original chart before rectification",
+      "rectified_chart_id": "ID of the rectified chart after analysis",
+      "questionnaire_id": "ID of the questionnaire used for rectification",
+      "confidence": "Confidence score of the rectification (0-100)",
+      "time_adjustment": "Description of the time adjustment made",
+      "rectification_method": "Method used for rectification",
+      "completed_at": "ISO timestamp when rectification was completed"
+    },
+    "items": [
+      {
+        "original_chart_id": "chart_1d9a83125e",
+        "rectified_chart_id": "chart_0a84557b40",
+        "questionnaire_id": "test-questionnaire-b12ec3ba",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T06:04:52.351221",
+        "id": "chart_0a84557b40"
+      },
+      {
+        "original_chart_id": "chart_d51c36a32f",
+        "rectified_chart_id": "chart_5596915f4e",
+        "questionnaire_id": "test-questionnaire-38ca36bc",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T06:07:22.272114",
+        "id": "chart_5596915f4e"
+      },
+      {
+        "original_chart_id": "chart_041fae682a",
+        "rectified_chart_id": "chart_77626f847a",
+        "questionnaire_id": "test-questionnaire-34b4550f",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T06:20:57.576415",
+        "id": "chart_77626f847a"
+      },
+      {
+        "original_chart_id": "chart_49f5bb2567",
+        "rectified_chart_id": "chart_12f2093858",
+        "questionnaire_id": "test-questionnaire-953ee6be",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T06:55:34.241790",
+        "id": "chart_12f2093858"
+      },
+      {
+        "original_chart_id": "chart_b4ad92e588",
+        "rectified_chart_id": "chart_ea7d88931b",
+        "questionnaire_id": "test-questionnaire-ca490af8",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T06:57:28.055226",
+        "id": "chart_ea7d88931b"
+      },
+      {
+        "original_chart_id": "chart_4a112e64f1",
+        "rectified_chart_id": "chart_c95f0bdecd",
+        "questionnaire_id": "test-questionnaire-b2fd6a91",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T06:58:58.646646",
+        "id": "chart_c95f0bdecd"
+      },
+      {
+        "original_chart_id": "chart_ee90430ce1",
+        "rectified_chart_id": "chart_22b1a881fd",
+        "questionnaire_id": "test-questionnaire-92081170",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T07:03:13.262411",
+        "id": "chart_22b1a881fd"
+      },
+      {
+        "original_chart_id": "chart_6e1ee1d26e",
+        "rectified_chart_id": "chart_10af88f2c9",
+        "questionnaire_id": "test-questionnaire-41570b9d",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T07:05:28.729945",
+        "id": "chart_10af88f2c9"
+      },
+      {
+        "original_chart_id": "chart_21be161ab7",
+        "rectified_chart_id": "chart_f7bd12da99",
+        "questionnaire_id": "test-questionnaire-6e9495f9",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T07:07:42.603714",
+        "id": "chart_f7bd12da99"
+      },
+      {
+        "original_chart_id": "chart_70ac8d8850",
+        "rectified_chart_id": "chart_653e3b0be4",
+        "questionnaire_id": "test-questionnaire-1133be2a",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T07:15:17.736415",
+        "id": "chart_653e3b0be4"
+      },
+      {
+        "original_chart_id": "chart_de7cedbd0c",
+        "rectified_chart_id": "chart_6583c7337a",
+        "questionnaire_id": "test-questionnaire-7f7caf44",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T07:24:11.930893",
+        "id": "chart_6583c7337a"
+      },
+      {
+        "original_chart_id": "chart_38eb756182",
+        "rectified_chart_id": "chart_e25d5f54db",
+        "questionnaire_id": "test-questionnaire-ed93225c",
+        "confidence": 0,
+        "time_adjustment": "",
+        "rectification_method": "",
+        "completed_at": "2025-03-20T07:34:47.325402",
+        "id": "chart_e25d5f54db"
+      }
+    ]
+  },
+  "api_responses": {
+    "_description": "Collection of API responses from external services (OpenAI, etc.). Used for debugging and verification of API interactions.",
+    "_fields": {
+      "id": "Unique identifier for the API response record",
+      "service": "Name of the external service (e.g., 'openai')",
+      "endpoint": "API endpoint called",
+      "request_data": "Data sent in the request",
+      "response_data": "Data received in the response",
+      "timestamp": "ISO timestamp when the API call was made",
+      "status_code": "HTTP status code of the response"
+    },
+    "items": []
+  },
+  "geocoding": {
+    "_description": "Collection of geocoding results for birth places. Contains the coordinates and timezone information for locations.",
+    "_fields": {
+      "id": "Unique identifier for the geocoding record (typically the location name)",
+      "query": "The location query that was sent to the geocoding service",
+      "latitude": "Latitude in decimal degrees",
+      "longitude": "Longitude in decimal degrees",
+      "timezone": "IANA timezone database name",
+      "resolved_at": "ISO timestamp when the location was resolved"
+    },
+    "items": [
+      {
+        "query": "New York, NY, USA",
+        "latitude": 40.7128,
+        "longitude": -74.006,
+        "timezone": "America/New_York",
+        "resolved_at": "2025-03-20T07:06:08.813255",
+        "id": "New York, NY, USA"
+      },
+      {
+        "query": "Pune, India",
+        "latitude": 18.5204,
+        "longitude": 73.8567,
+        "timezone": "Asia/Kolkata",
+        "resolved_at": "2025-03-20T07:33:42.538519",
+        "id": "Pune, India"
+      }
+    ]
+  },
+  "sessions": {
+    "_description": "Collection of user sessions for testing. Contains session state and related data like birth details and preferences.",
+    "_fields": {
+      "id": "Unique identifier for the session",
+      "created_at": "ISO timestamp when the session was created",
+      "status": "Current status of the session",
+      "birth_details": "Birth details associated with the session",
+      "questionnaire_id": "ID of the questionnaire associated with the session (if any)"
+    },
+    "items": [
+      {
+        "status": "active",
+        "id": "test-session-7efe428b"
+      },
+      {
+        "status": "active",
+        "id": "test-session-cde7cb1d"
+      },
+      {
+        "status": "active",
+        "id": "test-session-5b344d24"
+      },
+      {
+        "status": "active",
+        "id": "test-session-a3ebad42"
+      },
+      {
+        "status": "active",
+        "id": "test-session-574dfbdf"
+      },
+      {
+        "status": "active",
+        "id": "test-session-6779684d"
+      },
+      {
+        "status": "active",
+        "id": "test-session-d62a3619"
+      },
+      {
+        "status": "active",
+        "id": "test-session-f84c9ca7"
+      },
+      {
+        "status": "active",
+        "id": "test-session-cefb0664"
+      },
+      {
+        "status": "active",
+        "id": "test-session-ed3e092d"
+      },
+      {
+        "status": "active",
+        "id": "test-session-b466120d"
+      },
+      {
+        "status": "active",
+        "id": "test-session-c71d55f7"
+      },
+      {
+        "status": "active",
+        "id": "test-session-c4ad5be5"
+      },
+      {
+        "status": "active",
+        "id": "test-session-ab18b828"
+      }
+    ]
+  }
+}

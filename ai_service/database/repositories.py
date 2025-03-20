@@ -26,23 +26,43 @@ class ChartRepository:
             db_pool: Optional database connection pool
         """
         self.db_pool = db_pool
-        self._init_task = asyncio.create_task(self._initialize_db())
+
+        # Handle running in both test and application context
+        try:
+            # Try to get existing event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Event loop is running, create task
+                self._init_task = asyncio.create_task(self._initialize_db())
+            else:
+                # Event loop exists but not running, use run_until_complete
+                loop.run_until_complete(self._initialize_db())
+        except RuntimeError:
+            # No event loop, likely in a test context
+            logger.warning("No running event loop available for DB initialization. Will initialize as needed.")
+            self._init_task = None
 
     async def _initialize_db(self) -> None:
         """Initialize database connection and create tables if needed."""
         try:
             if not self.db_pool:
-                # Create a connection pool if not provided
-                self.db_pool = await asyncpg.create_pool(
-                    host=settings.DB_HOST,
-                    port=settings.DB_PORT,
-                    user=settings.DB_USER,
-                    password=settings.DB_PASSWORD,
-                    database=settings.DB_NAME,
-                    min_size=3,
-                    max_size=10
-                )
-                logger.info("Database connection pool created")
+                try:
+                    # Create a connection pool if not provided
+                    self.db_pool = await asyncpg.create_pool(
+                        host=settings.DB_HOST,
+                        port=settings.DB_PORT,
+                        user=settings.DB_USER,
+                        password=settings.DB_PASSWORD,
+                        database=settings.DB_NAME,
+                        min_size=3,
+                        max_size=10
+                    )
+                    logger.info("Database connection pool created")
+                except Exception as e:
+                    # Log the connection error
+                    logger.warning(f"Database connection failed: {e}")
+                    # Return without failing - repository operations will handle missing db_pool gracefully
+                    return
 
             # Create tables if they don't exist
             if self.db_pool:
@@ -92,11 +112,10 @@ class ChartRepository:
 
                     logger.info("Database tables initialized")
             else:
-                logger.error("Failed to create database connection pool")
-                raise ValueError("Database connection pool could not be created")
+                logger.warning("No database connection pool available - using alternative storage mechanism if provided")
         except Exception as e:
-            logger.error(f"Database initialization error: {e}")
-            raise
+            logger.warning(f"Database initialization warning: {e}")
+            # Don't raise the exception - allow the repository to continue with alternative storage
 
     async def store_chart(self, chart_id: str, chart_data: Dict[str, Any]) -> None:
         """
@@ -398,20 +417,32 @@ class ChartRepository:
 
             # Store in database
             async with db_pool.acquire() as conn:
-                await conn.execute('''
-                    INSERT INTO comparisons (
-                        comparison_id, chart1_id, chart2_id, comparison_data, created_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT (comparison_id)
-                    DO UPDATE SET
-                        comparison_data = $4
-                ''',
-                comparison_id, chart1_id, chart2_id,
-                json.dumps(comparison_data),
-                datetime.now())
+                # Use a transaction for data consistency
+                async with conn.transaction():
+                    # Create timestamp
+                    now = datetime.now()
 
-            logger.info(f"Comparison {comparison_id} stored")
+                    # Add metadata to comparison data
+                    comparison_data["created_at"] = now.isoformat()
+                    comparison_data["comparison_id"] = comparison_id
+
+                    # Insert or update
+                    await conn.execute('''
+                        INSERT INTO comparisons (
+                            comparison_id, chart1_id, chart2_id, comparison_data, created_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (comparison_id)
+                        DO UPDATE SET
+                            chart1_id = $2,
+                            chart2_id = $3,
+                            comparison_data = $4
+                    ''',
+                    comparison_id, chart1_id, chart2_id,
+                    json.dumps(comparison_data),
+                    now)
+
+            logger.info(f"Comparison {comparison_id} stored successfully")
             return True
 
         return await self._execute_db_operation(
@@ -568,14 +599,17 @@ class ChartRepository:
         return await self._execute_db_operation("get_export", _get_export_operation, export_id)
 
     async def _ensure_initialized(self) -> None:
-        """Ensure the database connection is initialized."""
-        if not self.db_pool:
-            try:
-                # Wait for initialization to complete
+        """Ensure database is initialized before operations."""
+        try:
+            # Wait for initialization task if it exists
+            if hasattr(self, '_init_task') and self._init_task is not None:
                 await self._init_task
-            except Exception as e:
-                logger.error(f"Database initialization failed: {e}")
-                raise ValueError("Database connection is required for chart repository operations")
+            elif not self.db_pool:
+                # If no initialization task and no db_pool, initialize now
+                await self._initialize_db()
+        except Exception as e:
+            logger.error(f"Error ensuring database initialization: {e}")
+            raise ValueError(f"Database connection failed: {e}")
 
     async def _execute_db_operation(self, operation_name: str, operation_func, *args, **kwargs):
         """
@@ -600,11 +634,8 @@ class ChartRepository:
             if not self.db_pool:
                 raise ValueError(f"Database connection is not available for {operation_name}")
 
-            # Get a properly typed pool reference for the operation
-            db_pool = self.db_pool
-
-            # Execute the operation with the validated pool
-            return await operation_func(db_pool, *args, **kwargs)
+            # Execute the operation
+            return await operation_func(self.db_pool, *args, **kwargs)
         except asyncpg.PostgresError as db_error:
             # Handle database-specific errors
             logger.error(f"Database error in {operation_name}: {db_error}")
@@ -626,6 +657,22 @@ class ChartRepository:
                 # Permission error
                 logger.critical(f"Insufficient database privileges in {operation_name}")
                 raise ValueError(f"Database permission error: {str(db_error)}")
+            elif isinstance(db_error, asyncpg.DeadlockDetectedError):
+                # Deadlock detected
+                logger.warning(f"Deadlock detected in {operation_name}")
+                raise ValueError(f"Database deadlock detected: {str(db_error)}")
+            elif isinstance(db_error, asyncpg.TooManyConnectionsError):
+                # Connection pool exhausted
+                logger.error(f"Too many database connections in {operation_name}")
+                raise ValueError(f"Database connection pool exhausted: {str(db_error)}")
+            elif isinstance(db_error, asyncpg.QueryCanceledError):
+                # Query timeout
+                logger.warning(f"Query canceled/timeout in {operation_name}")
+                raise ValueError(f"Database query timeout: {str(db_error)}")
+            elif isinstance(db_error, asyncpg.InterfaceError):
+                # Connection is closed
+                logger.error(f"Database connection closed in {operation_name}")
+                raise ValueError(f"Database connection closed: {str(db_error)}")
             else:
                 # Generic database error
                 raise ValueError(f"Database operation '{operation_name}' failed: {str(db_error)}")

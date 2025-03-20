@@ -268,7 +268,7 @@ User          Frontend            API Layer           Backend             OpenAI
  |                |                   |<-----------------|                   |                   |
  |                | {chart_id: "...", |                  |                   |                   |
  |                |  verification: {  |                  |                   |                   |
- |                |    confidence: 87,|                  |                   |                   |
+ |                |    confidence: 97,|                  |                   |                   |
  |                |    verified: true,|                  |                   |                   |
  |                |  }}               |                  |                   |                   |
  |                |<------------------|                  |                   |                   |
@@ -291,10 +291,10 @@ User          Frontend            API Layer           Backend             OpenAI
  |--------------->|                   |                  |                   |
  |                | GET /questionnaire|                  |                   |
  |                |------------------>|                  |                   |
- |                |                   | Generate Questions                   |
- |                |                   |----------------->|                   |
- |                |                   | Question Data    |                   |
- |                |                   |<-----------------|                   |
+ |                |                   |          Generate Questions          |
+ |                |                   |----------------->|<----------------->|
+ |                |                   |          Question Data               |
+ |                |                   |<-------------------------------------|
  |                | {questions: [...]}|                  |                   |
  |                |<------------------|                  |                   |
  |                |                   |                  |                   |
@@ -302,13 +302,13 @@ User          Frontend            API Layer           Backend             OpenAI
  |--------------->|                   |                  |                   |
  |                | POST /questionnaire/{id}/answer      |                   |
  |                |------------------>|                  |                   |
- |                |                   | Process Answer   |                   |
- |                |                   |----------------->|                   |
+ |                |                   |           Process Answer             |
+ |                |                   |----------------->|<----------------->|
  |                |                   |                  | Store Answer      |
  |                |                   |                  |------------------>|
  |                |                   |                  |                   |
  |                |                   | Next Question    |                   |
- |                |                   |<-----------------|                   |
+ |                |                   |<-------------------------------------|
  |                | {next_question}   |                  |                   |
  |                |<------------------|                  |                   |
  |                |                   |                  |                   |
@@ -316,10 +316,10 @@ User          Frontend            API Layer           Backend             OpenAI
  |--------------->|                   |                  |                   |
  |                | POST /questionnaire/complete         |                   |
  |                |------------------>|                  |                   |
- |                |                   | Finalize Quest.  |                   |
- |                |                   |----------------->|                   |
- |                |                   | Completion Status|                   |
- |                |                   |<-----------------|                   |
+ |                |                   |          Finalize Question           |
+ |                |                   |----------------->|<----------------->|
+ |                |                   |        Completion Status             |
+ |                |                   |<-----------------|<----------------->|
  |                | {status: "processing"}               |                   |
  |                |<------------------|                  |                   |
  |                |                   |                  |                   |

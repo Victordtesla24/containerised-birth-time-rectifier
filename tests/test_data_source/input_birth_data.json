@@ -1,0 +1,27 @@
+{
+  "_description": "This file contains initial birth data that simulates what a user would enter in the application. For integration testing, the test will read this data and use it as the starting point for the entire sequence flow.",
+  "_instructions": "Only modify the values below. Keep the structure intact for testing purposes.",
+
+  "birthDate": "1985-10-24",
+  "birthTime": "14:30:00",
+  "birthPlace": "Pune, India",
+
+  "_field_descriptions": {
+    "birthDate": "YYYY-MM-DD format. This is the date of birth to be used for chart calculation.",
+    "birthTime": "HH:MM:SS format in 24-hour notation. This is the birth time that will be rectified.",
+    "birthPlace": "City, State/Province, Country format. Will be geocoded to get coordinates."
+  },
+
+  "_optional_description": "The fields below are optional. If provided, they will be used directly. If not provided, the application will calculate them through geocoding services.",
+  "optional": {
+    "latitude": 18.5204,
+    "longitude": 73.8567,
+    "timezone": "Asia/Kolkata",
+
+    "_field_descriptions": {
+      "latitude": "Decimal degrees format (positive for North, negative for South)",
+      "longitude": "Decimal degrees format (positive for East, negative for West)",
+      "timezone": "IANA timezone database name (e.g., 'America/New_York', 'Europe/London')"
+    }
+  }
+}

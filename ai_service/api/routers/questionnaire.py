@@ -6,13 +6,14 @@ Handles all questionnaire and AI analysis related endpoints.
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, Path
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any, Union
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import logging
 import uuid
 import asyncio
 import traceback
 import json
 import re
+import math
 
 from ai_service.utils.questionnaire_engine import QuestionnaireEngine
 from ai_service.models.unified_model import UnifiedRectificationModel
@@ -97,6 +98,13 @@ def get_astro_calculator():
 
 # Use the real session_store for all session-related operations
 from ai_service.api.services.session_service import get_session_store
+
+# Create a custom JSON encoder to handle date and datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
 
 @router.get("", response_model=Dict[str, Any])
 async def get_questionnaire(
@@ -400,7 +408,7 @@ async def initialize_questionnaire(
 
         # Get initial question from OpenAI
         question_response = await openai_service.generate_completion(
-            prompt=json.dumps(question_prompt),
+            prompt=json.dumps(question_prompt, cls=DateTimeEncoder),
             task_type="astrological_question_generation",
             max_tokens=500
         )
@@ -515,6 +523,11 @@ async def get_next_question(
 
         # Get the OpenAI service directly
         openai_service = get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI service unavailable"
+            )
 
         # Extract key birth details for enhanced astrological context
         birth_date = birth_details.get("birthDate", birth_details.get("birth_date", ""))
@@ -523,6 +536,13 @@ async def get_next_question(
         latitude = birth_details.get("latitude", 0)
         longitude = birth_details.get("longitude", 0)
         timezone = birth_details.get("timezone", "UTC")
+
+        # Validate essential birth details
+        if not birth_date:
+            raise HTTPException(
+                status_code=400,
+                detail="Birth date is required in birth details"
+            )
 
         # Create enhanced astrological context for the OpenAI prompt
         astrological_context = {
@@ -544,118 +564,180 @@ async def get_next_question(
         question_categories = []
 
         for answer in previous_answers:
-            if isinstance(answer, dict):
-                if "question" in answer:
-                    question_texts.append(answer["question"])
-                if "category" in answer:
-                    question_categories.append(answer["category"])
+            question = answer.get("question", "")
+            question_texts.append(question)
 
-        # Identify astrological indicators already covered
-        has_covered_early_life = any("childhood" in cat.lower() for cat in question_categories)
-        has_covered_personality = any("personality" in cat.lower() for cat in question_categories)
-        has_covered_major_life_events = any("life event" in cat.lower() for cat in question_categories)
-        has_covered_birth_time_specifics = any("birth time" in q.lower() for q in question_texts)
+            category = answer.get("category", "")
+            if category:
+                question_categories.append(category)
+                covered_topics.append(category)
 
-        # Provide guidance on areas needing coverage
-        coverage_guidance = {
-            "covered_topics": covered_topics,
-            "need_early_life_questions": not has_covered_early_life,
-            "need_personality_questions": not has_covered_personality,
-            "need_major_life_events": not has_covered_major_life_events,
-            "need_birth_time_specifics": not has_covered_birth_time_specifics
-        }
-
-        # Prepare data for OpenAI with enhanced context
-        request_data = {
-            "birth_details": birth_details,
-            "previous_answers": previous_answers,
-            "current_question_number": len(previous_answers) + 1,
+        # Prepare prompt for OpenAI with deep astrological context
+        prompt_data = {
+            "task": "generate_astrologically_relevant_question",
+            "birth_details": {
+                "date": birth_date,
+                "time": birth_time,
+                "place": birth_place,
+                "latitude": latitude,
+                "longitude": longitude,
+                "timezone": timezone
+            },
             "astrological_context": astrological_context,
-            "coverage_guidance": coverage_guidance,
-            "tasks": [
-                "Generate an astrologically relevant question for birth time rectification",
-                "Ensure question relates to house cusps and planetary positions sensitive to birth time",
-                "Create appropriate response options if the question is multiple-choice",
-                "Avoid duplicating topics or questions already covered",
-                "Focus on life events corresponding to astrologically significant transit periods"
-            ]
+            "previous_questions": question_texts,
+            "covered_topics": covered_topics,
+            "previous_answers": previous_answers,
+            "question_requirements": [
+                "Focus on gathering information relevant to birth time rectification",
+                "Design questions to help determine angular house positions",
+                "Target topics not covered in previous questions",
+                "Include specific astrological relevance explanation for each question",
+                "Use appropriate question type (open_text, multiple_choice, yes_no, etc.)",
+                "Make questions accessible to those without astrological knowledge"
+            ],
+            "required_fields": {
+                "id": "Will be generated if not provided",
+                "type": "Question type (open_text, multiple_choice, yes_no, slider, etc.)",
+                "text": "The actual question text",
+                "category": "Astrological category (houses, planets, transits, etc.)",
+                "relevance": "Explanation of how this question helps determine birth time",
+                "options": "For multiple_choice questions, provide answer options"
+            }
         }
 
-        # Generate optimized question with OpenAI
-        response = await openai_service.generate_completion(
-            prompt=json.dumps(request_data),
-            task_type="generate_astrological_question",
-            max_tokens=500
-        )
+        # Log the request to OpenAI
+        logger.info(f"Generating next question after {len(previous_answers)} previous answers")
 
-        # Validate and process OpenAI response
+        try:
+            # Get the next question from OpenAI
+            response = await openai_service.generate_completion(
+                prompt=json.dumps(prompt_data, cls=DateTimeEncoder),
+                task_type="astrological_question_generation",
+                max_tokens=800,
+                temperature=0.4  # Lower temperature for more consistent questions
+            )
+        except Exception as api_error:
+            logger.error(f"OpenAI API error during question generation: {str(api_error)}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Error communicating with OpenAI service: {str(api_error)}"
+            )
+
+        # Validate OpenAI response
         if not response or "content" not in response:
-            logger.error("Failed to receive valid response from OpenAI for question generation")
-            raise ValueError("OpenAI failed to generate an astrologically relevant question")
+            logger.error("Invalid or empty response from OpenAI")
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to generate question: empty or invalid response from AI service"
+            )
 
-        # Parse the question data
+        # Parse the response
         try:
             question_data = json.loads(response["content"])
+        except json.JSONDecodeError as json_error:
+            logger.error(f"Error parsing OpenAI response as JSON: {str(json_error)}")
+            logger.error(f"Raw response content: {response['content'][:500]}...")
 
-            # Ensure the question has required fields
-            if not isinstance(question_data, dict) or "text" not in question_data:
-                logger.error("Invalid question format received from OpenAI")
-                raise ValueError("OpenAI returned invalid question format")
+            # Extract question using regex as a recovery mechanism
+            question_match = re.search(r'"text"\s*:\s*"([^"]+)"', response["content"])
+            category_match = re.search(r'"category"\s*:\s*"([^"]+)"', response["content"])
+            relevance_match = re.search(r'"relevance"\s*:\s*"([^"]+)"', response["content"])
 
-            # Generate UUID for the question if not provided
-            if "id" not in question_data:
-                question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
+            if question_match:
+                question_data = {
+                    "id": f"q_{uuid.uuid4().hex[:8]}",
+                    "type": "open_text",
+                    "text": question_match.group(1),
+                    "category": category_match.group(1) if category_match else "general",
+                    "relevance": relevance_match.group(1) if relevance_match else "Helps determine birth time factors"
+                }
+            else:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Failed to parse question data from AI service response"
+                )
 
-            # Set default type if not provided
-            if "type" not in question_data:
-                question_data["type"] = "open_text"
+        # Validate question data structure
+        if not isinstance(question_data, dict) or "text" not in question_data:
+            logger.error(f"Invalid question format: {question_data}")
+            raise HTTPException(
+                status_code=502,
+                detail="AI service returned improperly formatted question data"
+            )
 
-            # Process options for multiple choice questions
-            if "options" in question_data and question_data["options"]:
-                processed_options = []
-                for i, option in enumerate(question_data["options"]):
-                    if isinstance(option, str):
-                        processed_options.append({
-                            "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
-                            "text": option
-                        })
-                    elif isinstance(option, dict) and "text" in option:
-                        if "id" not in option:
-                            option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
-                        processed_options.append(option)
-                question_data["options"] = processed_options
+        # Ensure question has all required fields
+        if "id" not in question_data:
+            question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
 
-            # Calculate confidence based on number of previous answers
-            confidence = 30.0 + (len(previous_answers) * 10)
-            if confidence > 90:
-                confidence = 90.0
+        if "type" not in question_data:
+            question_data["type"] = "open_text"
 
-            # Prepare final response
-            result = {
-                "next_question": question_data,
-                "confidence": confidence
+        if "category" not in question_data:
+            question_data["category"] = "general"
+
+        if "relevance" not in question_data:
+            question_data["relevance"] = "Helps determine birth time factors"
+
+        # Process options for multiple choice questions
+        if question_data.get("type") in ["multiple_choice", "yes_no"] and "options" in question_data and question_data["options"]:
+            processed_options = []
+            for i, option in enumerate(question_data["options"]):
+                if isinstance(option, str):
+                    processed_options.append({
+                        "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
+                        "text": option
+                    })
+                elif isinstance(option, dict) and "text" in option:
+                    if "id" not in option:
+                        option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
+                    processed_options.append(option)
+            question_data["options"] = processed_options
+        elif question_data.get("type") == "yes_no" and ("options" not in question_data or not question_data["options"]):
+            # Add standard yes/no options if missing
+            question_data["options"] = [
+                {"id": f"opt_yes_{uuid.uuid4().hex[:4]}", "text": "Yes"},
+                {"id": f"opt_no_{uuid.uuid4().hex[:4]}", "text": "No"}
+            ]
+
+        # Calculate confidence level based on quality of question
+        confidence = 60.0
+
+        # Increase confidence based on question quality
+        if "category" in question_data and question_data["category"] != "general":
+            confidence += 10.0
+
+        if "relevance" in question_data and len(question_data["relevance"]) > 30:
+            confidence += 10.0
+
+        # Adjust confidence based on previous answers (more answers → higher confidence)
+        confidence += min(20.0, len(previous_answers) * 4.0)
+
+        # Cap confidence at 95%
+        confidence = min(confidence, 95.0)
+
+        # Return the next question with confidence and metadata
+        response = {
+            "next_question": question_data,
+            "confidence": confidence,
+            "question_number": len(previous_answers) + 1,
+            "astrological_context": {
+                "chart_angles_targeted": question_data.get("category") in ["ascendant", "midheaven", "ic", "descendant"],
+                "birth_time_sensitive": True
             }
+        }
 
-            # Add birth time range suggestion if we have enough answers
-            if len(previous_answers) >= 2:
-                # Check if OpenAI provided a birth time range
-                if "birth_time_range" in question_data:
-                    result["birth_time_range"] = question_data["birth_time_range"]
+        logger.info(f"Successfully generated next question: {question_data['text'][:50]}...")
+        return response
 
-            return result
-
-        except json.JSONDecodeError:
-            logger.error("Failed to parse OpenAI response as JSON")
-            raise ValueError("Error parsing astrological question from OpenAI")
-
+    except HTTPException:
+        raise
     except ValueError as e:
-        logger.error(f"Error generating astrological question: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.error(f"Validation error in question generation: {e}")
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
     except Exception as e:
-        logger.error(f"Error generating next question: {str(e)}")
+        logger.error(f"Error generating next question: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error generating astrologically relevant question: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating next question: {str(e)}")
 
 @router.post("/{question_id}/answer", response_model=Dict[str, Any])
 async def answer_individual_question(
@@ -1114,85 +1196,171 @@ async def check_rectification_status(
     Check the status of a birth time rectification process.
 
     This endpoint follows the Original Sequence Diagram flow for monitoring
-    birth time rectification progress.
+    birth time rectification progress with detailed information about the
+    current state of the process.
     """
     try:
-        # Get chart service
+        # Get services
         chart_service = get_chart_service()
+        session_store = get_session_store()
 
-        # Check if chart exists
+        # Validate services
+        if not chart_service:
+            raise HTTPException(status_code=503, detail="Chart service unavailable")
+
+        if not session_store:
+            raise HTTPException(status_code=503, detail="Session store unavailable")
+
+        # Verify chart exists
         chart_data = await chart_service.get_chart(chart_id)
         if not chart_data:
             raise HTTPException(status_code=404, detail=f"Chart {chart_id} not found")
 
-        # Check for rectification data
-        rectification_data = chart_data.get("rectification_results", {})
-        if not rectification_data:
-            # Check if the chart has rectification_process key
-            rectification_process = chart_data.get("rectification_process", {})
-            if rectification_process:
-                rectification_data = rectification_process
+        # Get session data
+        session_data = await session_store.get_session(session_id)
+        if not session_data:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
-        # Check if there's a rectified chart ID
-        rectified_chart_id = rectification_data.get("rectified_chart_id", "")
+        # Check session status
+        session_status = session_data.get("rectification_status", "unknown")
 
-        # Determine status
-        if "completed_at" in rectification_data:
+        # Get detailed rectification data from session first (most up-to-date)
+        rectification_results = session_data.get("rectification_results", {})
+
+        # If no results in session, check chart data
+        if not rectification_results:
+            # Check for rectification data in chart
+            rectification_results = chart_data.get("rectification_results", {})
+            if not rectification_results:
+                # Check if the chart has rectification_process key
+                rectification_process = chart_data.get("rectification_process", {})
+                if rectification_process:
+                    rectification_results = rectification_process
+
+        # Determine current status based on all available data
+        if session_status == "error":
+            status = "error"
+            error_message = session_data.get("rectification_error", "Unknown error in rectification process")
+            progress = 0
+        elif session_status == "complete" or "completed_at" in rectification_results:
             status = "completed"
             progress = 100
-        elif "started_at" in rectification_data:
+        elif session_status == "processing" or "started_at" in rectification_results:
             status = "in_progress"
-            # Estimate progress based on elapsed time
-            started_at = datetime.fromisoformat(rectification_data.get("started_at"))
-            elapsed_seconds = (datetime.now() - started_at).total_seconds()
-            # Assume rectification takes about 60 seconds
-            progress = min(int(elapsed_seconds / 60 * 100), 99)
+
+            # Calculate detailed progress based on process steps
+            process_steps = rectification_results.get("process_steps", [])
+
+            # If we have process steps, use them for more accurate progress reporting
+            if process_steps:
+                # Define expected steps in rectification
+                expected_steps = [
+                    "analysis_started",
+                    "questionnaire_processed",
+                    "birth_time_indicators_extracted",
+                    "initial_calculation",
+                    "astrological_analysis",
+                    "transit_analysis",
+                    "openai_analysis",
+                    "chart_verification",
+                    "rectification_complete"
+                ]
+
+                # Map actual steps to expected steps
+                completed_steps = 0
+                for expected_step in expected_steps:
+                    if any(expected_step.lower() in step.lower() for step in process_steps):
+                        completed_steps += 1
+
+                # Calculate progress percentage
+                progress = int((completed_steps / len(expected_steps)) * 100)
+
+                # Cap at 99% if not complete
+                if status != "completed" and progress >= 99:
+                    progress = 99
+            else:
+                # Estimate progress based on elapsed time if we don't have steps
+                started_at_str = rectification_results.get("started_at") or session_data.get("rectification_started_at")
+                if started_at_str:
+                    try:
+                        started_at = datetime.fromisoformat(started_at_str)
+                        elapsed_seconds = (datetime.now() - started_at).total_seconds()
+                        # Assume rectification takes about 60 seconds
+                        progress = min(int(elapsed_seconds / 60 * 100), 99)
+                    except (ValueError, TypeError):
+                        # Default progress if time parsing fails
+                        progress = 50
+                else:
+                    # Default mid-point progress
+                    progress = 50
         else:
-            # No data, assume pending
+            # No clear status indicators, assume pending
             status = "pending"
             progress = 0
 
-        # Prepare response
+        # Check for rectified chart
+        rectified_chart_id = rectification_results.get("rectified_chart_id", "")
+        rectified_time = rectification_results.get("rectified_time", "")
+        original_time = rectification_results.get("original_time", chart_data.get("birth_details", {}).get("birth_time", ""))
+        confidence_score = rectification_results.get("confidence_score", 0)
+
+        # Prepare basic response
         response = {
             "status": status,
             "progress": progress,
             "chart_id": chart_id,
-            "session_id": session_id
+            "session_id": session_id,
+            "last_updated": rectification_results.get("updated_at", datetime.now().isoformat()),
+            "original_time": original_time
         }
+
+        # Add estimated completion time if in progress
+        if status == "in_progress":
+            # Base remaining time on progress
+            if progress < 30:
+                response["estimated_completion_time"] = "45-60 seconds"
+            elif progress < 60:
+                response["estimated_completion_time"] = "30-45 seconds"
+            elif progress < 90:
+                response["estimated_completion_time"] = "10-30 seconds"
+            else:
+                response["estimated_completion_time"] = "less than 10 seconds"
+
+            # Add current step information
+            if process_steps:
+                response["current_step"] = process_steps[-1] if process_steps else "Processing"
+
+        # Add error details if in error state
+        if status == "error":
+            response["error"] = error_message
 
         # Add rectified data if available
         if rectified_chart_id:
             response["rectified_chart_id"] = rectified_chart_id
 
-        # Add additional data if completed
-        if status == "completed":
-            original_time = chart_data.get("birth_details", {}).get("birthTime", "")
-            rectified_time = rectification_data.get("rectified_time", "")
+        if rectified_time:
+            response["rectified_time"] = rectified_time
 
-            if not rectified_time and "birth_details" in chart_data:
-                rectified_time = chart_data["birth_details"].get("rectifiedBirthTime", "")
+        if confidence_score:
+            response["confidence_score"] = confidence_score
 
-            confidence = rectification_data.get("confidence", 0)
-            explanation = rectification_data.get("explanation", "")
-
-            response.update({
-                "completed_at": rectification_data.get("completed_at", datetime.now().isoformat()),
-                "original_time": original_time,
-                "rectified_time": rectified_time,
-                "confidence": confidence,
-                "explanation": explanation
-            })
-
-        # Add detailed status if requested
+        # Add detailed information if requested
         if include_details:
-            # If rectification data has details, include them
-            if "details" in rectification_data:
-                response["details"] = rectification_data["details"]
-            elif "process_steps" in rectification_data:
-                response["details"] = {
-                    "process_steps": rectification_data["process_steps"],
-                    "methods_used": rectification_data.get("methods_used", [])
-                }
+            details = {
+                "birth_details": chart_data.get("birth_details", {}),
+                "process_steps": rectification_results.get("process_steps", []),
+                "methods_used": rectification_results.get("methods_used", []),
+                "birth_time_indicators": rectification_results.get("birth_time_indicators", []),
+                "adjustment_minutes": rectification_results.get("adjustment_minutes", 0),
+                "explanation": rectification_results.get("explanation", ""),
+                "verification": rectification_results.get("verification", {})
+            }
+
+            # Add astrological factors if available
+            if "astrological_factors" in rectification_results:
+                details["astrological_factors"] = rectification_results["astrological_factors"]
+
+            response["details"] = details
 
         return response
 
@@ -1224,6 +1392,7 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
     # Import at the beginning of the function to ensure availability
     from datetime import datetime
     import pytz
+    import traceback
 
     logger.info(f"Processing rectification for chart {chart_id}, session {session_id}")
 
@@ -1235,13 +1404,21 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
     try:
         # Validate inputs
         if not chart_id:
-            return {"status": "error", "message": "Chart ID is required"}
+            error_msg = "Chart ID is required for rectification"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            return {"status": "error", "message": error_msg}
 
         if not session_id:
-            return {"status": "error", "message": "Session ID is required"}
+            error_msg = "Session ID is required for rectification"
+            logger.error(error_msg)
+            return {"status": "error", "message": error_msg}
 
         if not answers or len(answers) < 2:
-            return {"status": "error", "message": "Insufficient answers for accurate rectification"}
+            error_msg = "Insufficient answers for accurate rectification (minimum 2 required)"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            return {"status": "error", "message": error_msg}
 
         # Record rectification start time
         rectification_start = datetime.now().isoformat()
@@ -1249,8 +1426,10 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
         # Get chart data
         chart_data = await chart_service.get_chart(chart_id)
         if not chart_data:
-            logger.error(f"Chart {chart_id} not found")
-            return {"status": "error", "message": f"Chart {chart_id} not found"}
+            error_msg = f"Chart {chart_id} not found"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            return {"status": "error", "message": error_msg}
 
         # Extract birth details for rectification
         birth_details = chart_data.get("birth_details", {})
@@ -1259,7 +1438,14 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
         latitude = birth_details.get("latitude", 0)
         longitude = birth_details.get("longitude", 0)
         timezone = birth_details.get("timezone", "UTC")
-        location = birth_details.get("birth_place", "")
+        location = birth_details.get("location", birth_details.get("birth_place", ""))
+
+        # Validate birth data
+        if not birth_date or not birth_time:
+            error_msg = "Birth date and time are required for rectification"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            return {"status": "error", "message": error_msg}
 
         # Extract key astrological indicators from answers
         astrological_indicators = []
@@ -1306,6 +1492,19 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
             if "birth_time_range" in answer:
                 time_range = answer.get("birth_time_range")
 
+        # Update session with processing status
+        try:
+            current_session = await session_store.get_session(session_id)
+            if current_session:
+                current_session["rectification_status"] = "processing"
+                current_session["rectification_started_at"] = rectification_start
+                current_session["updated_at"] = datetime.now().isoformat()
+                await session_store.update_session(session_id, current_session)
+                logger.info(f"Updated session {session_id} with processing status")
+        except Exception as session_error:
+            logger.warning(f"Non-critical error updating session status: {session_error}")
+            # Continue with rectification despite session update error
+
         # First OpenAI integration: Deep astrological analysis of answers
         logger.info("Performing deep OpenAI astrological analysis of questionnaire answers")
 
@@ -1326,24 +1525,35 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
             "task": "birth_time_rectification_analysis"
         }
 
-        analysis_response = await openai_service.generate_completion(
-            prompt=json.dumps(analysis_data),
-            task_type="astrological_analysis",
-            max_tokens=1000
-        )
+        try:
+            analysis_response = await openai_service.generate_completion(
+                prompt=json.dumps(analysis_data, cls=DateTimeEncoder),
+                task_type="astrological_analysis",
+                max_tokens=1000
+            )
+        except Exception as openai_error:
+            error_msg = f"OpenAI astrological analysis failed: {str(openai_error)}"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         # Process OpenAI analysis response
         if not analysis_response or "content" not in analysis_response:
-            logger.error("Failed to receive valid response from OpenAI for astrological analysis")
-            raise ValueError("Failed to perform astrological analysis with OpenAI")
+            error_msg = "Failed to receive valid response from OpenAI for astrological analysis"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         # Parse the analysis results
         try:
             enhanced_analysis = json.loads(analysis_response["content"])
             logger.info("Successfully obtained OpenAI analysis for rectification")
-        except json.JSONDecodeError:
-            logger.error("Error parsing OpenAI response for rectification analysis")
-            raise ValueError("Error in astrological analysis parsing")
+        except json.JSONDecodeError as json_error:
+            error_msg = f"Error parsing OpenAI response for rectification analysis: {str(json_error)}"
+            logger.error(error_msg)
+            logger.error(f"Raw response: {analysis_response['content'][:500]}...")
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         # Second OpenAI integration: Birth time determination
         logger.info("Using OpenAI for precise birth time determination")
@@ -1379,16 +1589,24 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
         }
 
         # Get rectification from OpenAI
-        rectification_response = await openai_service.generate_completion(
-            prompt=json.dumps(rectification_prompt),
-            task_type="birth_time_rectification",
-            max_tokens=1000,
-            temperature=0.2  # Lower temperature for more deterministic results
-        )
+        try:
+            rectification_response = await openai_service.generate_completion(
+                prompt=json.dumps(rectification_prompt, cls=DateTimeEncoder),
+                task_type="birth_time_rectification",
+                max_tokens=1000,
+                temperature=0.2  # Lower temperature for more deterministic results
+            )
+        except Exception as openai_error:
+            error_msg = f"OpenAI birth time rectification failed: {str(openai_error)}"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         if not rectification_response or "content" not in rectification_response:
-            logger.error("Failed to receive valid response from OpenAI for birth time rectification")
-            raise ValueError("Failed to perform birth time rectification with OpenAI")
+            error_msg = "Failed to receive valid response from OpenAI for birth time rectification"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         # Parse the rectification results
         try:
@@ -1399,12 +1617,49 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
             if json_match:
                 rectification_data = json.loads(json_match.group(0))
             else:
-                rectification_data = json.loads(content)
+                try:
+                    rectification_data = json.loads(content)
+                except json.JSONDecodeError:
+                    # Try to extract key information manually if JSON parsing fails
+                    rectification_data = {}
+
+                    # Extract rectified time
+                    time_pattern = re.search(r'rectified_time["\s:]+([0-2]?[0-9]:[0-5][0-9])', content)
+                    if time_pattern:
+                        rectification_data["rectified_time"] = time_pattern.group(1)
+
+                    # Extract confidence
+                    confidence_pattern = re.search(r'confidence["\s:]+(\d+\.?\d*)', content)
+                    if confidence_pattern:
+                        rectification_data["confidence"] = float(confidence_pattern.group(1))
+
+                    # Extract adjustment minutes
+                    adjustment_pattern = re.search(r'adjustment_minutes["\s:]+(-?\d+)', content)
+                    if adjustment_pattern:
+                        rectification_data["adjustment_minutes"] = int(adjustment_pattern.group(1))
+
+                    # Extract explanation
+                    explanation_pattern = re.search(r'explanation["\s:]+\s*["\'](.*?)["\']', content, re.DOTALL)
+                    if explanation_pattern:
+                        rectification_data["explanation"] = explanation_pattern.group(1)
+                    else:
+                        # Take a reasonable portion of the text as explanation
+                        rectification_data["explanation"] = content[:300] + "..." if len(content) > 300 else content
 
             logger.info("Successfully parsed OpenAI rectification results")
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Error parsing OpenAI rectification response: {e}")
-            raise ValueError(f"Error in birth time rectification parsing: {str(e)}")
+        except Exception as parsing_error:
+            error_msg = f"Error parsing OpenAI rectification response: {str(parsing_error)}"
+            logger.error(error_msg)
+            logger.error(f"Raw response: {rectification_response['content'][:500]}...")
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
+
+        # Validate rectification data has required fields
+        if "rectified_time" not in rectification_data:
+            error_msg = "Rectification response missing required field: rectified_time"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         # Extract rectification details
         rectified_time = rectification_data.get("rectified_time", birth_time)
@@ -1421,39 +1676,48 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
             birth_dt = datetime.fromisoformat(f"{birth_date}T{birth_time}")
         except ValueError:
             try:
-                # Fallback to manual parsing
+                # Try manual parsing
                 birth_date_obj = datetime.strptime(birth_date, birth_date_format)
                 time_parts = birth_time.split(":")
                 hour = int(time_parts[0])
                 minute = int(time_parts[1])
                 birth_dt = birth_date_obj.replace(hour=hour, minute=minute)
-            except (ValueError, IndexError):
-                logger.error(f"Could not parse birth date/time: {birth_date} {birth_time}")
-                raise ValueError(f"Invalid birth date/time format: {birth_date} {birth_time}")
+            except (ValueError, IndexError) as dt_error:
+                error_msg = f"Could not parse birth date/time: {birth_date} {birth_time}: {str(dt_error)}"
+                logger.error(error_msg)
+                await _update_session_with_error(session_store, session_id, error_msg)
+                raise ValueError(error_msg)
 
         # Create localized datetime with timezone
         try:
             if timezone != "UTC":
                 tz = pytz.timezone(timezone)
                 birth_dt = tz.localize(birth_dt)
-        except pytz.exceptions.UnknownTimeZoneError:
-            logger.warning(f"Unknown timezone '{timezone}', using UTC")
+        except pytz.exceptions.UnknownTimeZoneError as tz_error:
+            error_msg = f"Unknown timezone '{timezone}': {str(tz_error)}"
+            logger.error(error_msg)
+            # Continue with UTC as a valid fallback for timezone issues
+            logger.warning(f"Falling back to UTC timezone for birth time calculation")
             birth_dt = pytz.UTC.localize(birth_dt)
 
         # Format rectified time
-        rectified_dt = None
-        if ":" in rectified_time:
+        try:
             time_parts = rectified_time.split(":")
             if len(time_parts) >= 2:
                 hour = int(time_parts[0])
                 minute = int(time_parts[1])
                 rectified_dt = birth_dt.replace(hour=hour, minute=minute)
-
-        if not rectified_dt:
-            logger.warning(f"Could not parse rectified time: {rectified_time}, using original time")
-            rectified_dt = birth_dt
-
-        rectified_time_str = rectified_dt.strftime("%H:%M")
+                rectified_time_str = rectified_dt.strftime("%H:%M")
+            else:
+                error_msg = f"Invalid rectified time format: {rectified_time}"
+                logger.error(error_msg)
+                await _update_session_with_error(session_store, session_id, error_msg)
+                raise ValueError(error_msg)
+        except (ValueError, IndexError) as time_error:
+            error_msg = f"Could not parse rectified time: {rectified_time}: {str(time_error)}"
+            logger.error(error_msg)
+            await _update_session_with_error(session_store, session_id, error_msg)
+            raise ValueError(error_msg)
 
         # Generate new chart with rectified time
         rectified_chart_id = f"rect_{uuid.uuid4().hex[:8]}"
@@ -1501,20 +1765,72 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
             ]
         }
 
-        verification_response = await openai_service.generate_completion(
-            prompt=json.dumps(verification_prompt),
-            task_type="chart_verification",
-            max_tokens=500
-        )
+        try:
+            verification_response = await openai_service.generate_completion(
+                prompt=json.dumps(verification_prompt, cls=DateTimeEncoder),
+                task_type="chart_verification",
+                max_tokens=500
+            )
 
-        # Process verification response
-        if verification_response and "content" in verification_response:
-            try:
-                verification_data = json.loads(verification_response["content"])
-                rectification_result["verification"] = verification_data
-                logger.info("Successfully added verification data to rectification results")
-            except json.JSONDecodeError:
-                logger.warning("Could not parse verification response as JSON")
+            # Process verification response
+            if verification_response and "content" in verification_response:
+                try:
+                    verification_data = json.loads(verification_response["content"])
+                    rectification_result["verification"] = verification_data
+                    logger.info("Successfully added verification data to rectification results")
+                except json.JSONDecodeError as json_error:
+                    logger.warning(f"Could not parse verification response as JSON: {str(json_error)}")
+                    logger.warning(f"Raw response: {verification_response['content'][:300]}...")
+
+                    # Extract key verification data using regex as fallback
+                    verification_data = {
+                        "verified": True,  # Default to verified
+                        "message": "Chart verification completed"
+                    }
+
+                    # Extract verification status
+                    verified_match = re.search(r'verified["\s:]+\s*(true|false)', verification_response["content"], re.IGNORECASE)
+                    if verified_match:
+                        verification_data["verified"] = verified_match.group(1).lower() == "true"
+
+                    # Extract verification message
+                    message_match = re.search(r'message["\s:]+\s*["\'](.*?)["\']', verification_response["content"], re.DOTALL)
+                    if message_match:
+                        verification_data["message"] = message_match.group(1)
+
+                    rectification_result["verification"] = verification_data
+        except Exception as openai_error:
+            logger.warning(f"Non-critical error in verification step: {str(openai_error)}")
+            # Continue despite verification error, as this is a secondary validation
+
+        # Generate new chart with rectified time
+        try:
+            # Prepare birth details with rectified time
+            rectified_birth_details = birth_details.copy()
+            rectified_birth_details["birth_time"] = rectified_time_str
+
+            # Create new chart with rectified time
+            logger.info(f"Generating new chart with rectified time: {rectified_time_str}")
+            rectified_chart = await chart_service.generate_chart(
+                birth_date=birth_date,
+                birth_time=rectified_time_str,
+                latitude=latitude,
+                longitude=longitude,
+                timezone=timezone,
+                location=location or birth_details.get("birth_place", ""),
+                verify_with_openai=True
+            )
+
+            # Use the generated chart ID or create one if not provided
+            if rectified_chart and "chart_id" in rectified_chart:
+                rectified_chart_id = rectified_chart["chart_id"]
+                rectification_result["rectified_chart_id"] = rectified_chart_id
+                logger.info(f"Successfully generated new chart with ID: {rectified_chart_id}")
+            else:
+                logger.warning("Generated chart doesn't have a chart_id, using generated ID")
+        except Exception as chart_error:
+            logger.error(f"Error generating rectified chart: {str(chart_error)}")
+            # Continue with rectification results despite chart generation error
 
         # Store rectification results in session
         try:
@@ -1527,6 +1843,7 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
                 logger.info(f"Updated session {session_id} with rectification results")
         except Exception as session_error:
             logger.error(f"Failed to update session with rectification results: {session_error}")
+            # Continue despite session update error
 
         # Return results
         return {
@@ -1538,24 +1855,34 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
         }
 
     except Exception as e:
-        logger.error(f"Error in birth time rectification process: {e}")
+        error_msg = f"Error in birth time rectification process: {str(e)}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
 
         # Store error in session
-        try:
-            current_session = await session_store.get_session(session_id)
-            if current_session:
-                current_session["rectification_status"] = "error"
-                current_session["rectification_error"] = str(e)
-                current_session["updated_at"] = datetime.now().isoformat()
-                await session_store.update_session(session_id, current_session)
-                logger.info(f"Updated session {session_id} with rectification error: {str(e)}")
-        except Exception as session_error:
-            logger.error(f"Failed to update session with error: {session_error}")
+        await _update_session_with_error(session_store, session_id, error_msg)
 
-        # Return detailed error information
+        # Return error response
         return {
             "status": "error",
-            "message": f"Rectification process failed: {str(e)}",
-            "chart_id": chart_id,
-            "session_id": session_id
+            "message": error_msg,
+            "session_id": session_id,
+            "chart_id": chart_id
         }
+
+async def _update_session_with_error(session_store, session_id: str, error_message: str) -> None:
+    """Helper function to update session with error information."""
+    try:
+        if not session_id:
+            return
+
+        current_session = await session_store.get_session(session_id)
+        if current_session:
+            current_session["rectification_status"] = "error"
+            current_session["rectification_error"] = error_message
+            current_session["updated_at"] = datetime.now().isoformat()
+            await session_store.update_session(session_id, current_session)
+            logger.info(f"Updated session {session_id} with error status")
+    except Exception as e:
+        logger.error(f"Failed to update session with error status: {e}")
+        # Just log the error and continue
