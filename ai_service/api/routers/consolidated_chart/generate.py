@@ -19,9 +19,10 @@ from ai_service.api.websocket_events import emit_event, EventType
 
 # Import utilities and models
 from ai_service.api.routers.consolidated_chart.utils import validate_chart_data, format_chart_response, store_chart, retrieve_chart
-from ai_service.core.chart_calculator import calculate_chart, calculate_verified_chart
+from ai_service.core.rectification.chart_calculator import calculate_chart, calculate_verified_chart
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
-from ai_service.services.chart_service import get_chart_service, ChartService
+from ai_service.services import get_chart_service
+from ai_service.services.chart_service import ChartService
 from ai_service.api.middleware import get_session_id
 from ai_service.api.services.openai import get_openai_service
 
@@ -61,11 +62,11 @@ class BirthDetails(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "birth_date": "1990-01-01",
-                    "birth_time": "12:00:00",
-                    "latitude": 40.7128,
-                    "longitude": -74.0060,
-                    "timezone": "America/New_York",
+                    "birth_date": "1985-10-24",
+                    "birth_time": "14:30:00",
+                    "latitude": 18.5204,
+                    "longitude": 73.8567,
+                    "timezone": "Asia/Kolkata",
                 }
             ]
         }
@@ -1092,6 +1093,7 @@ async def generate_chart_with_verification(
             birth_time=birth_time,
             latitude=latitude,
             longitude=longitude,
+            timezone=timezone,
             location=location,
             house_system=house_system,
             zodiac_type=options.zodiac_type,

@@ -8,7 +8,22 @@ algorithms and AI-based approaches with real calculations.
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Tuple, Optional
-import pytz
+try:
+    import pytz
+except ImportError:
+    logging.warning("pytz module not found. Some timezone functions may not work correctly.")
+    # Define a minimal pytz fallback
+    class FakePytz:
+        class TimezoneClass:
+            @staticmethod
+            def utcoffset(dt):
+                return datetime.utcnow() - dt
+
+        @staticmethod
+        def timezone(tz_str):
+            return FakePytz.TimezoneClass()
+
+    pytz = FakePytz()
 import math
 from flatlib.datetime import Datetime
 from flatlib.geopos import GeoPos
@@ -17,6 +32,10 @@ from flatlib import const
 from flatlib.dignities import essential
 import numpy as np
 from timezonefinder import TimezoneFinder
+
+# Use the new modularized structure
+from ai_service.core.rectification.chart_calculator import calculate_chart
+from ai_service.core.rectification.constants import PLANETS_LIST
 
 # Configure logging
 logger = logging.getLogger(__name__)

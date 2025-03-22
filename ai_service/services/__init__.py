@@ -5,11 +5,9 @@ This module initializes service layer components for the AI service.
 """
 
 # Import services
-from ai_service.services.chart_service import ChartService, ChartVerifier
+from ai_service.services.chart_service import ChartService
 
-# Global service instances
-_chart_service = None
-
+# Explicitly define get_chart_service function
 def get_chart_service() -> ChartService:
     """
     Get or create a chart service instance.
@@ -18,7 +16,18 @@ def get_chart_service() -> ChartService:
     Returns:
         ChartService instance
     """
-    global _chart_service
-    if _chart_service is None:
-        _chart_service = ChartService()
-    return _chart_service
+    from ai_service.services.chart_service import create_chart_service
+    try:
+        from ai_service.utils.dependency_container import get_container
+        container = get_container()
+
+        # Try to get from container
+        try:
+            return container.get("chart_service")
+        except ValueError:
+            # Register and get
+            container.register("chart_service", create_chart_service)
+            return container.get("chart_service")
+    except Exception as e:
+        # Create directly if container access fails
+        return create_chart_service()

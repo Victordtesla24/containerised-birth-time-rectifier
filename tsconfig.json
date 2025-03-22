@@ -8,10 +8,11 @@
     ],
     "allowJs": true,
     "types": [
-      "jest",
-      "three",
-      "node",
-      "@testing-library/jest-dom"
+      // Comment out these types until they're installed
+      // "jest",
+      // "three",
+      // "node",
+      // "@testing-library/jest-dom"
     ],
     "skipLibCheck": true,
     "strict": true,

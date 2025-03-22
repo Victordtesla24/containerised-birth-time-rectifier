@@ -149,79 +149,16 @@ def register_chart_service():
     if not container.has_service("chart_service"):
         try:
             # Import here to avoid circular imports
-            from ai_service.services.chart_service import create_chart_service
+            from ai_service.services import get_chart_service
 
-            # First register the factory
-            container.register("chart_service", create_chart_service)
-            logger.info("Registered chart_service factory")
-
-            # Then immediately create an instance to verify it works
-            chart_service = container.get("chart_service")
-            logger.info("Successfully initialized chart_service")
+            # Get the service instance and register it
+            chart_service = get_chart_service()
+            container.register_service("chart_service", chart_service)
+            logger.info("Registered chart_service instance")
         except Exception as e:
             logger.error(f"Failed to register chart_service: {e}")
-            # Fallback to a basic implementation if available
-            try:
-                # Check if we're in a test environment
-                import pytest
-                is_test_env = True
-                logger.info("Detected test environment, using mock chart service")
-            except ImportError:
-                is_test_env = False
-
-            if is_test_env:
-                # Create a mock chart service for testing
-                from unittest.mock import MagicMock, AsyncMock
-                mock_service = MagicMock()
-
-                # Add all the necessary async methods used in tests
-                mock_service.generate_chart = AsyncMock(return_value={"chart_id": "test_chart"})
-                mock_service.get_chart = AsyncMock(return_value={"chart_id": "test_chart"})
-                mock_service.compare_charts = AsyncMock(return_value={"comparison": "test"})
-                mock_service.verify_chart_with_openai = AsyncMock(return_value={"verified": True})
-                mock_service.export_chart = AsyncMock(return_value={"export_id": "test_export"})
-                mock_service.rectify_chart = AsyncMock(return_value={"rectified_time": "12:00"})
-                mock_service.save_chart = AsyncMock(return_value="test_chart")
-                mock_service.delete_chart = AsyncMock(return_value=True)
-                mock_service.calculate_chart = AsyncMock(return_value={"chart_id": "test_chart"})
-                mock_service.update_chart = AsyncMock(return_value=True)
-                mock_service.list_charts = AsyncMock(return_value=[{"chart_id": "test_chart"}])
-                mock_service.store_rectification = AsyncMock(return_value=True)
-                mock_service.get_rectification = AsyncMock(return_value={"rectification_id": "test_rectification"})
-                mock_service.store_comparison = AsyncMock(return_value=True)
-                mock_service.get_comparison = AsyncMock(return_value={"comparison_id": "test_comparison"})
-                mock_service.store_export = AsyncMock(return_value=True)
-                mock_service.get_export = AsyncMock(return_value={"export_id": "test_export"})
-                mock_service._ensure_initialized = AsyncMock(return_value=None)
-                mock_service._execute_db_operation = AsyncMock(return_value=None)
-
-                # Initialize openai_service and chart_verifier properties with mock objects
-                mock_openai_service = MagicMock()
-                mock_openai_service.generate_completion = AsyncMock(return_value={"content": "test response"})
-                mock_openai_service.verify_chart = AsyncMock(return_value={"verified": True})
-
-                mock_chart_verifier = MagicMock()
-                mock_chart_verifier.verify_chart = AsyncMock(return_value={"verified": True})
-
-                # Set up properties
-                mock_service.openai_service = mock_openai_service
-                mock_service.chart_verifier = mock_chart_verifier
-                mock_service.chart_repository = MagicMock()
-                mock_service.calculator = MagicMock()
-                mock_service.astro_calculator = MagicMock()
-
-                container.register_service("chart_service", mock_service)
-                logger.info("Registered mock chart_service for testing")
-            else:
-                # Try the regular fallback for non-test environments
-                try:
-                    from ai_service.api.services.chart import get_chart_service
-                    chart_service = get_chart_service()
-                    container.register_service("chart_service", chart_service)
-                    logger.info("Registered fallback chart_service")
-                except Exception as fallback_error:
-                    logger.error(f"Failed to register fallback chart_service: {fallback_error}")
-                    raise ValueError(f"Chart service registration failed completely: {e} -> {fallback_error}")
+            # No fallbacks - raise the error to prevent silent failures
+            raise ValueError(f"Chart service registration failed: {e}")
 
 # Call this on module import to ensure the services are registered
 register_openai_service()

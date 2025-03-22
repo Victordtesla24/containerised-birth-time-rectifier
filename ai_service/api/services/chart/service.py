@@ -197,6 +197,74 @@ class ChartService:
             logger.error(f"Database error retrieving charts for user {user_id}: {str(e)}")
             raise
 
+    async def generate_chart(
+        self,
+        birth_date: str,
+        birth_time: str,
+        latitude: float,
+        longitude: float,
+        timezone: str,
+        location: str = "",
+        house_system: str = "P",
+        zodiac_type: str = "sidereal",
+        ayanamsa: float = 23.6647,
+        verify_with_openai: bool = True,
+        node_type: str = "true",
+        chart_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate an astrological chart based on birth details with OpenAI verification.
+
+        Args:
+            birth_date: Date of birth (YYYY-MM-DD)
+            birth_time: Time of birth (HH:MM:SS)
+            latitude: Birth latitude
+            longitude: Birth longitude
+            timezone: Timezone string (e.g., 'America/New_York')
+            location: Birth location name
+            house_system: House system to use
+            zodiac_type: Zodiac type (sidereal/tropical)
+            ayanamsa: Ayanamsa value for sidereal calculations
+            verify_with_openai: Whether to verify chart with OpenAI
+            node_type: Node type (true/mean)
+            chart_id: Optional chart ID to use
+
+        Returns:
+            Dict containing chart data
+        """
+        logger.info("ChartService.generate_chart called - using delegated implementation")
+
+        try:
+            # Import here to avoid circular imports
+            from ai_service.services import get_chart_service
+
+            # Use the complete implementation from the main chart service
+            main_chart_service = get_chart_service()
+
+            # Call the main chart service implementation
+            chart_data = await main_chart_service.generate_chart(
+                birth_date=birth_date,
+                birth_time=birth_time,
+                latitude=latitude,
+                longitude=longitude,
+                timezone=timezone,
+                location=location,
+                house_system=house_system,
+                zodiac_type=zodiac_type,
+                ayanamsa=ayanamsa,
+                verify_with_openai=verify_with_openai,
+                node_type=node_type
+            )
+
+            # Save the chart in our database as well
+            if chart_data and "chart_id" in chart_data:
+                await self.save_chart(chart_data)
+
+            return chart_data
+        except Exception as e:
+            logger.error(f"Error in ChartService.generate_chart: {e}")
+            raise
+
 # Singleton instance
 _instance = None
 

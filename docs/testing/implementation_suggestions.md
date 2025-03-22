@@ -380,7 +380,7 @@ async def rectify_chart(self, chart_id: str, questionnaire_id: str, answers: Lis
         rectification_steps.append("Using comprehensive astrological methods for rectification")
 
         # Perform real rectification using comprehensive algorithm
-        from ai_service.core.rectification import comprehensive_rectification
+        from ai_service.core.rectification.main import comprehensive_rectification
 
         # Process rectification using actual astrological calculations
         rectification_result = await comprehensive_rectification(
@@ -724,4 +724,51 @@ def calculate_chart(birth_date: datetime, latitude: float, longitude: float, tim
 
             # Convert to zodiac signs
             def lon_to_sign(lon):
-                signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo
+                signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                         "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+                return signs[int((lon % 30) / 30 * 12) % 12]
+
+            # Extract house cusps
+            house_cusps = []
+            for house_num, angle, x, y in house_angles:
+                house_cusps.append({
+                    "number": house_num,
+                    "sign": lon_to_sign(angle),
+                    "degree": angle * 180 / math.pi,
+                    "x": x,
+                    "y": y
+                })
+
+            # Extract planet positions
+            planet_positions = []
+            for planet_id, position in planets.items():
+                planet_positions.append({
+                    "name": planet_id,
+                    "sign": lon_to_sign(position['longitude']),
+                    "degree": position['longitude'] * 180 / math.pi,
+                    "house": position['longitude'] // 30,
+                    "distance": position['distance'],
+                    "speed": position['speed']
+                })
+
+            # Create chart object
+            chart_data = {
+                "birth_details": {
+                    "birth_date": birth_date.strftime('%Y-%m-%d'),
+                    "birth_time": birth_date.strftime('%H:%M'),
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "timezone": timezone_str
+                },
+                "houses": house_cusps,
+                "planets": planet_positions,
+                "ascendant": {
+                    "sign": lon_to_sign(ascendant_lon),
+                    "degree": ascendant_lon * 180 / math.pi
+                }
+            }
+
+            return chart_data
+        except Exception as e:
+            logger.error(f"Error in Swiss Ephemeris calculation: {e}")
+            raise ValueError("Swiss Ephemeris calculation failed")
