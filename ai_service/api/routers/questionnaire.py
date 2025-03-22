@@ -17,13 +17,14 @@ import math
 
 from ai_service.utils.questionnaire_engine import QuestionnaireEngine
 from ai_service.models.unified_model import UnifiedRectificationModel
-from ai_service.core.astro_calculator import AstroCalculator
+from ai_service.core.rectification.chart_calculator import calculate_chart
 from ai_service.api.services.questionnaire_service import get_questionnaire_service
 from ai_service.api.services.chart import get_chart_service
 from ai_service.api.services.openai import get_openai_service
 from ai_service.utils.geocoding import get_coordinates
 from ai_service.api.services.session_service import get_session_store
-from ai_service.core.rectification import comprehensive_rectification
+from ai_service.core.rectification.main import comprehensive_rectification
+from ai_service.utils.json_encoder import DateTimeEncoder
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -94,17 +95,17 @@ def get_rectification_model():
 
 # Dependency to get AstroCalculator instance
 def get_astro_calculator():
-    return AstroCalculator()
+    """Get an instance of the AstroCalculator for backward compatibility."""
+    # Return a simple dictionary-like object that can store chart calculation functions
+    # This serves as a compatibility layer since we now use calculate_chart directly
+    class AstroCalculatorCompat:
+        def calculate_chart(self, *args, **kwargs):
+            return calculate_chart(*args, **kwargs)
+
+    return AstroCalculatorCompat()
 
 # Use the real session_store for all session-related operations
 from ai_service.api.services.session_service import get_session_store
-
-# Create a custom JSON encoder to handle date and datetime objects
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        return super().default(obj)
 
 @router.get("", response_model=Dict[str, Any])
 async def get_questionnaire(
@@ -113,148 +114,42 @@ async def get_questionnaire(
     questionnaire_service = Depends(get_questionnaire_service)
 ):
     """
-    Get the questionnaire questions tailored to the chart data.
+    Get the first question of a dynamic questionnaire tailored to the chart data.
     """
     try:
-        # Initialize a response structure
-        response = {
-            "questions": [],
-            "chart_id": chart_id,
-            "session_id": session_id
-        }
-
-        # Get chart data using the chart service
-        chart_service = get_chart_service()
-
+        # Validate input
         if not chart_id:
-            # No chart ID provided, we can't proceed
             raise HTTPException(
                 status_code=400,
                 detail="Chart ID is required to generate personalized questions"
             )
 
-        logger.info(f"Retrieving chart data for chart ID: {chart_id}")
-        chart_data = await chart_service.get_chart(chart_id)
-
-        if not chart_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No chart data found for chart ID: {chart_id}"
-            )
-
-        logger.info(f"Successfully retrieved chart data with chart ID: {chart_id}")
-
-        # Extract birth details for question generation
-        birth_details = chart_data.get("birth_details", {})
-        if not birth_details:
-            raise HTTPException(
-                status_code=400,
-                detail="Birth details not found in chart data"
-            )
-
         # Create a new session ID if none provided
         if not session_id:
             session_id = f"session_{uuid.uuid4().hex[:8]}"
-            response["session_id"] = session_id
 
-        # Generate dynamic questions using questionnaire service
-        engine = QuestionnaireEngine()
+        # Use DynamicQuestionnaireService for truly dynamic questions
+        from ai_service.api.services.questionnaire_service import DynamicQuestionnaireService
+        dynamic_service = DynamicQuestionnaireService()
 
-        # Initialize with OpenAI service
-        engine.openai_service = get_openai_service()
+        # Initialize the questionnaire and get the first question
+        questionnaire_data = await dynamic_service.initialize_questionnaire(chart_id, session_id)
 
-        # Generate 5 questions dynamically
-        questions = []
-        previous_answers = {"responses": []}
-
-        # Get the first question
-        first_question_data = await engine.get_first_question(chart_data, birth_details)
-        first_question = {
-            "id": first_question_data.get("id", f"q_{uuid.uuid4().hex[:8]}"),
-            "type": first_question_data.get("type", "yes_no"),
-            "text": first_question_data.get("text"),
-            "relevance": first_question_data.get("relevance", "high"),
-        }
-
-        # Add options if available
-        if "options" in first_question_data and first_question_data["options"]:
-            first_question["options"] = []
-            for j, opt in enumerate(first_question_data["options"]):
-                if isinstance(opt, str):
-                    first_question["options"].append({
-                        "id": f"opt_{j}_{uuid.uuid4().hex[:4]}",
-                        "text": opt
-                    })
-                elif isinstance(opt, dict) and "text" in opt:
-                    opt_id = opt.get("id", f"opt_{j}_{uuid.uuid4().hex[:4]}")
-                    first_question["options"].append({
-                        "id": opt_id,
-                        "text": opt["text"]
-                    })
-
-        questions.append(first_question)
-
-        # Add to previous answers to avoid duplicates
-        previous_answers["responses"].append({
-            "question_id": first_question["id"],
-            "question": first_question["text"],
-            "answer": None
-        })
-
-        # Generate the rest of the questions
-        for i in range(1, 5):  # Generate 4 more questions
-            question_data = await engine.get_next_question(
-                chart_data=chart_data,
-                birth_details=birth_details,
-                previous_answers=previous_answers,
-                current_confidence=30.0 + (i * 10)  # Increasing confidence
-            )
-
-            question = {
-                "id": question_data.get("id", f"q_{uuid.uuid4().hex[:8]}"),
-                "type": question_data.get("type", "yes_no"),
-                "text": question_data.get("text"),
-                "relevance": question_data.get("relevance", "medium"),
+        # Return the response
+        return {
+            "question": questionnaire_data.get("question"),
+            "session_id": session_id,
+            "chart_id": chart_id,
+            "progress": {
+                "current": 1,
+                "total_estimated": 10
             }
-
-            # Add options if available
-            if "options" in question_data and question_data["options"]:
-                question["options"] = []
-                for j, opt in enumerate(question_data["options"]):
-                    if isinstance(opt, str):
-                        question["options"].append({
-                            "id": f"opt_{j}_{uuid.uuid4().hex[:4]}",
-                            "text": opt
-                        })
-                    elif isinstance(opt, dict) and "text" in opt:
-                        opt_id = opt.get("id", f"opt_{j}_{uuid.uuid4().hex[:4]}")
-                        question["options"].append({
-                            "id": opt_id,
-                            "text": opt["text"]
-                        })
-
-            questions.append(question)
-
-            # Add to previous answers to avoid duplicates
-            previous_answers["responses"].append({
-                "question_id": question["id"],
-                "question": question["text"],
-                "answer": None
-            })
-
-        response["questions"] = questions
-        logger.info(f"Generated {len(response['questions'])} personalized questions based on chart data")
-        return response
-
-    except HTTPException:
-        # Re-raise HTTP exceptions without modification
-        raise
+        }
     except Exception as e:
         logger.error(f"Error in get_questionnaire: {str(e)}")
-        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to generate questions: {str(e)}"
+            detail=f"Failed to generate questionnaire: {str(e)}"
         )
 
 @router.post("/initialize", response_model=Dict[str, Any])
@@ -495,448 +390,106 @@ async def initialize_questionnaire(
 
 @router.post("/next-question", response_model=Dict[str, Any])
 async def get_next_question(
-    birth_details: Dict[str, Any],
-    previous_answers: List[Dict[str, Any]],
-    questionnaire_service: Any = Depends(get_questionnaire_service)
+    session_id: str = Query(..., description="Session ID for the questionnaire"),
+    chart_id: Optional[str] = Query(None, description="Chart ID for personalized questions"),
+    question_id: Optional[str] = Query(None, description="ID of the previous question"),
+    answer: Optional[Dict[str, Any]] = Body(None, description="Answer to the previous question")
 ):
     """
-    Generate the next most astrologically relevant question using OpenAI,
-    based on birth details and previous answers.
+    Get the next question in the questionnaire sequence.
 
-    This implementation fully leverages OpenAI capabilities to create
-    personalized and astrologically accurate questions with no fallbacks.
-
-    Args:
-        birth_details: Dictionary containing birth date, time, location
-        previous_answers: List of previous question-answer pairs
-
-    Returns:
-        Dictionary containing the next question and metadata
+    This endpoint processes the previous answer (if provided) and returns the next question
+    based on the birth chart data and previous responses.
     """
     try:
-        # Validate input data
-        if not birth_details:
-            raise HTTPException(
-                status_code=400,
-                detail="Birth details are required"
-            )
+        # Use DynamicQuestionnaireService for truly dynamic questions
+        from ai_service.api.services.questionnaire_service import DynamicQuestionnaireService
+        dynamic_service = DynamicQuestionnaireService()
 
-        # Get the OpenAI service directly
-        openai_service = get_openai_service()
-        if not openai_service:
-            raise HTTPException(
-                status_code=503,
-                detail="OpenAI service unavailable"
-            )
+        # Process the answer and get the next question
+        result = await dynamic_service.get_next_question(
+            session_id=session_id,
+            chart_id=chart_id,
+            question_id=question_id,
+            answer=answer.get("answer") if answer else None
+        )
 
-        # Extract key birth details for enhanced astrological context
-        birth_date = birth_details.get("birthDate", birth_details.get("birth_date", ""))
-        birth_time = birth_details.get("birthTime", birth_details.get("birth_time", ""))
-        birth_place = birth_details.get("birthPlace", birth_details.get("birth_place", ""))
-        latitude = birth_details.get("latitude", 0)
-        longitude = birth_details.get("longitude", 0)
-        timezone = birth_details.get("timezone", "UTC")
+        # Check if the questionnaire is complete
+        if result.get("complete", False):
+            # Complete the questionnaire
+            completion_result = await dynamic_service.complete_questionnaire(session_id)
 
-        # Validate essential birth details
-        if not birth_date:
-            raise HTTPException(
-                status_code=400,
-                detail="Birth date is required in birth details"
-            )
-
-        # Create enhanced astrological context for the OpenAI prompt
-        astrological_context = {
-            "birth_date": birth_date,
-            "birth_time": birth_time,
-            "birth_place": birth_place,
-            "latitude": latitude,
-            "longitude": longitude,
-            "timezone": timezone,
-            "current_question_number": len(previous_answers) + 1,
-            "total_questions_needed": 5,
-            "birth_time_rectification_focus": True,
-            "question_purpose": "Gathering information to accurately rectify birth time"
-        }
-
-        # Extract already covered topics and questions to avoid duplication
-        covered_topics = []
-        question_texts = []
-        question_categories = []
-
-        for answer in previous_answers:
-            question = answer.get("question", "")
-            question_texts.append(question)
-
-            category = answer.get("category", "")
-            if category:
-                question_categories.append(category)
-                covered_topics.append(category)
-
-        # Prepare prompt for OpenAI with deep astrological context
-        prompt_data = {
-            "task": "generate_astrologically_relevant_question",
-            "birth_details": {
-                "date": birth_date,
-                "time": birth_time,
-                "place": birth_place,
-                "latitude": latitude,
-                "longitude": longitude,
-                "timezone": timezone
-            },
-            "astrological_context": astrological_context,
-            "previous_questions": question_texts,
-            "covered_topics": covered_topics,
-            "previous_answers": previous_answers,
-            "question_requirements": [
-                "Focus on gathering information relevant to birth time rectification",
-                "Design questions to help determine angular house positions",
-                "Target topics not covered in previous questions",
-                "Include specific astrological relevance explanation for each question",
-                "Use appropriate question type (open_text, multiple_choice, yes_no, etc.)",
-                "Make questions accessible to those without astrological knowledge"
-            ],
-            "required_fields": {
-                "id": "Will be generated if not provided",
-                "type": "Question type (open_text, multiple_choice, yes_no, slider, etc.)",
-                "text": "The actual question text",
-                "category": "Astrological category (houses, planets, transits, etc.)",
-                "relevance": "Explanation of how this question helps determine birth time",
-                "options": "For multiple_choice questions, provide answer options"
+            return {
+                "completed": True,
+                "session_id": session_id,
+                "chart_id": chart_id,
+                "confidence": completion_result.get("confidence", 0.0),
+                "message": "Enough information gathered for accurate birth time rectification"
             }
+
+        # Return the next question
+        return {
+            "question": result.get("question"),
+            "session_id": session_id,
+            "chart_id": chart_id,
+            "progress": result.get("progress", {"current": 1, "total_estimated": 10})
         }
-
-        # Log the request to OpenAI
-        logger.info(f"Generating next question after {len(previous_answers)} previous answers")
-
-        try:
-            # Get the next question from OpenAI
-            response = await openai_service.generate_completion(
-                prompt=json.dumps(prompt_data, cls=DateTimeEncoder),
-                task_type="astrological_question_generation",
-                max_tokens=800,
-                temperature=0.4  # Lower temperature for more consistent questions
-            )
-        except Exception as api_error:
-            logger.error(f"OpenAI API error during question generation: {str(api_error)}")
-            raise HTTPException(
-                status_code=503,
-                detail=f"Error communicating with OpenAI service: {str(api_error)}"
-            )
-
-        # Validate OpenAI response
-        if not response or "content" not in response:
-            logger.error("Invalid or empty response from OpenAI")
-            raise HTTPException(
-                status_code=502,
-                detail="Failed to generate question: empty or invalid response from AI service"
-            )
-
-        # Parse the response
-        try:
-            question_data = json.loads(response["content"])
-        except json.JSONDecodeError as json_error:
-            logger.error(f"Error parsing OpenAI response as JSON: {str(json_error)}")
-            logger.error(f"Raw response content: {response['content'][:500]}...")
-
-            # Extract question using regex as a recovery mechanism
-            question_match = re.search(r'"text"\s*:\s*"([^"]+)"', response["content"])
-            category_match = re.search(r'"category"\s*:\s*"([^"]+)"', response["content"])
-            relevance_match = re.search(r'"relevance"\s*:\s*"([^"]+)"', response["content"])
-
-            if question_match:
-                question_data = {
-                    "id": f"q_{uuid.uuid4().hex[:8]}",
-                    "type": "open_text",
-                    "text": question_match.group(1),
-                    "category": category_match.group(1) if category_match else "general",
-                    "relevance": relevance_match.group(1) if relevance_match else "Helps determine birth time factors"
-                }
-            else:
-                raise HTTPException(
-                    status_code=502,
-                    detail="Failed to parse question data from AI service response"
-                )
-
-        # Validate question data structure
-        if not isinstance(question_data, dict) or "text" not in question_data:
-            logger.error(f"Invalid question format: {question_data}")
-            raise HTTPException(
-                status_code=502,
-                detail="AI service returned improperly formatted question data"
-            )
-
-        # Ensure question has all required fields
-        if "id" not in question_data:
-            question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
-
-        if "type" not in question_data:
-            question_data["type"] = "open_text"
-
-        if "category" not in question_data:
-            question_data["category"] = "general"
-
-        if "relevance" not in question_data:
-            question_data["relevance"] = "Helps determine birth time factors"
-
-        # Process options for multiple choice questions
-        if question_data.get("type") in ["multiple_choice", "yes_no"] and "options" in question_data and question_data["options"]:
-            processed_options = []
-            for i, option in enumerate(question_data["options"]):
-                if isinstance(option, str):
-                    processed_options.append({
-                        "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
-                        "text": option
-                    })
-                elif isinstance(option, dict) and "text" in option:
-                    if "id" not in option:
-                        option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
-                    processed_options.append(option)
-            question_data["options"] = processed_options
-        elif question_data.get("type") == "yes_no" and ("options" not in question_data or not question_data["options"]):
-            # Add standard yes/no options if missing
-            question_data["options"] = [
-                {"id": f"opt_yes_{uuid.uuid4().hex[:4]}", "text": "Yes"},
-                {"id": f"opt_no_{uuid.uuid4().hex[:4]}", "text": "No"}
-            ]
-
-        # Calculate confidence level based on quality of question
-        confidence = 60.0
-
-        # Increase confidence based on question quality
-        if "category" in question_data and question_data["category"] != "general":
-            confidence += 10.0
-
-        if "relevance" in question_data and len(question_data["relevance"]) > 30:
-            confidence += 10.0
-
-        # Adjust confidence based on previous answers (more answers → higher confidence)
-        confidence += min(20.0, len(previous_answers) * 4.0)
-
-        # Cap confidence at 95%
-        confidence = min(confidence, 95.0)
-
-        # Return the next question with confidence and metadata
-        response = {
-            "next_question": question_data,
-            "confidence": confidence,
-            "question_number": len(previous_answers) + 1,
-            "astrological_context": {
-                "chart_angles_targeted": question_data.get("category") in ["ascendant", "midheaven", "ic", "descendant"],
-                "birth_time_sensitive": True
-            }
-        }
-
-        logger.info(f"Successfully generated next question: {question_data['text'][:50]}...")
-        return response
-
-    except HTTPException:
-        raise
-    except ValueError as e:
-        logger.error(f"Validation error in question generation: {e}")
-        raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
     except Exception as e:
-        logger.error(f"Error generating next question: {e}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error generating next question: {str(e)}")
+        logger.error(f"Error getting next question: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get next question: {str(e)}"
+        )
 
 @router.post("/{question_id}/answer", response_model=Dict[str, Any])
 async def answer_individual_question(
     question_id: str = Path(..., description="Question ID to answer"),
     answer_data: Dict[str, Any] = Body(..., description="Answer data"),
     chart_id: str = Query(..., description="Chart ID for personalized questions"),
-    session_id: str = Query(..., description="Session ID for tracking"),
-    questionnaire_service: Any = Depends(get_questionnaire_service)
+    session_id: str = Query(..., description="Session ID for tracking")
 ):
     """
-    Answer an individual question in the questionnaire.
+    Submit an answer to a specific question and get the next question.
     """
     try:
-        # Get questionnaire engine
-        engine = QuestionnaireEngine()
+        # Extract the answer from the request
+        answer = answer_data.get("answer")
 
-        # Initialize session store
-        session_store = get_session_store()
+        # Use DynamicQuestionnaireService for truly dynamic questions
+        from ai_service.api.services.questionnaire_service import DynamicQuestionnaireService
+        dynamic_service = DynamicQuestionnaireService()
 
-        # Check if session exists
-        session = await session_store.get_session(session_id)
-        if not session:
-            # Create a new session if it doesn't exist
-            await session_store.create_session(session_id, {
+        # Process the answer and get the next question
+        result = await dynamic_service.get_next_question(
+            session_id=session_id,
+            chart_id=chart_id,
+            question_id=question_id,
+            answer=answer
+        )
+
+        # Check if the questionnaire is complete
+        if result.get("complete", False):
+            # Complete the questionnaire
+            completion_result = await dynamic_service.complete_questionnaire(session_id)
+
+            return {
+                "completed": True,
+                "session_id": session_id,
                 "chart_id": chart_id,
-                "answers": {},
-                "questions_asked": set(),
-                "confidence": 30.0,
-                "birth_time_range": None,
-                "last_question": None,
-            })
-            session = await session_store.get_session(session_id)
-            if not session:
-                # If still not available, raise an error
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to create or retrieve session"
-                )
-
-        # Ensure session has necessary fields
-        session_data = session.copy()  # Create a copy to avoid modifying the original
-        if "answers" not in session_data:
-            session_data["answers"] = {}
-        if "questions_asked" not in session_data:
-            session_data["questions_asked"] = set()
-
-        # Record this answer
-        answer_value = answer_data.get("answer")
-        question_text = answer_data.get("question", "")
-
-        await session_store.add_question_response(
-            session_id,
-            question_id,
-            question_text,
-            answer_value
-        )
-
-        # Get existing answers for context
-        previous_answers = []
-        for q_id, ans in session_data.get("answers", {}).items():
-            previous_answers.append({
-                "question_id": q_id,
-                "question": ans.get("question", ""),
-                "answer": ans.get("answer")
-            })
-
-            # Track questions asked to avoid duplicates
-            if "question" in ans:
-                if not isinstance(session_data.get("questions_asked"), set):
-                    session_data["questions_asked"] = set()
-                session_data["questions_asked"].add(ans["question"])
-
-        # Add the current answer
-        previous_answers.append({
-            "question_id": question_id,
-            "question": question_text,
-            "answer": answer_value
-        })
-
-        # Get chart data to generate more questions
-        chart_service = get_chart_service()
-        chart_data = await chart_service.get_chart(chart_id)
-
-        if not chart_data:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No chart data found for chart ID: {chart_id}"
-            )
-
-        # Extract birth details
-        birth_details = chart_data.get("birth_details", {})
-        if not birth_details:
-            raise HTTPException(
-                status_code=400,
-                detail="Birth details not found in chart data"
-            )
-
-        # Current confidence level (increases with more answers)
-        current_confidence = 30.0 + (len(previous_answers) * 10)
-        if current_confidence > 90:
-            current_confidence = 90.0
-
-        # Update session confidence
-        await session_store.update_confidence(session_id, current_confidence)
-
-        # Get the next question
-        next_question_data = await engine.get_next_question(
-            chart_data=chart_data,
-            birth_details=birth_details,
-            previous_answers={"responses": previous_answers},
-            current_confidence=current_confidence
-        )
-
-        # Update session with birth time range if provided
-        if "birth_time_range" in next_question_data:
-            session_data["birth_time_range"] = next_question_data["birth_time_range"]
-            await session_store.update_session(session_id, session_data)
-
-        # Prepare the next question, avoiding duplicates
-        questions_asked = session_data.get("questions_asked", set())
-        next_question = None
-
-        # Try up to 3 times to get a non-duplicate question
-        for _ in range(3):
-            if next_question_data.get("text") not in questions_asked:
-                next_question = {
-                    "id": next_question_data.get("id", f"q_{uuid.uuid4().hex[:8]}"),
-                    "type": next_question_data.get("type", "open_text"),
-                    "text": next_question_data.get("text"),
-                    "relevance": next_question_data.get("relevance", "medium"),
-                }
-
-                # Add options if available
-                if "options" in next_question_data and next_question_data["options"]:
-                    next_question["options"] = []
-                    for j, opt in enumerate(next_question_data["options"]):
-                        next_question["options"].append({
-                            "id": f"opt_{j}_{uuid.uuid4().hex[:4]}",
-                            "text": opt
-                        })
-                break
-            else:
-                # If duplicate, get another question
-                next_question_data = await engine.get_next_question(
-                    chart_data=chart_data,
-                    birth_details=birth_details,
-                    previous_answers={"responses": previous_answers},
-                    current_confidence=current_confidence
-                )
-
-        # If we couldn't get a non-duplicate question, use the last one
-        if not next_question and next_question_data:
-            next_question = {
-                "id": next_question_data.get("id", f"q_{uuid.uuid4().hex[:8]}"),
-                "type": next_question_data.get("type", "open_text"),
-                "text": next_question_data.get("text"),
-                "relevance": next_question_data.get("relevance", "medium"),
+                "confidence": completion_result.get("confidence", 0.0),
+                "message": "Enough information gathered for accurate birth time rectification"
             }
 
-        # Track the current question in the session
-        session_data["last_question"] = next_question
-
-        # Add this question to the set of questions asked
-        if next_question and "text" in next_question:
-            if not isinstance(session_data.get("questions_asked"), set):
-                session_data["questions_asked"] = set()
-            session_data["questions_asked"].add(next_question.get("text", ""))
-
-        # Update session
-        await session_store.update_session(session_id, session_data)
-
-        # Is the questionnaire complete?
-        is_complete = len(previous_answers) >= 5 or current_confidence >= 90.0
-
-        # Birth time range for chart updates (if available)
-        birth_time_range = session_data.get("birth_time_range")
-
-        # Return the response with the next question
-        if is_complete:
-            # If we have enough questions or high confidence, start rectification process
-            asyncio.create_task(process_rectification(chart_id, session_id, previous_answers))
-
-        response = {
-            "question": next_question,
-            "confidence": current_confidence,
-            "isComplete": is_complete,
+        # Return the next question
+        return {
+            "question": result.get("question"),
             "session_id": session_id,
-            "questions_answered": len(previous_answers),
-            "birth_time_range": birth_time_range,
-            "chart_id": chart_id
+            "chart_id": chart_id,
+            "answered_question_id": question_id,
+            "progress": result.get("progress", {"current": 1, "total_estimated": 10})
         }
-
-        return response
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error in answer_individual_question: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error answering question: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to process answer: {str(e)}"
@@ -1069,7 +622,7 @@ async def answer_question(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in answer_question: {str(e)}")
+        logger.error(f"Error in answer_individual_question: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=500,
@@ -1082,9 +635,6 @@ async def complete_questionnaire(
 ):
     """
     Complete the questionnaire and perform birth time rectification.
-
-    This endpoint follows the Original Sequence Diagram flow for questionnaire completion
-    and birth time rectification initiation.
     """
     try:
         # Extract request data
@@ -1098,65 +648,15 @@ async def complete_questionnaire(
                 detail="Session ID and Chart ID are required"
             )
 
-        # Get session store
-        session_store = get_session_store()
+        # Use DynamicQuestionnaireService for truly dynamic questions
+        from ai_service.api.services.questionnaire_service import DynamicQuestionnaireService
+        dynamic_service = DynamicQuestionnaireService()
 
-        # Check if session exists
-        try:
-            session = await session_store.get_session(session_id)
-            if not session:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Session {session_id} not found"
-                )
-        except Exception as session_error:
-            logger.error(f"Error retrieving session: {session_error}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error retrieving session: {str(session_error)}"
-            )
+        # Complete the questionnaire
+        completion_result = await dynamic_service.complete_questionnaire(session_id)
 
-        # Get responses from the session
-        try:
-            responses = await session_store.get_responses(session_id)
-        except Exception as resp_error:
-            logger.error(f"Error retrieving responses: {resp_error}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error retrieving responses: {str(resp_error)}"
-            )
-
-        # Check if we have enough responses
-        if not responses or len(responses) < 3:
-            raise HTTPException(
-                status_code=400,
-                detail="Insufficient questionnaire responses. At least 3 responses are required for accurate rectification."
-            )
-
-        # Get the current confidence level
-        try:
-            current_confidence = await session_store.get_confidence(session_id)
-        except Exception as conf_error:
-            logger.error(f"Error retrieving confidence: {conf_error}")
-            current_confidence = 50.0  # Default confidence
-
-        # Start the rectification process
-        try:
-            rectification_task = asyncio.create_task(
-                process_rectification(chart_id, session_id, responses)
-            )
-
-            if not rectification_task:
-                logger.warning(f"Failed to create rectification task for chart {chart_id}")
-        except Exception as task_error:
-            logger.error(f"Error creating rectification task: {task_error}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to start rectification process: {str(task_error)}"
-            )
-
-        # Log the process start
-        logger.info(f"Birth time rectification process started for chart {chart_id} with {len(responses)} responses")
+        # Verify the completion result has some meaningful confidence score
+        confidence = completion_result.get("confidence", 0.0)
 
         # Provide detailed response about the rectification process
         return {
@@ -1164,8 +664,8 @@ async def complete_questionnaire(
             "chart_id": chart_id,
             "isComplete": True,
             "status": "processing",
-            "confidence": current_confidence,
-            "response_count": len(responses),
+            "confidence": confidence,
+            "response_count": completion_result.get("answer_count", 0),
             "message": "Questionnaire completed. Birth time rectification has been started.",
             "estimated_completion_time": "30-60 seconds",
             "next_steps": [
@@ -1175,9 +675,6 @@ async def complete_questionnaire(
                 "When complete, you will have access to your rectified birth chart"
             ]
         }
-
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error in complete_questionnaire: {str(e)}")
         logger.error(traceback.format_exc())
@@ -1817,8 +1314,7 @@ async def process_rectification(chart_id: str, session_id: str, answers: List[Di
                 latitude=latitude,
                 longitude=longitude,
                 timezone=timezone,
-                location=location or birth_details.get("birth_place", ""),
-                verify_with_openai=True
+                location=location
             )
 
             # Use the generated chart ID or create one if not provided

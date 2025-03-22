@@ -1,19 +1,24 @@
 """
-Test to verify that the questionnaire service has no fallbacks or mockups.
+Integration test to ensure that all astrological calculations use real methods (no fallbacks).
+
+This test ensures that the rectification process uses actual astrological calculations
+rather than relying on fallback mechanisms or mock data.
 """
 
 import pytest
+import json
+import asyncio
+import uuid
 import logging
+from typing import Dict, Any
+from datetime import datetime
 import warnings
 from unittest.mock import MagicMock, AsyncMock, patch
 import importlib
-from typing import Any
 import os
 import sys
-import asyncio
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging
 logger = logging.getLogger(__name__)
 
 # Ignore deprecation warnings about astro_calculator
@@ -22,9 +27,20 @@ warnings.filterwarnings("ignore", message=".*astro_calculator is deprecated.*", 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
+# Import the database repositories
+from ai_service.database.repositories import ChartRepository
+
+# Create a temporary database connection for testing
+from ai_service.database.connection import create_db_pool
+
+# Import the actual rectification components
+# Update imports to use modularized paths
+from ai_service.core.rectification.main import comprehensive_rectification
+from ai_service.core.rectification.methods.ai_rectification import ai_assisted_rectification
+from ai_service.core.rectification.chart_calculator import calculate_chart
+
 # Import services to test
 from ai_service.api.services.questionnaire_service import QuestionnaireService
-from ai_service.core.rectification import comprehensive_rectification
 from ai_service.utils.dependency_container import DependencyContainer
 
 @pytest.mark.asyncio
@@ -115,7 +131,7 @@ async def test_ai_assisted_rectification_no_fallbacks():
     """Test that ai_assisted_rectification requires OpenAI and doesn't use fallbacks."""
     from datetime import datetime
     import pytz
-    from ai_service.core.rectification import ai_assisted_rectification
+    from ai_service.core.rectification.methods.ai_rectification import ai_assisted_rectification
 
     # Create test data
     birth_dt = datetime(1990, 1, 1, 12, 0, 0, tzinfo=pytz.UTC)

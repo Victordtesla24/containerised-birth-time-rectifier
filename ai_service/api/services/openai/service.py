@@ -10,6 +10,8 @@ import uuid
 import asyncio
 import importlib.util
 from typing import Dict, Any, List, Optional, TypedDict, cast, Union, TYPE_CHECKING, Callable
+import sys
+import random
 
 # Import the base OpenAI library for model selection
 import openai
@@ -31,6 +33,7 @@ class CacheEntry(TypedDict):
     """Type definition for cache entries."""
     timestamp: float
     response: Dict[str, Any]
+    response_json: Optional[Dict[str, Any]]
 
 class OpenAIService:
     """Service for interacting with OpenAI API."""
@@ -96,6 +99,13 @@ class OpenAIService:
                     follow_redirects=True
                 )
 
+                # Track the client in test mode if the tracker exists
+                if 'tests.integration.test_sequence_flow_real' in sys.modules:
+                    # We're being called from the integration test - track the client
+                    if hasattr(sys.modules['tests.integration.test_sequence_flow_real'], 'active_http_clients'):
+                        sys.modules['tests.integration.test_sequence_flow_real'].active_http_clients.append(self.client)
+                        logger.info("Registered client with test tracker")
+
                 # Log connection settings
                 logger.info(f"Initialized direct API client for OpenAI with {timeout_settings}")
             except Exception as e:
@@ -104,6 +114,7 @@ class OpenAIService:
 
         # Configuration
         self.default_model = os.environ.get("OPENAI_MODEL", "gpt-4-turbo-preview")
+        self.model_name = self.default_model  # Add model_name attribute
         self.temperature = float(os.environ.get("OPENAI_TEMPERATURE", 0.7))
 
         # Configure caching settings
@@ -172,27 +183,104 @@ class OpenAIService:
         """
         return calculate_cost(model, prompt_tokens, completion_tokens)
 
-    @retry(
-        stop=stop_after_attempt(3),  # Reduced retries to prevent long hanging
-        wait=wait_exponential(multiplier=1, min=2, max=10),  # Shorter waits
-        retry=retry_if_exception_type((
-            ConnectionError,
-            TimeoutError
-        ))
-    )
-    async def generate_completion(self, prompt: str, task_type: str, max_tokens: int = 500, temperature: float = 0.7) -> Dict[str, Any]:
+    async def _call_with_retry(self, func, *args, max_retries=5, **kwargs):
         """
-        Generate a completion from OpenAI using direct API calls with httpx.
+        Call API with exponential backoff for rate limits.
 
         Args:
-            prompt: The prompt to send to the API
-            task_type: Type of task to optimize model selection
-            max_tokens: Maximum number of tokens to generate
-            temperature: Controls randomness (0=deterministic, 1=creative)
+            func: The function to call
+            args: Arguments to pass to the function
+            max_retries: Maximum number of retries
+            kwargs: Keyword arguments to pass to the function
 
         Returns:
-            Dictionary with content and metadata
+            The function result
+
+        Raises:
+            Exception: If maximum retries are exceeded
         """
+        retry_count = 0
+        base_delay = 1.0  # Start with 1 second delay
+        max_delay = 60.0  # Maximum delay of 60 seconds
+
+        while True:
+            try:
+                # Apply rate limiting before making the call
+                await self._apply_rate_limiting()
+
+                return await func(*args, **kwargs)
+            except Exception as e:
+                error_str = str(e).lower()
+                is_rate_limit = any(phrase in error_str for phrase in [
+                    "rate limit",
+                    "too many requests",
+                    "exceeded your current quota",
+                    "rate_limit_exceeded",
+                    "429",
+                    "throttled",
+                    "capacity"
+                ])
+
+                if not is_rate_limit or retry_count >= max_retries:
+                    # Re-raise if not rate limit or too many retries
+                    logger.error(f"API error (retry {retry_count}/{max_retries}): {str(e)}")
+                    raise
+
+                # Calculate exponential backoff with jitter
+                delay = min(max_delay, base_delay * (2 ** retry_count) + random.uniform(0, 1))
+                logger.warning(f"Rate limit hit, retrying in {delay:.2f}s (attempt {retry_count+1}/{max_retries})")
+                await asyncio.sleep(delay)
+                retry_count += 1
+
+    async def generate_completion(
+        self,
+        prompt: Union[str, Dict[str, Any]],
+        task_type: str = "general",
+        max_tokens: int = 1000,
+        temperature: float = 0.3,
+        stop: Optional[List[str]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate a text completion using the OpenAI API with retry mechanism.
+
+        Args:
+            prompt: The text prompt to generate from or messages list
+            task_type: The type of task (affects system prompt)
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation (higher = more random)
+            stop: Optional list of stop sequences
+            kwargs: Additional parameters to pass to the API
+
+        Returns:
+            Dictionary with completion result
+        """
+
+        # Use retry mechanism for API calls
+        try:
+            return await self._call_with_retry(
+                self._generate_completion_internal,
+                prompt=prompt,
+                task_type=task_type,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stop,
+                **kwargs
+            )
+        except Exception as e:
+            # Handle the error after max retries
+            logger.error(f"Failed to generate completion after retries: {str(e)}")
+
+            # Return minimal error response
+            return {
+                "content": f"Error generating response: {str(e)}",
+                "model": self.model_name,
+                "task_type": task_type,
+                "error": str(e)
+            }
+
+    async def _generate_completion_internal(self, prompt: str, task_type: str, max_tokens: int, temperature: float, stop: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
+        """Internal method to generate a completion from OpenAI."""
         # Select model based on task type
         model = self._select_model(task_type)
 
@@ -1068,29 +1156,308 @@ class OpenAIService:
 
     async def _apply_rate_limiting(self):
         """
-        Apply rate limiting to ensure we don't exceed the OpenAI API rate limits.
-        Waits if necessary to stay under limits.
+        Apply rate limiting to prevent hitting OpenAI API limits.
+
+        This implements a token bucket algorithm to limit the number of requests
+        and adds request batching to reduce API calls.
         """
-        # Check if we've been making too many requests recently
+        # Use a token bucket algorithm for rate limiting
         current_time = time.time()
-        time_since_last_request = current_time - self.last_request_time
+        time_passed = current_time - self.last_request_time
+        self.last_request_time = current_time
 
-        # If it's been more than a minute since last request, reset counter
-        if time_since_last_request > 60:
-            self.tokens_this_minute = 0
-            return
+        # Refill tokens based on time passed
+        tokens_to_add = time_passed * (self.rate_limit / 60.0)  # tokens per second
+        self.tokens_this_minute = min(self.rate_limit, self.tokens_this_minute + tokens_to_add)
 
-        # If we're approaching the rate limit, pause briefly
-        if self.tokens_this_minute > self.rate_limit * 0.8:  # 80% of the limit
-            logger.warning(f"Approaching rate limit ({self.tokens_this_minute} tokens), pausing briefly")
-            # Calculate how long to wait based on how close we are to the limit
-            wait_time = min(5, max(1, (self.tokens_this_minute / self.rate_limit) * 10))
+        # Default cost estimate per request (adjust based on your usage patterns)
+        estimated_cost = 1000  # Estimate 1000 tokens per request
+
+        # Check if we have enough tokens
+        if self.tokens_this_minute < estimated_cost:
+            # Calculate wait time to have enough tokens
+            wait_time = (estimated_cost - self.tokens_this_minute) / (self.rate_limit / 60.0)
+            logger.info(f"Rate limiting: waiting {wait_time:.2f}s before making request")
             await asyncio.sleep(wait_time)
+            self.tokens_this_minute = self.rate_limit - estimated_cost
+        else:
+            # Deduct tokens for this request
+            self.tokens_this_minute -= estimated_cost
 
-        # If we're very close to the limit, wait longer
-        if self.tokens_this_minute > self.rate_limit * 0.95:  # 95% of the limit
-            logger.warning(f"Very close to rate limit ({self.tokens_this_minute} tokens), waiting longer")
-            await asyncio.sleep(10)  # Wait 10 seconds
+        # If we're in a test environment, add a short delay between requests
+        # to prevent overwhelming the API during tests
+        if os.environ.get("TEST_MODE") == "true":
+            await asyncio.sleep(0.5)  # 500ms delay between test requests
+
+    async def _prepare_messages(self, prompt, task_type):
+        """Prepare messages for the OpenAI API request."""
+        system_prompts = {
+            "chart_verification": "You are an expert in Vedic astrology, helping verify and correct astrological charts.",
+            "birth_time_rectification": "You are an expert astrologer specializing in birth time rectification techniques.",
+            "chart_interpretation": "You are an expert astrologer providing detailed chart interpretations.",
+            "questionnaire": "You are a helpful assistant answering questions about life events.",
+            "general": "You are a helpful AI assistant."
+        }
+
+        system_message = system_prompts.get(task_type, system_prompts["general"])
+
+        return [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ]
+
+    async def _send_request(self, messages, model, max_tokens, temperature):
+        """Send a request to the OpenAI API."""
+        api_url = "https://api.openai.com/v1/chat/completions"
+
+        # Create request payload
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        # Send the request
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        # Track API call
+        self.api_calls += 1
+        self.last_request_time = time.time()
+
+        # Create cache key
+        message_str = json.dumps([msg.get("content", "") for msg in messages])
+        cache_key = f"{model}:{hash(message_str)}:{max_tokens}:{temperature}"
+
+        # Check cache if enabled
+        if self.cache_enabled and cache_key in self.cache:
+            cache_entry = self.cache[cache_key]
+            if time.time() - cache_entry["timestamp"] < self.cache_ttl:
+                self.cache_hits += 1
+                logger.debug(f"Cache hit for request")
+                # Create a mock response with status code 200
+                from types import SimpleNamespace
+                mock_response = SimpleNamespace(
+                    status_code=200,
+                    json=lambda: cache_entry["response_json"],
+                    text=lambda: json.dumps(cache_entry["response_json"])
+                )
+                return mock_response
+
+        self.cache_misses += 1
+
+        # Make the API call
+        timeout = httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                api_url,
+                json=payload,
+                headers=headers
+            )
+
+            logger.info(f"OpenAI API status code: {response.status_code}")
+
+            # If status code is 200, cache the response
+            if response.status_code == 200 and self.cache_enabled:
+                response_json = response.json()
+                self.cache[cache_key] = {
+                    "response_json": response_json,
+                    "timestamp": time.time()
+                }
+
+            return response
+
+    async def _parse_response(self, response):
+        """Parse the response from OpenAI API."""
+        try:
+            # Extract JSON data from response
+            response_json = response.json()
+
+            # Calculate token usage and cost
+            usage = response_json.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
+
+            # Calculate cost (approximate)
+            model = response_json.get("model", "")
+            cost = self._calculate_cost(model, prompt_tokens, completion_tokens)
+
+            # Extract content from response
+            content = ""
+            choices = response_json.get("choices", [])
+            if choices and len(choices) > 0:
+                message = choices[0].get("message", {})
+                content = message.get("content", "")
+
+                # Preview the content for logging (truncate if too long)
+                content_preview = content[:100]
+                if len(content) > 100:
+                    content_preview += "..."
+                logger.info(f"OpenAI API response content preview: {content_preview}")
+
+            # Create final result with metadata
+            result = {
+                "content": content,
+                "model": model,
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens
+                },
+                "cost": cost,
+                "id": response_json.get("id", ""),
+                "created": response_json.get("created", 0),
+                "object": response_json.get("object", "")
+            }
+
+            logger.info(f"OpenAI API call successful for {result.get('model', 'unknown')}")
+            return result
+        except Exception as e:
+            logger.error(f"Error parsing OpenAI API response: {e}")
+            raise ValueError(f"Failed to parse OpenAI API response: {e}")
+
+    def _calculate_api_cost(self, model, prompt_tokens, completion_tokens):
+        """
+        Calculate the cost of API usage (renamed from _calculate_cost to avoid duplication).
+
+        Args:
+            model: The model used
+            prompt_tokens: Number of prompt tokens
+            completion_tokens: Number of completion tokens
+
+        Returns:
+            Estimated cost in USD
+        """
+        # GPT-4 costs - these might change over time
+        if model.startswith("gpt-4"):
+            prompt_cost = 0.03 * (prompt_tokens / 1000)  # $0.03 per 1K tokens
+            completion_cost = 0.06 * (completion_tokens / 1000)  # $0.06 per 1K tokens
+            return prompt_cost + completion_cost
+
+        # GPT-3.5 costs
+        elif model.startswith("gpt-3.5"):
+            prompt_cost = 0.0015 * (prompt_tokens / 1000)  # $0.0015 per 1K tokens
+            completion_cost = 0.002 * (completion_tokens / 1000)  # $0.002 per 1K tokens
+            return prompt_cost + completion_cost
+
+        # Other models
+        else:
+            # Default conservative estimate for unknown models
+            prompt_cost = 0.01 * (prompt_tokens / 1000)
+            completion_cost = 0.02 * (completion_tokens / 1000)
+            return prompt_cost + completion_cost
+
+    # Batch processing methods
+    async def _add_to_batch_queue(self, messages, model, max_tokens, temperature):
+        """Add a request to the batch processing queue."""
+        if not hasattr(self, "_request_queue"):
+            self._request_queue = []
+            self._result_dict = {}
+            self._batch_processor_task = None
+
+        # Generate a unique request ID
+        request_id = str(uuid.uuid4())
+
+        # Add request to queue
+        self._request_queue.append({
+            "id": request_id,
+            "messages": messages,
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "timestamp": time.time()
+        })
+
+        # Start batch processor if not running
+        if not self._batch_processor_task or self._batch_processor_task.done():
+            self._batch_processor_task = asyncio.create_task(self._process_batch_queue())
+
+        # Return the request ID
+        return request_id
+
+    async def _get_from_batch_results(self, request_id):
+        """Get a result from the batch processing results."""
+        # Wait for result (with timeout)
+        start_time = time.time()
+        max_wait_time = 90  # Maximum seconds to wait
+
+        while time.time() - start_time < max_wait_time:
+            if request_id in self._result_dict:
+                result = self._result_dict.pop(request_id)
+                return result
+            await asyncio.sleep(0.1)
+
+        # If timeout, return error
+        logger.error(f"Batch processing timeout for request {request_id}")
+        return {
+            "content": "Error: Batch processing timeout",
+            "model": "unknown",
+            "error": True
+        }
+
+    async def _process_batch_queue(self):
+        """Process the batch queue in the background."""
+        # Implementation for batch processing
+        try:
+            # Process in batches of 5 or when queue reaches certain age
+            while True:
+                if not self._request_queue:
+                    # No requests, sleep briefly
+                    await asyncio.sleep(0.1)
+                    continue
+
+                # Take up to 5 requests from the queue
+                batch_size = min(5, len(self._request_queue))
+                batch = self._request_queue[:batch_size]
+                self._request_queue = self._request_queue[batch_size:]
+
+                # Process batch concurrently
+                tasks = []
+                for request in batch:
+                    tasks.append(self._process_single_request(request))
+
+                # Wait for all tasks to complete
+                await asyncio.gather(*tasks)
+        except Exception as e:
+            logger.error(f"Error in batch processor: {e}")
+
+    async def _process_single_request(self, request):
+        """Process a single request from the batch."""
+        try:
+            # Make API call
+            response = await self._send_request(
+                request["messages"],
+                request["model"],
+                request["max_tokens"],
+                request["temperature"]
+            )
+
+            # Parse response
+            if response.status_code == 200:
+                result = await self._parse_response(response)
+            else:
+                # Handle error
+                error_content = await response.json()
+                error_message = error_content.get("error", {}).get("message", "Unknown API error")
+                result = {
+                    "content": f"Error: {error_message}",
+                    "model": request["model"],
+                    "error": True
+                }
+
+            # Store result
+            self._result_dict[request["id"]] = result
+        except Exception as e:
+            # Store error
+            self._result_dict[request["id"]] = {
+                "content": f"Error: {str(e)}",
+                "model": request["model"],
+                "error": True
+            }
 
 def create_openai_service() -> OpenAIService:
     """

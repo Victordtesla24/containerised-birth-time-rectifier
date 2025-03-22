@@ -36,6 +36,16 @@ from ai_service.utils.dependency_container import get_container
 from ai_service.api.services.openai.service import create_openai_service
 from ai_service.services.chart_service import create_chart_service
 
+# Import Pydantic compatibility layer first to ensure it's applied
+# before any other imports that might use Pydantic
+from ai_service.utils import pydantic_compat
+
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+import logging.config
+
+from ai_service.core.config import settings
+
 
 def validate_configuration() -> Dict[str, Any]:
     """

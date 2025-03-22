@@ -1,0 +1,149 @@
+{
+  "id": "rectified_chart_rectification_None_d5e100de_e8e3ed53",
+  "chart_data": {
+    "ascendant": {
+      "sign": "Aquarius",
+      "degree": 21.804881342243107
+    },
+    "midheaven": {
+      "sign": "Sagittarius",
+      "degree": 1.1843843363382405
+    },
+    "planets": {
+      "sun": {
+        "sign": "Scorpio",
+        "degree": 0.8908571184118159
+      },
+      "moon": {
+        "sign": "Pisces",
+        "degree": 12.688251798742499
+      },
+      "mercury": {
+        "sign": "Scorpio",
+        "degree": 20.15769626037371
+      },
+      "venus": {
+        "sign": "Libra",
+        "degree": 9.71007859204471
+      },
+      "mars": {
+        "sign": "Virgo",
+        "degree": 27.950210369523717
+      },
+      "jupiter": {
+        "sign": "Aquarius",
+        "degree": 7.84276878278871
+      },
+      "saturn": {
+        "sign": "Scorpio",
+        "degree": 27.25755620235759
+      }
+    },
+    "houses": {
+      "1": {
+        "sign": "Aries",
+        "degree": 0
+      },
+      "2": {
+        "sign": "Taurus",
+        "degree": 0
+      },
+      "3": {
+        "sign": "Gemini",
+        "degree": 0
+      },
+      "4": {
+        "sign": "Cancer",
+        "degree": 0
+      },
+      "5": {
+        "sign": "Leo",
+        "degree": 0
+      },
+      "6": {
+        "sign": "Virgo",
+        "degree": 0
+      },
+      "7": {
+        "sign": "Libra",
+        "degree": 0
+      },
+      "8": {
+        "sign": "Scorpio",
+        "degree": 0
+      },
+      "9": {
+        "sign": "Sagittarius",
+        "degree": 0
+      },
+      "10": {
+        "sign": "Capricorn",
+        "degree": 0
+      },
+      "11": {
+        "sign": "Aquarius",
+        "degree": 0
+      },
+      "12": {
+        "sign": "Pisces",
+        "degree": 0
+      },
+      "13": {
+        "sign": "Aries",
+        "degree": 0.0
+      },
+      "14": {
+        "sign": "Taurus",
+        "degree": 0.0
+      },
+      "15": {
+        "sign": "Gemini",
+        "degree": 0.0
+      },
+      "16": {
+        "sign": "Cancer",
+        "degree": 0.0
+      },
+      "17": {
+        "sign": "Leo",
+        "degree": 0.0
+      },
+      "18": {
+        "sign": "Virgo",
+        "degree": 0.0
+      },
+      "19": {
+        "sign": "Libra",
+        "degree": 0.0
+      },
+      "20": {
+        "sign": "Scorpio",
+        "degree": 0.0
+      },
+      "21": {
+        "sign": "Sagittarius",
+        "degree": 0.0
+      },
+      "22": {
+        "sign": "Capricorn",
+        "degree": 0.0
+      },
+      "23": {
+        "sign": "Aquarius",
+        "degree": 0.0
+      },
+      "24": {
+        "sign": "Pisces",
+        "degree": 0.0
+      }
+    }
+  },
+  "chart_type": "rectified",
+  "original_birth_time": "1985-10-24T14:30:00",
+  "rectified_birth_time": "1985-10-24T14:20:00",
+  "adjustment_minutes": -10,
+  "created_at": "2025-03-22T03:20:07.809148",
+  "rectification_id": "rectification_None_d5e100de",
+  "chart_id": "chart_82ee8eea59",
+  "updated_at": "2025-03-22T03:20:07.809288"
+}

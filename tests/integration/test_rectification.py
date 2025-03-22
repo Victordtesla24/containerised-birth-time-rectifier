@@ -10,11 +10,23 @@ from datetime import datetime, timedelta
 import pytz
 from typing import Dict, Any, List, Tuple
 
-from ai_service.core.rectification import (
+from ai_service.core.rectification.main import (
     rectify_birth_time,
     extract_life_events_from_answers,
     calculate_chart,
     comprehensive_rectification
+)
+from ai_service.core.rectification.methods.ai_rectification import (
+    ai_assisted_rectification
+)
+from ai_service.core.rectification.methods.transit_analysis import (
+    analyze_life_events,
+    calculate_transit_score
+)
+from ai_service.core.rectification.constants import (
+    PLANETS_LIST,
+    LIFE_EVENT_MAPPING,
+    DateTimeEncoder
 )
 from ai_service.api.services.openai.service import OpenAIService
 

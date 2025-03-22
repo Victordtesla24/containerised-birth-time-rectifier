@@ -1,110 +1,139 @@
-# **Objective**
-  - Create, execute, and monitor comprehensive integration tests for the Birth Time Rectifier application that use
-  - ONLY REAL IMPLEMENTATIONS with no mocks, fallbacks, or simulated mechanisms.
-  - The tests must follow the exact sequence flow outlined in the "ORIGINAL SEQUENCE DIAGRAM - FULL IMPLMENTATION" section in the@sequence_diagram.mddiagram and produce genuine outputs at each step.
+RUN THE FOLLOWING AND FOLLOW THE INSTRUCTIONS WITHOUT OVERCOMPLICATING IT.
 
-## **Key Files to Use**
-    * tests/integration/test_sequence_flow_real.py: Main test file to execute/update @test_sequence_flow_real.py
-    * tests/test_data_source/input_birth_data.json: Source of birth data input @input_birth_data.json
-    * tests/test_data_source/test_db.json: Storage for intermediate test results @test_db.json
-    * tests/test_data_source/output_birt_data.json: Final output for rectification results @output_birt_data.json
-    * tests/test_data_source/test_charts_data.json: Chart data for visualization @test_charts_data.json
+  'docker exec birth-rectifier-ai python -m pytest tests/integration/test_sequence_flow_real.py -v --no-header --tb=native'
 
-### **NON-NEGOTIABLE CONSTRAINTS**
-- ***NO MOCKS OR FALLBACKS:***
-   1. You must ***NOT*** use mockups, simulated fallback mechanisms, or hardcoded response values
-   2. All API calls, astrological calculations, and chart generations must be ***REAL***
-   3. When encountering errors, fix the actual root cause, not the test
-   4. If errors occur in backend services, modify the relevant files in @ai_service directory, or change Testing requirements, files or data just to make the test pass.
-   5. You must ***NOT*** mask errors, suppress warnings to make the test pass.
+  When analyzing the results, please:
+   1. Verify that real API endpoints are being called (OpenAI, astrological calculations) by checking for actual data variations in output
+   2. Confirm that NO fallback or mock mechanisms are activated during testing
+   3. Identify ANY discrepancies between the test output and the expected flow in the sequence diagram
+   4. Highlight specific errors with their root causes in the backend codebase, not in the test itself
+   5. Suggest minimal, targeted fixes to the backend code (not the test code) that would resolve any issues
 
-- ***EXACT SEQUENCE FLOW IMPLEMENTATION:***
-   1. Strictly follow the "Original Sequence Diagram - Full Implementation" Section from @sequence_diagram.md
-   2. Each step in the diagram must be implemented with corresponding API call
-   3. For each sequence step, capture real outputs from the actual API responses
-   4. DO NOT skip any step in the sequence diagram
+  The implementation should exactly match:
+   - The calculation flow in "Original Sequence Diagram - Full Implementation" @sequence_diagram.md
+   - The questionnaire interaction pattern in "Consolidated API Questionnaire Flow" @sequence_diagram.md
+   - Real astrological calculations with NO simulated data
 
-- ***REAL DATA TRANSFORMATION PIPELINE:***
-   1. Input: Use birth data from @input_birth_data.json as user-provided information
-   2. Processing: Use real APIs for geocoding, validation, chart generation, and rectification
-   3. Output: Store complete results in @output_birt_data.json with full chart details
-   4. Visualization: Create chart visualization data in @test_charts_data.json
+  After each test run, examine tests/test_data_source/output_birt_data.json to verify: @output_birt_data.json
+   - Rectification calculations produced real timestamps with meaningful differences
+   - Chart data contains actual astrological positions, not placeholder values
+   - Each API call produced unique, calculation-based results
 
-- ***COMPREHENSIVE API TESTING:***
-   1. Test all exposed API endpoints including WebSocket connections
-   2. Each API endpoint must receive real input and return real results
-   3. The test must validate response integrity, not just successful status codes
-   4. All endpoints must accurately follow the sequence diagram
+ ### Database Schema Verification
+  - The test connects to PostgreSQL but doesn't verify schema integrity before starting tests
+  - Add pre-test verification to ensure tables like `charts`, `rectifications`, etc. exist with proper columns
 
-### **EXPECTED TESTING APPROACH**
-- ***Session Initialization:***
-   1. Create a real user session
-   2. Store session ID for subsequent calls
-   3. Validate session creation in @test_db.json
+ ### Enhanced Error Tracking
+  - Implement detailed error capture across the test flow that logs the exact point of failure
+  - Add transaction tracking to trace API requests through the entire system
 
-- ***Location Geocoding:***
-   1. Use real geocoding service to resolve location
-   2. Store coordinates and timezone information
-   3. No hardcoded fallback coordinates
+ ### Ephemeris Data Verification
+  - Add validation step to ensure ephemeris files are properly loaded before testing
+  - Current ephemeris path setup exists but doesn't validate file presence or integrity
 
-- ***Chart Validation & Generation:***
-   1. Validate birth details with real astrological rules
-   2. Generate actual birth chart with real calculations
-   3. Verify chart data with OpenAI (real API call)
-   4. Store complete chart in database
+ ### OpenAI API Rate Limit Handling
+  - Add intelligent retry mechanisms with exponential backoff
+  - Implement request batching to prevent hitting OpenAI API limits during testing
 
-- ***Questionnaire Flow:***
-   1. Initialize real questionnaire session
-   2. Generate authentic questions via API
-   3. Submit meaningful answers for rectification
-   4. Complete questionnaire with final submission
+ ### Resource Cleanup
+  - Current test attempts cleanup but needs more robust garbage collection between test phases
+  - Add explicit database clearing between test runs to prevent leaking state
 
-- ***Birth Time Rectification:***
-   1. Use real rectification algorithms
-   2. Process questionnaire answers for adjustment
-   3. Generate actual rectified birth time and chart
-   4. Store rectification metadata and confidence levels
+ ```python
+  async def verify_database_schema():
+      """Verify required database tables and columns exist before testing."""
+     # ... existing code ...
 
-- ***Chart Comparison & Export:***
-   1. Compare original and rectified charts
-   2. Generate meaningful differences analysis
-   3. Create exportable chart formats
-   4. Store comparison results in visualization data
+  async def verify_ephemeris_files():
+      """Ensure all required ephemeris files are present and valid."""
+     # ... existing code ...
+ ```
 
-## **ERROR HANDLING GUIDELINES**
-- ***When encountering errors:***
+ ### Strict Exception Handling Policy
+  - Modify error handlers to always raise exceptions rather than returning fallback values
+  - Add these assertion checks after every critical API call:
+ ```python
+ # Force failure on fallbacks - add to test_sequence_flow_real.py @test_sequence_flow_real.py
+  def assert_no_fallbacks(response_data):
+      """Ensure no fallback mechanisms were triggered in the response."""
+      assert not response_data.get("used_fallback", False), "Fallback mechanism was used!"
+      assert not response_data.get("simulated", False), "Simulation was used instead of real calculation!"
+      if "error" in response_data and "fallback" in response_data["error"].lower():
+          raise AssertionError(f"Error suggests fallback: {response_data['error']}")
+ ```
 
-   1. ROOT CAUSE IDENTIFICATION:  @my-error-fixing-protocols.mdc
-      * Perform deep diagnosis to find the true source of error
-      * Trace through service calls to identify failing components
-      * Log detailed error information for debugging
+ ### Override Environment Variables
+ - Set environment flags to disable fallbacks explicitly:
+ ```python
+ # Add to test setup
+  os.environ["DISABLE_FALLBACKS"] = "true"
+  os.environ["FORCE_REAL_API"] = "true"
+  os.environ["STRICT_VALIDATION"] = "true"
+ ```
 
-   2. SERVICE REPAIR PRIORITY: @my-error-fixing-protocols.mdC
-      * Fix the actual service implementation causing the error
-      * Look for failures in @ai_service modules that need correction
-      * DO NOT mask errors with try/except blocks or fallbacks
+ ### Targeted Code Inspection
+  - Add runtime inspection that detects if function implementations change during test execution:
+ ```python
+ # Add function signature verification
+  original_signatures = {}
+  def register_function_signature(func):
+      """Register function signature to detect runtime replacement."""
+      original_signatures[func.__name__] = hash(inspect.getsource(func))
 
-    3. COMPONENT FIXING APPROACH: @my-error-fixing-protocols.mdc
-       * If a calculation service fails, fix the calculation method
-       * If an API endpoint is incorrect, update the endpoint handler
-       * If data formats are inconsistent, standardize them properly
+  def verify_no_runtime_replacement():
+      """Verify no functions were replaced with simpler implementations."""
+      for name, original_hash in original_signatures.items():
+          func = globals().get(name)
+          if func and hash(inspect.getsource(func)) != original_hash:
+              raise AssertionError(f"Function {name} was replaced during test execution!")
+ ```
+### Granular Test Steps
+  - Break down the large test into smaller, more focused tests that run sequentially
+  - Add detailed assertions after each API call that verify specific response properties
 
-## **DATABASE AND FILE SYSTEM PERSISTENCE:**
-    * Ensure all data is properly persisted in test files
-    * Fix any issues with file read/write operations
-    * Address database connection or schema issues if present
+ ### Service-Specific Exception Handlers
+  - Implement custom exception classes for each service component:
+ ```python
+ # exceptions.py
+  class ChartServiceError(Exception):
+      """Base exception for chart service errors."""
+      pass
 
-## **IMPLEMENTATION VERIFICATION**
-   - Your test implementation must:
-      - Successfully run end-to-end without errors
-      - Generate complete and accurate data in all output files
-      - Use real astrological calculations at every step
-      - Follow the exact sequence diagram flow with no deviations
-      - Fix any underlying issues in the application code rather than bypassing them
-      - Never substitute real API calls with mocks or simulated responses
+  class GeocodingError(Exception):
+      """Exception raised for geocoding service errors."""
+      pass
 
-# **CONCLUSION**
-   - The final integration test must validate the entire application flow using real data transformations, calculations, and APIs.
-   - Success is measured by accurate rectification results derived from genuine astrological calculations and meaningful life event analysis, precisely matching the sequence diagram specification.
-   - Any component that cannot meet these requirements must be fixed at its source.
-@Web @Codebase
+  class RectificationError(Exception):
+      """Exception raised for rectification service errors."""
+      pass
+ ```
+
+ ### Code Tracing and Logging
+  - Enhance logging with transaction IDs that follow requests through services:
+ ```python
+ # Add to test setup
+  import uuid
+  def get_trace_id():
+      """Generate a trace ID for the current request."""
+      return str(uuid.uuid4())
+
+  os.environ["TRACE_ID"] = get_trace_id()
+ ```
+
+ ### Test Result Analysis
+  - Add result file analysis that compares output against expected schema:
+
+  ```python
+  def validate_output_against_schema(file_path, schema):
+      """Validate output file against expected schema."""
+      with open(file_path, 'r') as f:
+          data = json.load(f)
+
+      validation_errors = []
+      # Recursively check all properties defined in schema
+      # ... implementation ...
+
+      if validation_errors:
+          raise AssertionError(f"Output validation failed: {validation_errors}")
+ ```
+@input_birth_data.json @test_charts_data.json @test_db.json @output_birt_data.json @test_sequence_flow_real.py @docker-compose.yml @ai_service.Dockerfile @api_gateway.Dockerfile @.env @sequence_diagram.md @ai_service @rectification @api_gateway @api @docker-compose 

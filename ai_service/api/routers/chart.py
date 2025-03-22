@@ -17,9 +17,10 @@ from fastapi.background import BackgroundTasks
 import re
 import traceback
 
-from ai_service.services.chart_service import get_chart_service, create_chart_service
+from ai_service.services import get_chart_service
+from ai_service.services.chart_service import create_chart_service
 from ai_service.api.services.openai import get_openai_service
-from ai_service.core.rectification import comprehensive_rectification
+from ai_service.core.rectification.main import comprehensive_rectification
 from ai_service.utils.chart_visualizer import generate_comparison_chart, generate_chart_image
 from ai_service.database.repositories import ChartRepository
 from ai_service.core.config import settings
@@ -295,27 +296,49 @@ async def export_chart(
 
                 if interpretation_response and "content" in interpretation_response:
                     try:
-                        interpretation = json.loads(interpretation_response["content"])
-                    except json.JSONDecodeError:
-                        # Extract meaningful text from response if not JSON
+                        content = interpretation_response["content"]
+
+                        # Try to parse as JSON first
+                        try:
+                            interpretation = json.loads(content)
+                        except json.JSONDecodeError:
+                            # If not valid JSON, extract structured information from text
+                            interpretation = {
+                                "overall_summary": "",
+                                "key_planetary_changes": [],
+                                "house_cusp_shifts": [],
+                                "astrological_implications": [],
+                                "life_area_effects": {}
+                            }
+
+                            # Extract sections using regex patterns - use raw strings
+                            summary_match = re.search(r'(?:overall_summary|summary)[\s:"]*([^"]*?)(?:"|$|,\s*")', content, re.IGNORECASE | re.DOTALL)
+                            if summary_match:
+                                interpretation["overall_summary"] = summary_match.group(1).strip()
+
+                            # Extract other sections as needed
+                            implications_pattern = r'(?:implications|astrological_implications)[\s:"]*([^"]*?)(?:"|$|,\s*")'
+                            implications_match = re.search(implications_pattern, content, re.IGNORECASE | re.DOTALL)
+                            if implications_match:
+                                interpretation["astrological_implications"] = implications_match.group(1).strip()
+
+                            # Extract life area effects
+                            life_areas = ["career", "relationships", "health", "finances", "spirituality", "family"]
+                            for area in life_areas:
+                                area_pattern = r'(?:' + area + r')[\s:"]*([^"]*?)(?:"|$|,\s*")'
+                                area_match = re.search(area_pattern, content, re.IGNORECASE | re.DOTALL)
+                                if area_match:
+                                    if "life_area_effects" not in interpretation:
+                                        interpretation["life_area_effects"] = {}
+                                    interpretation["life_area_effects"][area] = area_match.group(1).strip()
+
+                        logger.info("Successfully parsed interpretation data")
+                    except Exception as parsing_error:
+                        logger.error(f"Error processing interpretation response: {parsing_error}")
                         interpretation = {
-                            "summary": interpretation_response["content"][:500] + "..."
-                                if len(interpretation_response["content"]) > 500
-                                else interpretation_response["content"],
-                            "sections": {}
+                            "overall_summary": "Failed to parse detailed interpretation. Please see the differences data for comparison information."
                         }
 
-                        # Try to extract sections using regex
-                        section_matches = re.findall(
-                            r'##\s*([^#\n]+)\s*\n((?:(?!##).)*)',
-                            interpretation_response["content"],
-                            re.DOTALL
-                        )
-
-                        for title, content in section_matches:
-                            interpretation["sections"][title.strip()] = content.strip()
-
-                        logger.info(f"Extracted {len(interpretation['sections'])} interpretation sections")
             except Exception as interp_error:
                 logger.error(f"Error generating interpretation: {interp_error}")
                 logger.info("Continuing with export without interpretation")
@@ -608,7 +631,7 @@ async def compare_charts(
                     "life_area_effects": {}
                 }
 
-                # Extract sections using regex patterns
+                # Extract sections using regex patterns - use raw strings
                 summary_match = re.search(r'(?:overall_summary|summary)[\s:"]*([^"]*?)(?:"|$|,\s*")', interpreted_content, re.IGNORECASE | re.DOTALL)
                 if summary_match:
                     interpretation["overall_summary"] = summary_match.group(1).strip()
@@ -622,7 +645,7 @@ async def compare_charts(
                 # Extract life area effects
                 life_areas = ["career", "relationships", "health", "finances", "spirituality", "family"]
                 for area in life_areas:
-                    area_pattern = f'{area}[\s:"]*([^"]*?)(?:"|$|,\s*")'
+                    area_pattern = r'(?:' + area + r')[\s:"]*([^"]*?)(?:"|$|,\s*")'
                     area_match = re.search(area_pattern, interpreted_content, re.IGNORECASE | re.DOTALL)
                     if area_match:
                         if "life_area_effects" not in interpretation:

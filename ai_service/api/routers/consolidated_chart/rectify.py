@@ -11,13 +11,17 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Union, cast
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+import re
+import json
 
-# Import utilities and models
-from ai_service.api.routers.consolidated_chart.utils import retrieve_chart, store_chart
+# Import with alias to avoid name collision with route handler
+from ai_service.core.rectification.main import comprehensive_rectification
+from ai_service.core.rectification.event_analysis import extract_life_events_from_answers
+from ai_service.core.rectification.chart_calculator import calculate_verified_chart
+from ai_service.api.routers.consolidated_chart.utils import store_chart, retrieve_chart
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
 from ai_service.models.unified_model import UnifiedRectificationModel
-from ai_service.core.chart_calculator import calculate_verified_chart
 from ai_service.api.websocket_events import emit_event, emit_rectification_progress, EventType
 import asyncio
 import os
@@ -256,6 +260,7 @@ async def rectify_birth_time(
             birth_time=rectified_time,
             latitude=latitude,
             longitude=longitude,
+            timezone=timezone,
             location=location,
             verify_with_openai=True
         )
@@ -278,7 +283,7 @@ async def rectify_birth_time(
         # Store the rectified chart
         rectified_chart_id = f"rect_{uuid.uuid4().hex[:8]}"
         rectified_chart["chart_id"] = rectified_chart_id
-        store_chart(rectified_chart)
+        await store_chart(rectified_chart)
 
         # Send completion update via WebSocket
         if session_id:

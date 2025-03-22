@@ -12,11 +12,16 @@ import random
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Any, Optional, Tuple, Union, TypedDict
 import re
+import os
 
 from ai_service.api.services.openai import get_openai_service
 from ai_service.api.services.openai.service import OpenAIService
 from ai_service.api.services.session_service import get_session_store
 from ai_service.core.config import settings
+from ai_service.services.chart_service import create_chart_service
+
+# Import the shared DateTimeEncoder
+from ai_service.utils.json_encoder import DateTimeEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +79,6 @@ class Question(TypedDict, total=False):
     category: str
     relevance: str
     options: Optional[List[QuestionOption]]
-
-# Create a custom JSON encoder to handle date and datetime objects
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        return super().default(obj)
 
 class QuestionnaireService:
     """
@@ -2345,7 +2343,7 @@ class QuestionnaireService:
                 "message": f"Failed to initialize questionnaire: {str(e)}"
             }
 
-    async def get_next_question(self, session_id: str, chart_id: str = None) -> Dict[str, Any]:
+    async def get_next_question(self, session_id: str, chart_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Get the next question in the questionnaire.
 
@@ -2442,18 +2440,797 @@ class QuestionnaireService:
 # Add this class after the QuestionnaireService class and before the get_questionnaire_service function
 
 class DynamicQuestionnaireService(QuestionnaireService):
-    """Dynamic questionnaire service that generates questions based on the chart."""
+    """
+    Enhanced questionnaire service that generates truly dynamic questions based on
+    astrological chart data and previous answers.
+    """
 
     def __init__(self, openai_service=None, session_service=None):
-        """Initialize the dynamic questionnaire service."""
-        super().__init__(session_service)
+        super().__init__(openai_service=openai_service)
+        self.logger = logging.getLogger(__name__)
 
-        # Initialize OpenAI service if not provided - use singleton
-        if openai_service is None:
-            from ai_service.api.services.openai.service import OpenAIService
-            self.openai_service = OpenAIService()
+        # If OpenAI service is not provided, get it
+        if not self.openai_service:
+            self.openai_service = get_openai_service()
+
+    async def initialize_questionnaire(self, chart_id: str, session_id: str) -> Dict[str, Any]:
+        """Initialize a new questionnaire session with birth chart context."""
+        try:
+            # Get the chart service
+            chart_service = create_chart_service()
+
+            # Get the chart data to use as context
+            chart_data = await chart_service.get_chart(chart_id)
+
+            if not chart_data:
+                raise ValueError(f"Chart not found: {chart_id}")
+
+            birth_details = chart_data.get("birth_details", {})
+
+            # Create a question context object with chart da```rqqta
+            question_context = {
+                "chart_id": chart_id,
+                "session_id": session_id,
+                "birth_details": birth_details,
+                "chart_data": chart_data,
+                "previous_questions": [],
+                "previous_answers": [],
+                "question_count": 0,
+                "categories_covered": {
+                    "life_events": 0,
+                    "personality_traits": 0,
+                    "physical_traits": 0,
+                    "timing_preferences": 0,
+                    "relationships": 0,
+                    "career": 0,
+                    "health": 0,
+                    "spiritual": 0
+                },
+                "asked_question_texts": set(),  # Track exact question texts to prevent duplicates
+                "birth_time_indicators": []  # Track indicators that might help with birth time
+            }
+
+            # Store the context in the session
+            session_store = get_session_store()
+            await session_store.create_session(session_id, question_context)
+
+            # Generate the first question based on chart data
+            first_question = await self._generate_astrologically_relevant_question(
+                birth_details=birth_details,
+                chart_data=chart_data,
+                previous_answers=[],
+                question_count=0,
+                diversity_factor=0.0
+            )
+
+            # Update the session with the first question
+            question_context["previous_questions"].append(first_question)
+            question_context["asked_question_texts"].add(first_question.get("text", "").lower())
+            await session_store.update_session(session_id, question_context)
+
+            # Return the initialized questionnaire data
+            return {
+                "sessionId": session_id,
+                "chartId": chart_id,
+                "question": first_question,
+                "progress": {
+                    "current": 1,
+                    "total_estimated": 10
+                }
+            }
+        except Exception as e:
+            self.logger.error(f"Error initializing questionnaire: {str(e)}")
+            raise ValueError(f"Failed to initialize questionnaire: {str(e)}")
+
+    async def get_next_question(self, session_id: str, chart_id: Optional[str] = None,
+                               answer: Optional[Any] = None, question_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get the next question in the questionnaire sequence based on previous answers
+        and astrological chart data.
+        """
+        try:
+            # Get session store
+            session_store = get_session_store()
+            session_data = await session_store.get_session(session_id)
+
+            if not session_data:
+                raise ValueError(f"Session not found: {session_id}")
+
+            # Get chart data
+            chart_data = session_data.get("chart_data", {})
+            birth_details = session_data.get("birth_details", {})
+            previous_questions = session_data.get("previous_questions", [])
+            previous_answers = session_data.get("previous_answers", [])
+            question_count = session_data.get("question_count", 0)
+
+            # If this is a response to a question
+            if answer is not None and question_id is not None:
+                # Find the question that was answered
+                answered_question = None
+                for question in previous_questions:
+                    if question.get("id") == question_id:
+                        answered_question = question
+                        break
+
+                if not answered_question:
+                    self.logger.warning(f"Question {question_id} not found in session history")
+                    # Create a minimal question object if not found
+                    answered_question = {"id": question_id, "text": "Unknown question", "type": "unknown"}
+
+                # Create answer object
+                answer_obj = {
+                    "question_id": question_id,
+                    "question": answered_question.get("text", ""),
+                    "question_type": answered_question.get("type", "text"),
+                    "answer": answer,
+                    "category": answered_question.get("category", "general"),
+                    "timestamp": datetime.now().isoformat()
+                }
+
+                # Add answer to previous answers
+                previous_answers.append(answer_obj)
+                session_data["previous_answers"] = previous_answers
+
+                # Analyze this answer for birth time indicators
+                analysis = await self._analyze_answer_astrologically(
+                    question=answered_question.get("text", ""),
+                    answer=answer,
+                    category=answered_question.get("category", "general"),
+                    birth_details=birth_details
+                )
+
+                if analysis:
+                    # Add to birth time indicators if the analysis found relevance
+                    if analysis.get("relevance_to_birth_time", 0) > 0.5:
+                        session_data.setdefault("birth_time_indicators", []).append(analysis)
+
+                # Increment question count
+                question_count += 1
+                session_data["question_count"] = question_count
+
+                # Update the category count
+                if "category" in answered_question:
+                    category = answered_question["category"]
+                    if category in session_data.get("categories_covered", {}):
+                        session_data["categories_covered"][category] += 1
+
+            # Determine if we should end the questionnaire
+            # End if we've asked enough questions or covered key categories
+            max_questions = 12  # Cap the number of questions
+            categories_required = 3  # Minimum categories that should be covered
+
+            # Count well-covered categories (at least 2 questions per category)
+            covered_categories = sum(1 for count in session_data.get("categories_covered", {}).values() if count >= 2)
+
+            # Check if we have enough birth time indicators
+            birth_time_indicators = session_data.get("birth_time_indicators", [])
+            has_enough_indicators = len(birth_time_indicators) >= 3
+
+            # Determine if we should end the questionnaire
+            should_end = (question_count >= max_questions or
+                          (question_count >= 6 and covered_categories >= categories_required and has_enough_indicators))
+
+            if should_end:
+                # Update session with completion status
+                session_data["complete"] = True
+                await session_store.update_session(session_id, session_data)
+
+                # Return completion response
+                return {
+                    "complete": True,
+                    "session_id": session_id,
+                    "question_count": question_count,
+                    "categories_covered": covered_categories,
+                    "confidence": min(90, 50 + (question_count * 5) + (covered_categories * 5)),
+                    "progress": {
+                        "current": question_count,
+                        "total_estimated": max_questions
+                    }
+                }
+
+            # Generate the next question with increasing diversity factor
+            # This ensures questions become more varied the longer the questionnaire goes
+            diversity_factor = min(0.8, 0.1 + (question_count * 0.1))
+
+            # Generate a new question
+            attempts = 0
+            max_attempts = 3
+            next_question = None
+
+            while attempts < max_attempts:
+                try:
+                    next_question = await self._generate_astrologically_relevant_question(
+                        birth_details=birth_details,
+                        chart_data=chart_data,
+                        previous_answers=previous_answers,
+                        question_count=question_count,
+                        diversity_factor=diversity_factor
+                    )
+
+                    # Check if this question is a duplicate
+                    if next_question is not None and "text" in next_question:
+                        question_text = next_question.get("text", "").lower()
+                        if question_text in session_data.get("asked_question_texts", set()):
+                            self.logger.info(f"Generated duplicate question (attempt {attempts+1}), trying again with higher diversity")
+                            diversity_factor += 0.15  # Increase diversity for next attempt
+                            attempts += 1
+                            continue
+                        else:
+                            # Not a duplicate, we can use this question
+                            break
+                    else:
+                        # Question doesn't have text property or is None, we need to try again
+                        self.logger.warning(f"Generated invalid question format (attempt {attempts+1}), trying again")
+                        attempts += 1
+                        continue
+                except Exception as e:
+                    self.logger.error(f"Error generating question (attempt {attempts+1}): {str(e)}")
+                    attempts += 1
+                    diversity_factor += 0.2  # Increase diversity even more after an error
+
+                    if attempts >= max_attempts:
+                        # Create a fallback question if we can't generate a valid one after max attempts
+                        next_question = {
+                            "id": f"fallback_{uuid.uuid4().hex[:8]}",
+                            "text": "Can you describe a significant life event that affected you deeply?",
+                            "type": "text",
+                            "category": "life_events",
+                            "relevance": "high"
+                        }
+                        break
+
+            # Update session with the new question
+            previous_questions.append(next_question)
+            session_data["previous_questions"] = previous_questions
+            session_data["question_count"] = question_count
+            if next_question and isinstance(next_question, dict):
+                session_data.setdefault("asked_question_texts", set()).add(next_question.get("text", "").lower())
+            else:
+                self.logger.warning("Cannot add question text to tracking set: next_question is None or not a dict")
+
+            await session_store.update_session(session_id, session_data)
+
+            # Return the next question
+            return {
+                "question": next_question,
+                "session_id": session_id,
+                "question_count": question_count,
+                "complete": False,
+                "progress": {
+                    "current": question_count + 1,
+                    "total_estimated": max_questions
+                }
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting next question: {str(e)}")
+            raise ValueError(f"Failed to get next question: {str(e)}")
+
+    async def _generate_astrologically_relevant_question(
+        self,
+        birth_details: Dict[str, Any],
+        chart_data: Dict[str, Any],
+        previous_answers: List[Dict[str, Any]],
+        question_count: int,
+        diversity_factor: float = 0.0
+    ) -> Dict[str, Any]:
+        """
+        Generate a truly astrologically relevant question based on the birth chart and previous answers.
+        Uses OpenAI to craft a tailored question that helps with birth time rectification.
+
+        Parameters:
+        - birth_details: User's birth date, time, and location
+        - chart_data: Astrological chart data
+        - previous_answers: List of previous question-answer pairs
+        - question_count: Number of questions asked so far
+        - diversity_factor: Factor to increase diversity (0.0-1.0)
+
+        Returns:
+        - Dictionary containing the next question
+        """
+        if not self.openai_service:
+            raise ValueError("OpenAI service is required for astrological question generation")
+
+        # Format chart data for the prompt
+        chart_summary = self._format_chart_for_prompt(chart_data)
+
+        # Format previous Q&A for context
+        qa_history = ""
+        for i, resp in enumerate(previous_answers):
+            question = resp.get("question", "")
+            answer = resp.get("answer", "")
+            qa_history += f"Q{i+1}: {question}\nA{i+1}: {answer}\n\n"
+
+        # Determine the category for this question
+        category = self._determine_next_question_category(previous_answers, question_count)
+
+        # Build a prompt for OpenAI
+        prompt = self._build_question_generation_prompt(
+            birth_details=birth_details,
+            chart_summary=chart_summary,
+            qa_history=qa_history,
+            question_count=question_count,
+            category=category,
+            previous_answers=previous_answers
+        )
+
+        # Call OpenAI to generate a question
+        temperature = 0.7 + (diversity_factor * 0.3)  # Increase temperature based on diversity factor
+
+        response = await self.openai_service.generate_completion(
+            prompt=prompt,
+            task_type="astrological_question_generation",
+            max_tokens=800,
+            temperature=temperature
+        )
+
+        if not response or "content" not in response:
+            raise ValueError("Failed to generate a question from OpenAI")
+
+        # Parse the response to extract the question
+        question_data = self._parse_question_from_response(response["content"])
+
+        # Ensure required fields are present
+        if "id" not in question_data:
+            question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
+
+        if "type" not in question_data:
+            question_data["type"] = "text"
+
+        if "category" not in question_data:
+            question_data["category"] = category
+
+        # Ensure the question has the right format for options if it's multiple choice
+        if question_data.get("type") == "multiple_choice" and "options" in question_data:
+            formatted_options = []
+            for i, option in enumerate(question_data["options"]):
+                if isinstance(option, str):
+                    formatted_options.append({
+                        "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
+                        "text": option
+                    })
+                elif isinstance(option, dict) and "text" in option:
+                    if "id" not in option:
+                        option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
+                    formatted_options.append(option)
+            question_data["options"] = formatted_options
+
+        return question_data
+
+    def _format_chart_for_prompt(self, chart_data: Dict[str, Any]) -> str:
+        """Format chart data into a concise summary for the OpenAI prompt."""
+        if not chart_data:
+            return "Chart data unavailable."
+
+        summary = ["BIRTH CHART SUMMARY:"]
+
+        # Add ascendant info (most sensitive to birth time)
+        ascendant = chart_data.get("ascendant", {})
+        if isinstance(ascendant, dict):
+            asc_sign = ascendant.get("sign", "Unknown")
+            asc_degree = ascendant.get("degree", 0)
+            summary.append(f"Ascendant: {asc_sign} {asc_degree}° (HIGHEST birth time sensitivity)")
+
+        # Add planets
+        planets = chart_data.get("planets", [])
+        important_planets = ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn"]
+
+        for planet in planets:
+            if isinstance(planet, dict) and planet.get("planet") in important_planets:
+                name = planet.get("planet", "")
+                sign = planet.get("sign", "")
+                house = planet.get("house", "")
+                degree = planet.get("degree", "")
+                if name and sign:
+                    time_sensitivity = ""
+                    if name == "Moon":
+                        time_sensitivity = " (HIGH time sensitivity)"
+                    elif name in ["Mercury", "Venus"]:
+                        time_sensitivity = " (MEDIUM time sensitivity)"
+                    summary.append(f"{name}: {sign} {degree}° in House {house}{time_sensitivity}")
+
+        # Add angular houses (1, 4, 7, 10) - most sensitive to birth time
+        houses = chart_data.get("houses", [])
+        angular_houses = []
+
+        for house in houses:
+            if isinstance(house, dict) and house.get("number") in [1, 4, 7, 10]:
+                number = house.get("number", "")
+                sign = house.get("sign", "")
+                degree = house.get("degree", "")
+                if number and sign:
+                    angular_houses.append(f"House {number}: {sign} {degree}°")
+
+        if angular_houses:
+            summary.append("\nANGULAR HOUSES (HIGH birth time sensitivity):")
+            summary.extend(angular_houses)
+
+        return "\n".join(summary)
+
+    def _determine_next_question_category(
+        self,
+        previous_answers: List[Dict[str, Any]],
+        question_count: int
+    ) -> str:
+        """Determine the best category for the next question based on previous answers and question count."""
+        # Default categories based on question progression
+        progression = [
+            "physical_traits",         # First question (Ascendant-related)
+            "personality_traits",      # Second question
+            "life_events",             # Third question
+            "timing_preferences",      # Fourth question
+            "relationships",           # Fifth question
+            "career",                  # Sixth question
+            "health",                  # Seventh question
+            "spiritual"                # Eighth question
+        ]
+
+        # Get category based on question count, cycling through categories for later questions
+        if question_count < len(progression):
+            return progression[question_count]
         else:
-            self.openai_service = openai_service
+            # For later questions, focus more on the categories that provide best birth time indicators
+            priority_categories = ["life_events", "timing_preferences", "physical_traits"]
+            return random.choice(priority_categories)
+
+    def _build_question_generation_prompt(
+        self,
+        birth_details: Dict[str, Any],
+        chart_summary: str,
+        qa_history: str,
+        question_count: int,
+        category: str,
+        previous_answers: List[Dict[str, Any]]
+    ) -> str:
+        """Build a prompt for OpenAI to generate an astrologically relevant question."""
+        # Determine level of specificity based on question count
+        specificity = "general" if question_count < 3 else "specific"
+
+        # Extract useful birth details
+        birth_date = birth_details.get("birth_date", birth_details.get("birthDate", "Unknown"))
+        birth_time = birth_details.get("birth_time", birth_details.get("birthTime", "Unknown"))
+        birth_place = birth_details.get("birth_place", birth_details.get("birthPlace", "Unknown"))
+
+        # Construct a detailed prompt for OpenAI
+        prompt = f"""
+        You are an expert astrologer specializing in birth time rectification. Your task is to generate the next question
+        in a birth time rectification interview. This will be question #{question_count + 1} in the sequence.
+
+        BIRTH DETAILS:
+        Date: {birth_date}
+        Approximate Time: {birth_time}
+        Location: {birth_place}
+
+        ASTROLOGICAL CONTEXT:
+        {chart_summary}
+
+        PREVIOUS QUESTIONS AND ANSWERS:
+        {qa_history if qa_history else "No previous questions yet."}
+
+        TASK:
+        Generate a {specificity} question in the category of "{category}" that will help determine the exact birth time.
+
+        IMPORTANT GUIDELINES:
+        1. Make the question directly relevant to birth time rectification.
+        2. DO NOT ask general horoscope-type questions - focus on questions that help pinpoint birth time.
+        3. Your question should relate to the specific astrological features in this chart.
+        4. Focus on astrological factors that are sensitive to birth time (Ascendant, house cusps, Moon position).
+        5. Make the question easy for a non-astrologer to understand - no technical jargon.
+        6. If this is question #4 or later, reference something from a previous answer if applicable.
+        7. Remember that Ascendant changes every 2 hours, MC/IC axis changes throughout the day, and houses are very time-sensitive.
+
+        QUESTION TYPE:
+        - For personality and physical traits: use "multiple_choice" type with clear options
+        - For life events: use "text" type questions
+        - For timing preferences: use "multiple_choice" with time ranges or descriptive options
+
+        RESPONSE FORMAT:
+        Return a JSON object with these fields:
+        - id: a unique identifier (use a random string)
+        - text: the question text
+        - type: "text", "multiple_choice", or "yes_no"
+        - options: an array of options if multiple_choice (include at least 4 options)
+        - category: the category of this question (use the provided category)
+        - relevance_to_birth_time: explanation of how this helps determine birth time
+
+        PROVIDE ONLY THE JSON OBJECT AND NO OTHER TEXT.
+        """
+
+        return prompt
+
+    def _parse_question_from_response(self, content: str) -> Dict[str, Any]:
+        """Parse the question from the OpenAI response."""
+        try:
+            # Remove any markdown formatting
+            cleaned_content = content.strip()
+            if cleaned_content.startswith("```json"):
+                cleaned_content = cleaned_content[7:]
+            elif cleaned_content.startswith("```"):
+                cleaned_content = cleaned_content[3:]
+
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3]
+
+            # Parse JSON
+            question_data = json.loads(cleaned_content.strip())
+
+            # Validate required fields
+            if "text" not in question_data:
+                raise ValueError("Question text missing from response")
+
+            return question_data
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Error parsing question from OpenAI response: {str(e)}")
+            self.logger.error(f"Content: {content[:200]}...")
+
+            # Attempt to extract a question using regex as fallback
+            match = re.search(r'"text"\s*:\s*"([^"]+)"', content)
+            question_text = match.group(1) if match else "Could you tell me more about your birth circumstances?"
+
+            # Return a basic question object
+            return {
+                "id": f"q_{uuid.uuid4().hex[:8]}",
+                "text": question_text,
+                "type": "text",
+                "category": "general",
+                "relevance_to_birth_time": "Helps identify birth time through general life patterns"
+            }
+
+    async def _analyze_answer_astrologically(
+        self,
+        question: str,
+        answer: Any,
+        category: str,
+        birth_details: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Analyze an answer for information that could help with birth time rectification.
+        Returns analysis data if relevant information is found.
+        """
+        if not self.openai_service:
+            return None
+
+        # Don't analyze every answer to save API calls
+        if random.random() > 0.7 and category not in ["life_events", "timing_preferences", "physical_traits"]:
+            return None
+
+        try:
+            # Create a focused prompt for analysis
+            prompt = f"""
+            As an expert in astrological birth time rectification, analyze this answer for information
+            that could help determine the exact birth time.
+
+            Question ({category}): {question}
+            Answer: {answer}
+
+            Return a JSON with these keys:
+            - relevance_to_birth_time: float between 0-1 indicating how relevant this is to birth time
+            - indicator_type: "physical", "event", "personality", "timing", or "other"
+            - notes: brief analysis of how this could help with birth time rectification
+            - suggested_time_range: if applicable, a possible birth time range this suggests
+
+            Only return the JSON object, nothing else.
+            """
+
+            # Call OpenAI for analysis
+            response = await self.openai_service.generate_completion(
+                prompt=prompt,
+                task_type="astrological_analysis",
+                max_tokens=300,
+                temperature=0.3  # Low temperature for focused, analytical response
+            )
+
+            if not response or "content" not in response:
+                return None
+
+            # Parse the response
+            try:
+                # Extract JSON content
+                content = response["content"].strip()
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].strip()
+
+                return json.loads(content)
+            except (json.JSONDecodeError, IndexError) as e:
+                self.logger.warning(f"Error parsing analysis response: {str(e)}")
+                return None
+
+        except Exception as e:
+            self.logger.warning(f"Error analyzing answer: {str(e)}")
+            return None
+
+    async def complete_questionnaire(self, session_id: str) -> Dict[str, Any]:
+        """
+        Complete the questionnaire and perform birth time analysis based on all answers.
+        """
+        try:
+            session_store = get_session_store()
+            session_data = await session_store.get_session(session_id)
+
+            if not session_data:
+                raise ValueError(f"Session not found: {session_id}")
+
+            birth_details = session_data.get("birth_details", {})
+            chart_data = session_data.get("chart_data", {})
+            chart_id = session_data.get("chart_id")
+            previous_questions = session_data.get("previous_questions", [])
+            previous_answers = session_data.get("previous_answers", [])
+            birth_time_indicators = session_data.get("birth_time_indicators", [])
+
+            # Extract indicators that help with birth time rectification
+            time_indicators = await self._extract_birth_time_indicators(
+                questions=previous_questions,
+                answers=previous_answers,
+                birth_details=birth_details
+            )
+
+            # Calculate confidence in the rectification
+            confidence = self._calculate_rectification_confidence(
+                answers=previous_answers,
+                time_indicators=time_indicators
+            )
+
+            # Mark the session as complete
+            session_data["complete"] = True
+            session_data["completed_at"] = datetime.now().isoformat()
+            session_data["time_indicators"] = time_indicators
+            session_data["confidence"] = confidence
+
+            await session_store.update_session(session_id, session_data)
+
+            # Return completion result
+            return {
+                "completed": True,
+                "chart_id": chart_id,
+                "session_id": session_id,
+                "question_count": len(previous_questions),
+                "answer_count": len(previous_answers),
+                "confidence": confidence,
+                "time_indicators": time_indicators
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error completing questionnaire: {str(e)}")
+            raise ValueError(f"Failed to complete questionnaire: {str(e)}")
+
+    async def _extract_birth_time_indicators(
+        self,
+        questions: List[Dict[str, Any]],
+        answers: List[Dict[str, Any]],
+        birth_details: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Analyze all answers to extract information that helps with birth time rectification.
+        """
+        if not self.openai_service:
+            return {"confidence": 0.5, "indicators": []}
+
+        try:
+            # Format Q&A for analysis
+            qa_pairs = []
+            for answer in answers:
+                question_text = answer.get("question", "")
+                answer_text = answer.get("answer", "")
+                category = answer.get("category", "general")
+
+                if question_text and answer_text:
+                    qa_pairs.append({
+                        "question": question_text,
+                        "answer": answer_text,
+                        "category": category
+                    })
+
+            if not qa_pairs:
+                return {
+                    "confidence": 0.3,
+                    "indicators": [],
+                    "possible_time_range": "Unknown",
+                    "notes": "Insufficient data for birth time analysis"
+                }
+
+            # Extract birth details
+            birth_date = birth_details.get("birth_date", birth_details.get("birthDate", ""))
+            birth_time = birth_details.get("birth_time", birth_details.get("birthTime", ""))
+
+            # Create a focused prompt for comprehensive analysis
+            prompt = f"""
+            As an expert astrologer specializing in birth time rectification, analyze these
+            question-answer pairs to extract information that can help determine the precise birth time.
+
+            BIRTH DETAILS:
+            Date: {birth_date}
+            Approximate Time: {birth_time}
+
+            QUESTION-ANSWER PAIRS:
+            {json.dumps(qa_pairs, indent=2)}
+
+            Analyze this information to identify:
+            1. Physical traits related to the Ascendant/Rising sign
+            2. Life events with clear astrological timing (transits, progressions)
+            3. Personality traits related to Ascendant/1st house
+            4. Daily habits or preferences that might indicate specific houses
+            5. Any explicit statements about birth time or circumstances
+
+            Return a JSON object with these fields:
+            - confidence: float between 0-1 indicating confidence in birth time determination
+            - indicators: array of objects, each with:
+              * type: "physical", "event", "personality", "timing", or "explicit"
+              * description: description of the indicator
+              * relevance: float between 0-1 indicating relevance to birth time
+              * suggested_adjustment: adjustment to birth time this suggests (in minutes, + or -)
+            - possible_time_range: string describing the possible birth time range
+            - notes: expert analysis of the birth time rectification
+
+            Only return the JSON object, nothing else.
+            """
+
+            # Call OpenAI for analysis
+            response = await self.openai_service.generate_completion(
+                prompt=prompt,
+                task_type="birth_time_rectification",
+                max_tokens=1000,
+                temperature=0.3
+            )
+
+            if not response or "content" not in response:
+                return {"confidence": 0.4, "indicators": []}
+
+            # Parse the response
+            try:
+                # Extract JSON content
+                content = response["content"].strip()
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].strip()
+
+                analysis = json.loads(content)
+                return analysis
+            except (json.JSONDecodeError, IndexError) as e:
+                self.logger.warning(f"Error parsing birth time indicators: {str(e)}")
+                return {
+                    "confidence": 0.4,
+                    "indicators": [],
+                    "error": str(e)
+                }
+
+        except Exception as e:
+            self.logger.warning(f"Error extracting birth time indicators: {str(e)}")
+            return {
+                "confidence": 0.3,
+                "indicators": [],
+                "error": str(e)
+            }
+
+    def _calculate_rectification_confidence(
+        self,
+        answers: List[Dict[str, Any]],
+        time_indicators: Dict[str, Any]
+    ) -> float:
+        """Calculate confidence score for birth time rectification based on answers and indicators."""
+        # Base confidence starts at 30%
+        base_confidence = 30.0
+
+        # Add confidence based on number of answers (max +30%)
+        answer_confidence = min(30.0, len(answers) * 3.0)
+
+        # Add confidence based on indicators (max +30%)
+        indicator_confidence = 0.0
+        if "confidence" in time_indicators:
+            indicator_confidence = time_indicators["confidence"] * 30.0
+        elif "indicators" in time_indicators:
+            indicators = time_indicators["indicators"]
+            if indicators:
+                # Calculate average relevance of indicators
+                relevance_sum = sum(ind.get("relevance", 0) for ind in indicators if isinstance(ind, dict))
+                avg_relevance = relevance_sum / len(indicators) if indicators else 0
+                indicator_confidence = min(30.0, len(indicators) * 5.0 * avg_relevance)
+
+        # Calculate total confidence (max 95%)
+        total_confidence = min(95.0, base_confidence + answer_confidence + indicator_confidence)
+
+        return total_confidence
 
 # Singleton pattern
 _questionnaire_service = None

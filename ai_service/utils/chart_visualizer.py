@@ -448,7 +448,7 @@ def generate_3d_chart(chart_data: Dict[str, Any], output_path: Optional[str] = N
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
         # Cast to proper 3D axes type for type checking
-        ax3d = cast(Axes3DType, ax)
+        ax3d = cast(Any, ax)
 
         # Create zodiac wheel (circle in 3D space)
         theta = np.linspace(0, 2 * np.pi, 100)

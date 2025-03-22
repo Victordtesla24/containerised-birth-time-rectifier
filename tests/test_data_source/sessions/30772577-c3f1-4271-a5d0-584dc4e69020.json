@@ -1,0 +1,50 @@
+{
+  "created_at": "2025-03-22T02:59:56.709719",
+  "updated_at": "2025-03-22T02:59:57.158552",
+  "data": {
+    "created_at": "2025-03-22T02:59:56.709696",
+    "updated_at": "2025-03-22T02:59:56.709709",
+    "status": "active",
+    "test_sequence": true,
+    "id": "30772577-c3f1-4271-a5d0-584dc4e69020"
+  },
+  "responses": [],
+  "current_confidence": 20.0,
+  "questions_asked": [],
+  "questions_answered": 0,
+  "session_metadata": {
+    "client_ip": null,
+    "user_agent": null,
+    "started_at": "2025-03-22T02:59:56.709722"
+  },
+  "location": {
+    "birth_place": "Pune, Maharashtra, India",
+    "latitude": 18.5204,
+    "longitude": 73.8567,
+    "timezone": "Asia/Kolkata",
+    "geocode_result": {
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "display_name": "Pune, Maharashtra, India",
+      "source": "input_data_optional"
+    },
+    "id": "30772577-c3f1-4271-a5d0-584dc4e69020"
+  },
+  "birth_details": {
+    "birth_date": "1985-10-24",
+    "birth_time": "14:30:00",
+    "birth_place": "Pune, Maharashtra, India",
+    "latitude": 18.5204,
+    "longitude": 73.8567,
+    "timezone": "Asia/Kolkata",
+    "validation_result": {
+      "valid": true,
+      "errors": null,
+      "birth_date": "1985-10-24",
+      "birth_time": "14:30:00",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "timezone": "Asia/Kolkata"
+    }
+  }
+}

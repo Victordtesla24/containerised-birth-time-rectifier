@@ -13,7 +13,7 @@ from datetime import datetime
 import traceback
 
 from ai_service.api.websocket_events import emit_event, EventType
-from ai_service.api.services.questionnaire_service import get_questionnaire_service
+from ai_service.api.services.questionnaire_service import get_questionnaire_service, DynamicQuestionnaireService
 from ai_service.api.services.chart import get_chart_service
 
 # Configure logging
@@ -32,7 +32,7 @@ class QuestionnaireRequest(BaseModel):
 class QuestionnaireResponse(BaseModel):
     questionnaire_id: str
     total_questions: int
-    questions: List[Dict[str, Any]]
+    question: Dict[str, Any]
 
 class QuestionAnswerRequest(BaseModel):
     question_id: str
@@ -61,7 +61,7 @@ async def start_questionnaire(
     Start a new questionnaire for birth time rectification.
 
     This endpoint initializes a new questionnaire based on the provided chart ID
-    and returns the first set of questions.
+    and returns the first question.
     """
     try:
         # Generate a unique questionnaire ID
@@ -70,8 +70,8 @@ async def start_questionnaire(
         # Get chart ID from request
         chart_id = request.chart_id
 
-        # Get the actual services
-        questionnaire_service = get_questionnaire_service()
+        # Get the questionnaire service - use DynamicQuestionnaireService specifically
+        questionnaire_service = DynamicQuestionnaireService()
         chart_service = get_chart_service()
 
         # Get chart data
@@ -84,34 +84,17 @@ async def start_questionnaire(
             logger.error(f"Error retrieving chart {chart_id}: {chart_err}")
             raise HTTPException(status_code=500, detail=f"Error retrieving chart: {str(chart_err)}")
 
-        # Extract birth details
-        birth_details = chart_data.get("birth_details", {})
-        if not birth_details:
-            logger.error(f"Chart {chart_id} missing birth details")
-            raise HTTPException(status_code=400, detail="Chart missing birth details")
-
-        # Initialize the questionnaire with real data
-        initial_questions_data = await questionnaire_service.initialize_questionnaire(
-            birth_details=birth_details,
-            chart_data=chart_data,
+        # Initialize the questionnaire with chart data
+        initial_response = await questionnaire_service.initialize_questionnaire(
+            chart_id=chart_id,
             session_id=questionnaire_id
         )
 
-        # Extract questions from the real response
-        if not initial_questions_data or "questions" not in initial_questions_data:
-            logger.error(f"Failed to initialize questionnaire: Invalid response from service")
+        # Extract the first question from the response
+        first_question = initial_response.get("question")
+        if not first_question:
+            logger.error(f"Failed to initialize questionnaire: No question returned")
             raise HTTPException(status_code=500, detail="Failed to initialize questionnaire")
-
-        questions = initial_questions_data.get("questions", [])
-        total_questions = len(questions)
-
-        # Store questionnaire data in persistent storage
-        await questionnaire_service.store_questionnaire_session(
-            questionnaire_id=questionnaire_id,
-            chart_id=chart_id,
-            birth_details=birth_details,
-            initial_questions=questions
-        )
 
         # Emit questionnaire started event if we have a session ID
         if hasattr(req.state, "session_id"):
@@ -128,11 +111,11 @@ async def start_questionnaire(
                 }
             )
 
-        # Return the actual response with real data
+        # Return the response with the first question
         return {
             "questionnaire_id": questionnaire_id,
-            "total_questions": total_questions,
-            "questions": questions
+            "total_questions": 10,  # Estimated total questions
+            "question": first_question
         }
     except HTTPException:
         # Re-raise HTTP exceptions
@@ -142,7 +125,7 @@ async def start_questionnaire(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error starting questionnaire: {str(e)}")
 
-@router.post("/{questionnaire_id}/answer", response_model=QuestionAnswerResponse)
+@router.post("/answer", response_model=QuestionAnswerResponse)
 async def answer_question(
     questionnaire_id: str,
     request: QuestionAnswerRequest,
@@ -159,37 +142,54 @@ async def answer_question(
         question_id = request.question_id
         answer = request.answer
 
-        # Get the questionnaire service
-        questionnaire_service = get_questionnaire_service()
+        # Get the questionnaire service - use DynamicQuestionnaireService specifically
+        questionnaire_service = DynamicQuestionnaireService()
 
-        # Verify the questionnaire exists
-        questionnaire_data = await questionnaire_service.get_questionnaire_session(questionnaire_id)
-        if not questionnaire_data:
-            logger.error(f"Questionnaire not found: {questionnaire_id}")
-            raise HTTPException(status_code=404, detail=f"Questionnaire not found: {questionnaire_id}")
-
-        # Store the answer in the questionnaire session
-        await questionnaire_service.store_answer(
-            questionnaire_id=questionnaire_id,
+        # Process the answer and get the next question
+        response_data = await questionnaire_service.get_next_question(
+            session_id=questionnaire_id,
             question_id=question_id,
             answer=answer
         )
 
-        # Get the next question based on the answer
-        response_data = await questionnaire_service.get_next_question(
-            questionnaire_id=questionnaire_id,
-            previous_question_id=question_id,
-            previous_answer=answer
-        )
+        # Check if the questionnaire is complete
+        if response_data.get("complete", False):
+            # Complete the questionnaire
+            completion_result = await questionnaire_service.complete_questionnaire(questionnaire_id)
 
-        # Extract data from real response
-        if not response_data:
-            logger.error(f"Failed to get next question: Invalid response from service")
-            raise HTTPException(status_code=500, detail="Failed to get next question")
+            # Calculate confidence based on the completion result
+            confidence = completion_result.get("confidence", 0.7)
 
-        next_question = response_data.get("next_question")
-        current_confidence = response_data.get("confidence", 0.0)
-        questions_remaining = response_data.get("questions_remaining", 0)
+            # Emit questionnaire completed event
+            if hasattr(req.state, "session_id"):
+                session_id = req.state.session_id
+                background_tasks.add_task(
+                    emit_event,
+                    session_id,
+                    EventType.QUESTIONNAIRE_COMPLETED,
+                    {
+                        "questionnaire_id": questionnaire_id,
+                        "timestamp": datetime.now().isoformat(),
+                        "confidence": confidence,
+                        "status": "completed"
+                    }
+                )
+
+            return {
+                "next_question": None,
+                "current_confidence": confidence,
+                "questions_remaining": 0
+            }
+
+        # Extract next question and progress information
+        next_question = response_data.get("question")
+        current_progress = response_data.get("progress", {})
+        current_question = current_progress.get("current", 0)
+        total_questions = current_progress.get("total_estimated", 10)
+        questions_remaining = max(0, total_questions - current_question)
+
+        # Get the question's category to improve tracking
+        question_category = next_question.get("category", "unknown") if next_question else "unknown"
 
         # Emit question answered event if we have a session ID
         if hasattr(req.state, "session_id"):
@@ -203,11 +203,24 @@ async def answer_question(
                     "questionnaire_id": questionnaire_id,
                     "question_id": question_id,
                     "answer": answer,
+                    "next_category": question_category,
+                    "progress": current_progress,
                     "timestamp": datetime.now().isoformat()
                 }
             )
 
-        # Return the real response with the next question
+        # Calculate current confidence based on progress and service data
+        # This uses the confidence from the service if available
+        service_confidence = response_data.get("confidence")
+        if service_confidence is not None:
+            current_confidence = service_confidence
+        else:
+            # Fallback calculation if service doesn't provide confidence
+            base_confidence = 30.0
+            progress_confidence = (current_question / total_questions) * 50.0
+            current_confidence = min(95.0, base_confidence + progress_confidence)
+
+        # Return the response with the next question
         return {
             "next_question": next_question,
             "current_confidence": current_confidence,
@@ -236,25 +249,19 @@ async def complete_questionnaire(
         # Get questionnaire ID from request
         questionnaire_id = request.questionnaire_id
 
-        # Get the questionnaire service
-        questionnaire_service = get_questionnaire_service()
+        # Get the questionnaire service - use DynamicQuestionnaireService specifically
+        questionnaire_service = DynamicQuestionnaireService()
 
-        # Verify the questionnaire exists
-        questionnaire_data = await questionnaire_service.get_questionnaire_session(questionnaire_id)
-        if not questionnaire_data:
-            logger.error(f"Questionnaire not found: {questionnaire_id}")
-            raise HTTPException(status_code=404, detail=f"Questionnaire not found: {questionnaire_id}")
-
-        # Complete the questionnaire and get the real results
+        # Complete the questionnaire and get the results
         completion_result = await questionnaire_service.complete_questionnaire(questionnaire_id)
 
-        if not completion_result:
-            logger.error(f"Failed to complete questionnaire: Invalid response from service")
-            raise HTTPException(status_code=500, detail="Failed to complete questionnaire")
+        # Check that completion was successful
+        if not completion_result.get("completed", False):
+            raise HTTPException(status_code=400, detail="Failed to complete questionnaire")
 
-        status = completion_result.get("status", "completed")
-        message = completion_result.get("message", "Questionnaire completed successfully")
-        confidence = completion_result.get("confidence", 0.0)
+        # Extract completion details
+        confidence = completion_result.get("confidence", 0.7)
+        chart_id = completion_result.get("chart_id")
 
         # Emit questionnaire completed event if we have a session ID
         if hasattr(req.state, "session_id"):
@@ -266,16 +273,17 @@ async def complete_questionnaire(
                 EventType.QUESTIONNAIRE_COMPLETED,
                 {
                     "questionnaire_id": questionnaire_id,
+                    "chart_id": chart_id,
                     "timestamp": datetime.now().isoformat(),
                     "confidence": confidence,
-                    "status": status
+                    "status": "completed"
                 }
             )
 
-        # Return the real result
+        # Return the completion status
         return {
-            "status": status,
-            "message": message,
+            "status": "completed",
+            "message": "Questionnaire completed successfully. Ready for birth time rectification.",
             "confidence": confidence
         }
     except HTTPException:

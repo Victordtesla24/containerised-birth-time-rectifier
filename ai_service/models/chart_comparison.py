@@ -19,6 +19,10 @@ class DifferenceType(str, Enum):
     PLANET_HOUSE_TRANSITION = "planet_house_transition"
     ASPECT_FORMATION = "aspect_formation"
     ASPECT_DISSOLUTION = "aspect_dissolution"
+    POSITION_CHANGE = "position_change"
+    ASPECT_REMOVED = "aspect_removed"
+    ASPECT_ADDED = "aspect_added"
+    ASPECT_CHANGED = "aspect_changed"
 
 class PlanetaryPosition(BaseModel):
     """Position of a planet in a chart"""
