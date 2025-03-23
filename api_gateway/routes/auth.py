@@ -14,11 +14,14 @@ import secrets
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 
+# AI Service URL
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
+
 # Configure logging
 logger = logging.getLogger("api_gateway.routes.auth")
 
 # Initialize router
-router = APIRouter()
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Define request/response models
 class LoginRequest(BaseModel):
@@ -31,6 +34,9 @@ class TokenResponse(BaseModel):
     expires_in: int
     refresh_token: Optional[str] = None
     success: bool = True
+
+class SessionResponse(BaseModel):
+    session_token: str
 
 # Mock function for development - will be replaced with actual implementation
 def verify_credentials(username: str, password: str) -> bool:
@@ -105,3 +111,33 @@ async def refresh_token(refresh_token: str):
         "refresh_token": new_refresh_token,
         "success": True
     }
+
+@router.post("/session/init", response_model=SessionResponse)
+async def init_session():
+    """
+    Initialize a new session for the user.
+
+    Creates a new session in Redis and returns a session token to the client.
+    This token should be included in all subsequent requests.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{AI_SERVICE_URL}/api/session/init",
+                headers={"Content-Type": "application/json"}
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Failed to initialize session: {response.text}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to initialize session"
+                )
+
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error initializing session: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initialize session"
+        )

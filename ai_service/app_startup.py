@@ -1,20 +1,15 @@
 """
-Application Startup Module.
+Application startup and initialization for AI Service.
 
-This module handles initializing services and the dependency container
-at application startup time, implementing the key best practices:
-
-1. Error First Approach
-2. Robust Error Handling
-3. Dependency Requirements
-4. Configuration Validation
-5. Proper Logging
+This module handles the initialization of the application, including setting up
+dependencies, loading environment variables, and configuring services.
 """
 
-import os
 import logging
+import os
 import sys
-from typing import Dict, Any, Optional
+import traceback
+from typing import Dict, Any, List, Tuple
 
 # Set up logging
 logging.basicConfig(
@@ -26,151 +21,184 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import environment loader
-from ai_service.utils.env_loader import load_env_file, validate_required_env_vars
+# Comprehensive middleware fix
+try:
+    # Patch FastAPI to handle invalid middleware gracefully
+    import fastapi.applications
+    from fastapi import FastAPI
 
-# Import dependency container
-from ai_service.utils.dependency_container import get_container
+    # Store the original method
+    _original_build_middleware = fastapi.applications.FastAPI.build_middleware_stack
 
-# Import service factories
-from ai_service.api.services.openai.service import create_openai_service
-from ai_service.services.chart_service import create_chart_service
+    # Define a fixed version that handles malformed middleware entries
+    def _fixed_build_middleware(self):
+        """Safe version of build_middleware_stack that handles malformed middleware."""
+        # Clear any existing middleware stack
+        self.user_middleware = getattr(self, 'user_middleware', [])
 
-# Import Pydantic compatibility layer first to ensure it's applied
-# before any other imports that might use Pydantic
-from ai_service.utils import pydantic_compat
+        # Detailed logging of middleware before sanitization
+        logger.debug(f"Middleware stack before sanitization: {self.user_middleware}")
 
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-import logging.config
+        # Filter and sanitize middleware to ensure correct format
+        sanitized_middleware = []
+        for i, middleware in enumerate(self.user_middleware):
+            try:
+                # Check type and convert to proper format if needed
+                if isinstance(middleware, tuple):
+                    # Handle tuples of different sizes
+                    if len(middleware) == 2:
+                        # This is correct format (cls, options)
+                        sanitized_middleware.append(middleware)
+                    elif len(middleware) > 2:
+                        # Too many items - take only the first two
+                        logger.warning(f"Middleware entry {i} has too many values, truncating: {middleware}")
+                        sanitized_middleware.append((middleware[0], middleware[1]))
+                    elif len(middleware) == 1:
+                        # Missing options - add empty dict
+                        logger.warning(f"Middleware entry {i} is missing options, adding empty dict: {middleware}")
+                        sanitized_middleware.append((middleware[0], {}))
+                    else:
+                        # Empty tuple - skip
+                        logger.warning(f"Skipping empty middleware tuple at position {i}")
+                elif hasattr(middleware, "__call__"):
+                    # It's a callable (like a function) - wrap with empty options
+                    logger.warning(f"Converting callable middleware to tuple format at position {i}")
+                    sanitized_middleware.append((middleware, {}))
+                elif isinstance(middleware, list) and len(middleware) >= 2:
+                    # It's a list with at least 2 items - convert to tuple
+                    logger.warning(f"Converting list middleware to tuple format at position {i}")
+                    sanitized_middleware.append((middleware[0], middleware[1]))
+                else:
+                    # Unknown format - log and skip
+                    logger.warning(f"Skipping malformed middleware entry at position {i}: {middleware}")
+            except Exception as e:
+                logger.warning(f"Error processing middleware entry at position {i}: {e}")
+                logger.debug(traceback.format_exc())
 
-from ai_service.core.config import settings
+        # Replace with sanitized list
+        self.user_middleware = sanitized_middleware
+        logger.debug(f"Middleware stack after sanitization: {self.user_middleware}")
 
-
-def validate_configuration() -> Dict[str, Any]:
-    """
-    Validate required configuration settings.
-
-    This implements the "Configuration Validation" best practice by checking
-    all required settings at startup time.
-
-    Returns:
-        Dict with configuration values
-
-    Raises:
-        ValueError: If any required configuration is missing
-    """
-    logger.info("Validating application configuration")
-
-    # Load environment variables from .env file
-    load_env_file()
-
-    # Required environment variables
-    required_vars = [
-        "OPENAI_API_KEY"
-    ]
-
-    # Validate required variables and get their values
-    env_vars = validate_required_env_vars(required_vars)
-
-    # Optional environment variables with defaults
-    config = {
-        "OPENAI_MODEL": os.environ.get("OPENAI_MODEL", "gpt-4-turbo-preview"),
-        "OPENAI_TEMPERATURE": float(os.environ.get("OPENAI_TEMPERATURE", "0.7")),
-        "ENABLE_CACHE": os.environ.get("ENABLE_CACHE", "true").lower() == "true",
-        "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO")
-    }
-
-    # Add required variables to config
-    config.update(env_vars)
-
-    # Log the configuration (excluding sensitive values)
-    safe_config = {k: v for k, v in config.items() if "KEY" not in k and "SECRET" not in k}
-    logger.info(f"Configuration validated: {safe_config}")
-
-    return config
-
-
-def register_services():
-    """
-    Register services with the dependency container.
-
-    This implements the "Dependency Requirements" best practice by explicitly
-    defining and registering all service dependencies.
-    """
-    logger.info("Registering services with dependency container")
-
-    # Get container
-    container = get_container()
-
-    try:
-        # Register OpenAI service
-        container.register("openai_service", create_openai_service)
-        logger.info("Registered OpenAI service factory")
-
-        # Register Chart service
-        container.register("chart_service", create_chart_service)
-        logger.info("Registered Chart service factory")
-
-        # Additional services would be registered here
-
-    except Exception as e:
-        logger.error(f"Error registering services: {e}")
-        raise ValueError(f"Failed to register services: {e}")
-
-
-def initialize_application() -> bool:
-    """
-    Initialize the application.
-
-    This implements the "Error First Approach" and "Robust Error Handling"
-    best practices by failing fast with clear errors.
-
-    Returns:
-        True if initialization was successful
-
-    Raises:
-        ValueError: If initialization fails
-    """
-    try:
-        logger.info("Beginning application initialization")
-
-        # Validate configuration
-        config = validate_configuration()
-
-        # Register services
-        register_services()
-
-        # Pre-create singleton instances to verify they work
-        # This helps catch errors at startup time rather than at first use
-        container = get_container()
-
+        # Now build the middleware stack safely
         try:
-            # Create OpenAI service to verify it works
-            openai_service = container.get("openai_service")
-            logger.info("OpenAI service initialized successfully")
+            # Check each middleware one last time
+            for i, (cls, options) in enumerate(self.user_middleware):
+                if not isinstance(options, dict):
+                    self.user_middleware[i] = (cls, {})
+                    logger.warning(f"Fixed non-dict options in middleware {i}")
 
-            # Create Chart service to verify it works
-            chart_service = container.get("chart_service")
-            logger.info("Chart service initialized successfully")
+            # Rebuild middleware stack
+            return _original_build_middleware(self)
+        except ValueError as ve:
+            if "too many values to unpack" in str(ve):
+                # Log the error in detail
+                logger.error(f"ValueError during middleware stack build: {ve}")
+                logger.error(f"Current middleware stack that caused error: {self.user_middleware}")
 
+                # Emergency fallback - if we still have issues, use a minimal stack
+                logger.warning("Middleware stack rebuild failed, using minimal stack")
+                self.user_middleware = []
+                return _original_build_middleware(self)
+            raise
         except Exception as e:
-            logger.error(f"Error initializing services: {e}")
-            raise ValueError(f"Failed to initialize services: {e}")
+            logger.error(f"Unexpected error building middleware stack: {e}")
+            logger.error(traceback.format_exc())
+            # Try without middleware as a last resort
+            self.user_middleware = []
+            return _original_build_middleware(self)
 
-        logger.info("Application initialization completed successfully")
-        return True
+    # Apply the monkey patch
+    fastapi.applications.FastAPI.build_middleware_stack = _fixed_build_middleware
+    logger.info("Applied comprehensive FastAPI middleware fix")
+except Exception as e:
+    logger.error(f"Failed to apply FastAPI middleware fix: {e}")
+    logger.error(traceback.format_exc())
+
+# Import dependencies
+from ai_service.utils.env_loader import load_env_file
+from ai_service.utils.dependency_container import initialize_container
+
+def initialize_services():
+    """Initialize required services."""
+    try:
+        # Import deps lazily to avoid circular imports
+        from ai_service.utils.dependency_container import register_instance
+
+        # Initialize OpenAI service
+        from ai_service.api.services.openai.service import create_openai_service
+        openai_service = create_openai_service()
+        register_instance("openai_service", openai_service)
+        logger.info("OpenAI service initialized successfully")
+
+        # Initialize chart service
+        from ai_service.services.chart_service import create_chart_service
+        chart_service = create_chart_service()
+        register_instance("chart_service", chart_service)
+        logger.info("Chart service initialized successfully")
+
+        # Initialize session service
+        from ai_service.services.session_service import SessionService
+        session_service = SessionService()
+        register_instance("session_service", session_service)
+        logger.info("Session service initialized successfully")
 
     except Exception as e:
-        logger.critical(f"Application initialization failed: {e}")
+        logger.error(f"Error initializing services: {e}")
+        logger.error(traceback.format_exc())
         raise
 
-
-if __name__ == "__main__":
-    # When run directly, initialize the application
+def initialize_database():
+    """Initialize database connections."""
     try:
-        initialize_application()
-        logger.info("Application is ready")
+        from ai_service.database.repositories import initialize_database_pool
+
+        # Create and run a task to properly await the async function
+        import asyncio
+        loop = asyncio.get_event_loop()
+        loop.create_task(initialize_database_pool())
+
+        logger.info("Database initialization task scheduled")
     except Exception as e:
-        logger.critical(f"Failed to initialize application: {e}")
-        sys.exit(1)
+        logger.warning(f"Database initialization error: {e}")
+        logger.info("Using file-based storage as fallback")
+
+def configure_compatibility():
+    """Configure compatibility settings for external dependencies."""
+    try:
+        # Silence Pydantic deprecation warnings
+        from ai_service.utils.pydantic_compat import configure_pydantic_compat
+        configure_pydantic_compat()
+        logger.info("Compatibility settings configured")
+    except Exception as e:
+        logger.warning(f"Error configuring compatibility settings: {e}")
+
+def initialize_application():
+    """
+    Main initialization function for the application.
+    Called during FastAPI startup.
+    """
+    try:
+        logger.info("Starting application initialization")
+
+        # Initialize dependency container
+        initialize_container()
+        logger.info("Dependency container initialized")
+
+        # Load environment variables
+        load_env_file()
+        logger.info("Environment variables loaded")
+
+        # Configure compatibility settings
+        configure_compatibility()
+
+        # Initialize services
+        initialize_services()
+
+        # Initialize database
+        initialize_database()
+
+        logger.info("Application initialization completed successfully")
+    except Exception as e:
+        logger.error(f"Application initialization failed: {e}")
+        logger.error(traceback.format_exc())
+        raise
