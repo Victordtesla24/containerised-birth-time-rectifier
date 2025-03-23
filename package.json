@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "dev": "next dev",
     "start": "python -m ai_service.main",
     "test": "pytest",
     "test:integration": "pytest -xvs tests/integration/",

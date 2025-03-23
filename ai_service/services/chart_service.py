@@ -22,6 +22,17 @@ from ai_service.services.chart_service_visualization import generate_vedic_kundl
 
 logger = logging.getLogger(__name__)
 
+# Factory function to create a chart service instance
+def create_chart_service() -> 'ChartService':
+    """
+    Factory function to create and initialize a ChartService instance.
+
+    Returns:
+        ChartService: An initialized ChartService instance
+    """
+    chart_output_dir = os.environ.get("CHART_OUTPUT_DIR")
+    return ChartService(chart_output_dir)
+
 class ChartService:
     """
     Service for generating and manipulating astrological charts.

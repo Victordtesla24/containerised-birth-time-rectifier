@@ -8,7 +8,8 @@ PyJWT==2.8.0  # Added for JWT token handling
 
 # Swiss Ephemeris library
 pyswisseph==2.10.3.2
-swisseph>=0.6.0  # Swiss Ephemeris Python binding - ensure it's included
+# swisseph>=0.6.0  # Removed - using pyswisseph exclusively
+flatlib==0.2.0  # Astrology calculation library
 
 # Utilities
 python-multipart==0.0.19
@@ -26,6 +27,7 @@ pandas==2.2.1
 requests==2.32.2
 urllib3<2.0.0  # Downgraded to be compatible with LibreSSL 2.8.3
 aiohttp==3.11.0b0
+jsonschema>=4.20.0  # Added for websocket validation
 
 # Frontend connection
 python-dotenv>=1.0.0
