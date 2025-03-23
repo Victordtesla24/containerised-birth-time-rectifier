@@ -456,6 +456,40 @@ get_status() {
   echo -e "${CYAN}===================================${NC}\n"
 }
 
+# Add this after the verify_requirements function
+test_dependencies() {
+  log_info "Pre-testing Python dependencies..."
+
+  if [ -f "./scripts/setup/test_dependencies.sh" ]; then
+    # Check if script is executable
+    if [ ! -x "./scripts/setup/test_dependencies.sh" ]; then
+      log_info "Making dependency testing script executable"
+      chmod +x "./scripts/setup/test_dependencies.sh"
+    fi
+
+    # Run with timeout
+    (./scripts/setup/test_dependencies.sh) &
+    local pid=$!
+    progress_bar $pid "Testing dependencies" 300
+    wait $pid
+    local result=$?
+
+    if [ $result -eq 0 ]; then
+      log_success "Dependency pre-testing completed successfully"
+      return 0
+    elif [ $result -eq 127 ]; then
+      log_error "Command not found error. Ensure Python 3 is installed and in your PATH."
+      return 1
+    else
+      log_error "Dependency pre-testing failed with exit code $result. Please fix the issues before building containers."
+      return 1
+    fi
+  else
+    log_warning "Dependency testing script not found. Skipping pre-test."
+    return 0
+  fi
+}
+
 # Main execution flow
 main() {
   log_info "Starting rebuild process..."
@@ -485,6 +519,12 @@ main() {
 
   # Stop existing containers
   stop_containers
+
+  # Test dependencies
+  if ! test_dependencies; then
+    log_error "Fix dependency issues before rebuilding containers"
+    exit 1
+  fi
 
   # Rebuild containers
   if ! rebuild_containers; then

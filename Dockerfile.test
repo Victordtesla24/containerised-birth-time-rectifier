@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libgcc-s1 \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up environment variables
+ENV PYTHONPATH="/usr/local/lib/python3.11/site-packages:/app"
+
+# Install dependencies
+COPY essential_requirements.txt requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements.txt
+
+# Create a test script to verify imports
+COPY test_imports.py .
+
+# Run test script
+CMD ["python", "test_imports.py"]

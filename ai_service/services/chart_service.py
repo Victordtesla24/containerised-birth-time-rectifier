@@ -148,16 +148,16 @@ class ChartService:
             logger.error(f"Error generating comparison chart: {e}")
             raise
 
-    def _generate_comparison_data(self, chart1_data: Dict[str, Any], chart2_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _generate_basic_comparison_data(self, chart1_data: Dict[str, Any], chart2_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate comprehensive comparison data between two charts.
+        Generate basic comparison data between two charts.
 
         Args:
             chart1_data: First chart data
             chart2_data: Second chart data
 
         Returns:
-            Dictionary with detailed comparison results
+            Dictionary with basic comparison results
         """
         # This method is kept as is since it's a complex method that would be difficult to modularize
         # The implementation remains the same as it was in the original file
@@ -325,3 +325,207 @@ class ChartService:
             Dictionary with validation results
         """
         return cross_validate_calculations(charts_data)
+
+    async def generate_chart(
+        self,
+        birth_date: str,
+        birth_time: str,
+        latitude: float,
+        longitude: float,
+        timezone: Optional[str] = None,
+        location: Optional[str] = None,
+        verify_with_openai: bool = True,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate an astrological chart based on birth details.
+
+        Args:
+            birth_date: Birth date (YYYY-MM-DD)
+            birth_time: Birth time (HH:MM:SS)
+            latitude: Birth latitude
+            longitude: Birth longitude
+            timezone: Timezone string (optional)
+            location: Birth location name (optional)
+            verify_with_openai: Whether to verify chart with OpenAI
+            session_id: Session ID for tracking
+
+        Returns:
+            Generated chart data
+        """
+        # Generate chart ID
+        chart_id = f"chart_{uuid.uuid4().hex[:10]}"
+
+        # Parse date and time
+        birth_datetime_str = f"{birth_date} {birth_time}"
+        birth_dt = datetime.strptime(birth_datetime_str, "%Y-%m-%d %H:%M:%S")
+
+        # If timezone not provided, try to determine it
+        if not timezone:
+            from timezonefinder import TimezoneFinder
+            tf = TimezoneFinder()
+            timezone = tf.timezone_at(lat=latitude, lng=longitude) or "UTC"
+
+        # Set up birth details object for later reference
+        birth_details = {
+            "date": birth_date,
+            "time": birth_time,
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone,
+            "location": location
+        }
+
+        # Calculate chart using Swiss Ephemeris
+        from ai_service.services.chart_service_calculation import calculate_chart
+        # Convert birth_dt to separate date and time strings
+        birth_date_str = birth_dt.strftime("%Y-%m-%d")
+        birth_time_str = birth_dt.strftime("%H:%M:%S")
+        chart_data = calculate_chart(
+            birth_date=birth_date_str,
+            birth_time=birth_time_str,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=timezone
+        )
+
+        # Add metadata to chart
+        chart_data["chart_id"] = chart_id
+        chart_data["generated_at"] = datetime.now().isoformat()
+        chart_data["birth_details"] = birth_details
+
+        # Verify with OpenAI if requested
+        if verify_with_openai:
+            from ai_service.api.services.openai import get_openai_service
+            openai_service = get_openai_service()
+            verification = await openai_service.verify_chart(chart_data)
+            chart_data["verification"] = verification
+
+        # Store the chart in repository
+        from ai_service.database.repositories import ChartRepository
+        chart_repository = ChartRepository()
+        await chart_repository.store_chart(chart_data)
+
+        return chart_data
+
+    async def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a chart by ID.
+
+        Args:
+            chart_id: The ID of the chart to retrieve
+
+        Returns:
+            Chart data or None if not found
+        """
+        # Get chart from repository
+        from ai_service.database.repositories import ChartRepository
+        chart_repository = ChartRepository()
+        chart_data = await chart_repository.get_chart(chart_id)
+
+        return chart_data
+
+    async def compare_charts(self, charts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Compare multiple charts and provide analysis of differences.
+
+        Args:
+            charts: List of chart data to compare
+
+        Returns:
+            Analysis of chart comparison including differences
+        """
+        if not charts or len(charts) < 1:
+            raise ValueError("At least one chart is required for comparison")
+
+        # Generate unique comparison ID
+        comparison_id = f"comparison_{uuid.uuid4().hex[:10]}"
+
+        # Extract basic info from charts
+        charts_info = []
+        for chart in charts:
+            chart_info = {
+                "chart_id": chart.get("chart_id", "unknown"),
+                "generated_at": chart.get("generated_at", "unknown"),
+                "birth_details": chart.get("birth_details", {}),
+            }
+            charts_info.append(chart_info)
+
+        # Calculate comparison data
+        comparison_data = self._generate_comparison_data(charts[0], charts[1] if len(charts) > 1 else None)
+
+        # Structure the result
+        result = {
+            "comparison_id": comparison_id,
+            "charts": charts_info,
+            "generated_at": datetime.now().isoformat(),
+            "comparison": comparison_data
+        }
+
+        return result
+
+    def _generate_comparison_data(self, chart1_data: Dict[str, Any], chart2_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Generate comprehensive comparison data between two charts.
+
+        Args:
+            chart1_data: First chart data
+            chart2_data: Second chart data (optional)
+
+        Returns:
+            Dictionary with detailed comparison results
+        """
+        result = {
+            "comparison_timestamp": datetime.now().isoformat(),
+            "summary": "Chart analysis",
+            "differences": []
+        }
+
+        # If only one chart, return its analysis
+        if chart2_data is None:
+            result["summary"] = "Single chart analysis"
+            return result
+
+        # Compare planets
+        planets1 = chart1_data.get("planets", {})
+        planets2 = chart2_data.get("planets", {})
+
+        # Compare ascendant
+        asc1 = chart1_data.get("angles", {}).get("Asc", {})
+        asc2 = chart2_data.get("angles", {}).get("Asc", {})
+
+        if asc1 and asc2:
+            asc_diff = abs(asc1.get("longitude", 0) - asc2.get("longitude", 0)) % 360
+            result["differences"].append({
+                "element": "Ascendant",
+                "difference_degrees": asc_diff,
+                "chart1": asc1,
+                "chart2": asc2
+            })
+
+        # Compare each planet
+        for planet_name in planets1.keys():
+            if planet_name in planets2:
+                planet1 = planets1[planet_name]
+                planet2 = planets2[planet_name]
+
+                long_diff = abs(planet1.get("longitude", 0) - planet2.get("longitude", 0)) % 360
+                house_diff = abs(planet1.get("house", 0) - planet2.get("house", 0))
+
+                result["differences"].append({
+                    "element": planet_name,
+                    "difference_degrees": long_diff,
+                    "house_difference": house_diff,
+                    "chart1": planet1,
+                    "chart2": planet2
+                })
+
+        # Generate summary text based on differences
+        if result["differences"]:
+            # Calculate average difference
+            total_diff = sum(d.get("difference_degrees", 0) for d in result["differences"])
+            avg_diff = total_diff / len(result["differences"]) if result["differences"] else 0
+
+            result["summary"] = f"Charts comparison: average difference of {avg_diff:.2f} degrees across {len(result['differences'])} elements."
+
+        return result

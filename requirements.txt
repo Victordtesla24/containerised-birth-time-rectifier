@@ -2,7 +2,8 @@
 fastapi==0.100.0
 uvicorn==0.22.0
 pydantic==1.10.12  # Changed from 2.0.0 to be compatible with fastapi 0.100.0
-pytest==7.3.1
+# pydantic-settings==0.2.5  # Commented out to resolve dependency conflicts
+pytest==7.4.3  # Updated from 7.3.1 to be compatible with pytest-env
 pytest-asyncio==0.21.0  # Fixed version
 PyJWT==2.8.0  # Added for JWT token handling
 
