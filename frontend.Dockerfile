@@ -31,6 +31,8 @@ RUN npm install --global npm@latest && \
     npm cache clean --force && \
     npm install && \
     npm install --save d3@7.8.5 && \
+    npm install --save next@latest && \
+    npm install --save react@latest react-dom@latest && \
     # Create needed directories
     mkdir -p .next && \
     echo "{}" > .next/fallback-build-manifest.json && \
@@ -52,7 +54,7 @@ echo "{}" > .next/fallback-build-manifest.json\n\
 chmod -R 777 .next\n\
 \n\
 echo "Starting Next.js in development mode..."\n\
-exec npm run dev\n\
+exec npx next dev\n\
 ' > scripts/nextjs-entrypoint.sh && chmod +x scripts/nextjs-entrypoint.sh
 
 # Copy source code
