@@ -21,6 +21,9 @@ import tempfile
 import math
 import traceback
 import random
+import matplotlib
+import matplotlib.pyplot as plt
+from ai_service.utils.vedic_chart_renderer import VedicChartRenderer
 
 # Import real data sources and calculation utilities
 from ai_service.utils.constants import ZODIAC_SIGNS
@@ -2823,6 +2826,182 @@ class ChartService:
             interpretation.append("The rectified birth time provides minor refinements to the chart while preserving the overall structure and interpretation.")
 
         return "\n".join(interpretation)
+
+    def _generate_vedic_kundli_chart(self, chart_data: Dict[str, Any], output_dir: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate a traditional North Indian style Kundli chart based on chart data.
+
+        Args:
+            chart_data: Dictionary containing chart data including planets, houses, and ascendant.
+            output_dir: Optional directory for saving the chart image.
+
+        Returns:
+            Dict containing the path to the rendered chart and metadata.
+        """
+        try:
+            # Validate required fields in chart data
+            required_fields = ["planets", "houses", "ascendant"]
+            for field in required_fields:
+                if field not in chart_data:
+                    logging.warning(f"Chart data missing required field: {field}")
+
+            # Create renderer and generate chart
+            renderer = VedicChartRenderer(chart_data, output_dir)
+            chart_path = renderer.render_north_indian_chart()
+
+            # Return result
+            return {
+                "chart_path": chart_path,
+                "chart_type": "vedic_kundli",
+                "timestamp": datetime.now().isoformat(),
+                "friendly_enemy_highlighting": True
+            }
+        except Exception as e:
+            logging.error(f"Error generating Vedic Kundli chart: {e}")
+            return {
+                "error": str(e),
+                "chart_type": "vedic_kundli",
+                "success": False
+            }
+
+    def generate_chart_comparison(self, original_chart: Dict[str, Any], rectified_chart: Dict[str, Any],
+                                   output_dir: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate a comparison between original and rectified charts highlighting differences.
+
+        Args:
+            original_chart: Original chart data.
+            rectified_chart: Rectified chart data.
+            output_dir: Optional directory for saving the comparison image.
+
+        Returns:
+            Dict containing the path to the comparison image and highlighted differences.
+        """
+        try:
+            # Prepare comparison data
+            comparison_data = {
+                "original": original_chart,
+                "rectified": rectified_chart
+            }
+
+            # Generate Vedic chart comparison
+            renderer = VedicChartRenderer(original_chart, output_dir)
+            comparison_path = renderer.render_chart_comparison(comparison_data)
+
+            # Analyze differences
+            differences = self._analyze_chart_differences(original_chart, rectified_chart)
+
+            return {
+                "comparison_path": comparison_path,
+                "comparison_type": "vedic_kundli",
+                "differences": differences,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            logging.error(f"Error generating chart comparison: {e}")
+            return {
+                "error": str(e),
+                "comparison_type": "vedic_kundli",
+                "success": False
+            }
+
+    def _analyze_chart_differences(self, original_chart: Dict[str, Any], rectified_chart: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Analyze differences between original and rectified charts with astrological significance.
+
+        Args:
+            original_chart: Original chart data.
+            rectified_chart: Rectified chart data.
+
+        Returns:
+            List of dictionaries describing changes with astrological significance.
+        """
+        differences = []
+
+        # Compare ascendants
+        orig_asc = original_chart.get("ascendant", {})
+        rect_asc = rectified_chart.get("ascendant", {})
+
+        if orig_asc.get("sign") != rect_asc.get("sign"):
+            differences.append({
+                "type": "ascendant_sign_change",
+                "before": orig_asc.get("sign"),
+                "after": rect_asc.get("sign"),
+                "significance": f"Changing from {orig_asc.get('sign')} to {rect_asc.get('sign')} "
+                                f"ascendant significantly affects your personality expression, physical "
+                                f"appearance, and overall life approach. {rect_asc.get('sign')} rising "
+                                f"suggests {self._get_ascendant_traits(rect_asc.get('sign'))}."
+            })
+
+        # Check for planets changing houses
+        orig_planets = {p.get("name"): p for p in original_chart.get("planets", [])}
+        rect_planets = {p.get("name"): p for p in rectified_chart.get("planets", [])}
+
+        for planet_name, rect_planet in rect_planets.items():
+            if planet_name in orig_planets:
+                orig_planet = orig_planets[planet_name]
+
+                # Check if house changed
+                if orig_planet.get("house") != rect_planet.get("house"):
+                    differences.append({
+                        "type": "planet_house_change",
+                        "planet": planet_name,
+                        "before_house": orig_planet.get("house"),
+                        "after_house": rect_planet.get("house"),
+                        "significance": f"{planet_name} moving from the {self._to_ordinal(orig_planet.get('house'))} to "
+                                       f"the {self._to_ordinal(rect_planet.get('house'))} house shifts its influence from "
+                                       f"{self._get_house_significance(orig_planet.get('house'))} to "
+                                       f"{self._get_house_significance(rect_planet.get('house'))}."
+                    })
+
+        return differences
+
+    def _to_ordinal(self, num: int) -> str:
+        """Convert number to ordinal string (1st, 2nd, 3rd, etc.)."""
+        if not isinstance(num, int):
+            return str(num)
+
+        if 10 <= num % 100 <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(num % 10, "th")
+        return f"{num}{suffix}"
+
+    def _get_ascendant_traits(self, sign: str) -> str:
+        """Get personality traits associated with an ascendant sign."""
+        traits = {
+            "Aries": "directness, courage, and a pioneering spirit",
+            "Taurus": "stability, practicality, and sensuality",
+            "Gemini": "versatility, curiosity, and communication skills",
+            "Cancer": "sensitivity, nurturing nature, and emotional depth",
+            "Leo": "confidence, creativity, and natural leadership",
+            "Virgo": "analytical skills, attention to detail, and practicality",
+            "Libra": "diplomacy, refined taste, and relationship focus",
+            "Scorpio": "intensity, determination, and psychological depth",
+            "Sagittarius": "optimism, adventure, and philosophical outlook",
+            "Capricorn": "ambition, discipline, and sense of responsibility",
+            "Aquarius": "originality, humanitarian values, and progressive thinking",
+            "Pisces": "compassion, imagination, and spiritual sensitivity"
+        }
+        return traits.get(sign, "unique personality traits")
+
+    def _get_house_significance(self, house: int) -> str:
+        """Get astrological significance of a house number."""
+        houses = {
+            1: "self-identity and physical appearance",
+            2: "personal resources, values, and income",
+            3: "communication, siblings, and immediate environment",
+            4: "home, family, and emotional foundations",
+            5: "creativity, romance, and self-expression",
+            6: "daily work, health, and service",
+            7: "partnerships, marriage, and open relationships",
+            8: "shared resources, transformation, and deep psychology",
+            9: "higher education, philosophy, and long-distance travel",
+            10: "career, public reputation, and authority",
+            11: "friendships, groups, and aspirations",
+            12: "spirituality, unconscious, and hidden aspects of life"
+        }
+        return houses.get(house, "various areas of life")
 
 # Move these functions outside the class
 # Singleton provider
