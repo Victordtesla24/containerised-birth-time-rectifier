@@ -1,4 +1,5 @@
-"""API Router Collection.
+"""
+API Router Collection.
 
 This module collects all API routers and exposes them as a single router.
 """

@@ -559,213 +559,99 @@ def generate_multiple_charts(chart_data: Dict[str, Any], output_dir: str) -> Dic
 
     return results
 
-def generate_comparison_chart(original_chart: Dict[str, Any], rectified_chart: Dict[str, Any], output_path: Optional[str] = None) -> Union[str, Dict[str, Any]]:
+def generate_comparison_chart(
+    original_chart: Dict[str, Any],
+    rectified_chart: Optional[Dict[str, Any]] = None,
+    output_path: Optional[str] = None
+) -> str:
     """
-    Generate a high-quality comparison visualization between two charts (original and rectified).
-
-    This function creates a professional side-by-side comparison of charts with proper styling,
-    highlighting key differences for visual analysis. Can return either a file path or
-    a structured dictionary with base64 encoded image for API responses.
+    Generate a comparison visualization between original and rectified charts.
 
     Args:
         original_chart: Original chart data
-        rectified_chart: Rectified chart data
+        rectified_chart: Rectified chart data (optional)
         output_path: Path to save the generated image (optional)
 
     Returns:
-        If output_path is provided: Path to the saved image file
-        If output_path is None: Dictionary with base64 encoded image and metadata for API response
+        Path to the generated comparison chart image
     """
     try:
-        # Create a temporary output path if none provided
-        temp_output = False
-        if output_path is None:
-            temp_output = True
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+        # Set up the figure
+        fig = plt.figure(figsize=(15, 10))
+
+        if rectified_chart is None:
+            # If no rectified chart, just display the original
+            ax = fig.add_subplot(111)
+            _render_comparison_chart(ax, original_chart, "Original Chart")
+            title = "Birth Chart Visualization"
+        else:
+            # Set up for comparison
+            gs = GridSpec(1, 2, figure=fig)
+
+            # Original chart on the left
+            ax1 = fig.add_subplot(gs[0, 0])
+            _render_comparison_chart(ax1, original_chart, "Original Chart")
+
+            # Rectified chart on the right
+            ax2 = fig.add_subplot(gs[0, 1])
+            _render_comparison_chart(ax2, rectified_chart, "Rectified Chart")
+
+            # Add differences in chart properties
+            differences = _extract_key_differences(original_chart, rectified_chart)
+
+            # Add time difference
+            time_diff = 0
+            if "birth_details" in original_chart and original_chart["birth_details"] and \
+               "birth_details" in rectified_chart and rectified_chart["birth_details"]:
+                orig_time = original_chart["birth_details"].get("time", "")
+                rect_time = rectified_chart["birth_details"].get("time", "")
+                if orig_time and rect_time:
+                    time_diff = _calculate_time_difference(orig_time, rect_time)
+
+            # Set title based on comparison
+            title = f"Chart Comparison (Time Difference: {abs(time_diff)} minutes)"
+
+        # Set the figure title
+        fig.suptitle(title, fontsize=16, weight='bold')
+
+        # Create output path if not provided
+        if not output_path:
+            # Create a temporary file with unique name
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 output_path = tmp.name
 
-        # Ensure the output directory exists if path provided
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
-        # Extract birth details for titles
-        original_details = original_chart.get("birth_data", {})
-        rectified_details = rectified_chart.get("birth_data", {})
-
-        if not original_details and "birth_details" in original_chart:
-            original_details = original_chart["birth_details"]
-
-        if not rectified_details and "birth_details" in rectified_chart:
-            rectified_details = rectified_chart["birth_details"]
-
-        original_time = original_details.get("time", original_details.get("birth_time", ""))
-        rectified_time = rectified_details.get("time", rectified_details.get("birth_time", ""))
-
-        # Calculate time difference for the main title
-        time_diff = _calculate_time_difference(original_time, rectified_time)
-        time_direction = "later" if time_diff > 0 else "earlier"
-        abs_time_diff = abs(time_diff)
-
-        # Format time difference for display
-        hours, minutes = divmod(abs_time_diff, 60)
-        if hours > 0:
-            time_diff_str = f"{int(hours)}h {int(minutes)}m"
-        else:
-            time_diff_str = f"{int(minutes)}m"
-
-        # Set up figure with higher DPI for better quality
-        fig = plt.figure(figsize=(16, 10), dpi=300)
-
-        # Add a title to the overall figure
-        fig.suptitle(
-            f"Birth Chart Comparison: Original vs. Rectified\n"
-            f"Time Difference: {time_diff_str} {time_direction}",
-            fontsize=18, y=0.98
-        )
-
-        # Create two subplots side by side with enough space
-        grid = GridSpec(1, 2, wspace=0.3, hspace=0)
-        ax1 = plt.subplot(grid[0, 0])
-        ax2 = plt.subplot(grid[0, 1])
-
-        # Give each subplot its own title
-        ax1.set_title(f"Original Chart: {original_time}", fontsize=14, pad=15)
-        ax2.set_title(f"Rectified Chart: {rectified_time}", fontsize=14, pad=15)
-
-        # Generate Vedic charts in each subplot
-        _render_comparison_chart(ax1, original_chart, "Original")
-        _render_comparison_chart(ax2, rectified_chart, "Rectified")
-
-        # Add a section below for listing key differences
-        differences = _extract_key_differences(original_chart, rectified_chart)
-        if differences:
-            diff_text = "Key Differences:\n"
-            for i, diff in enumerate(differences, 1):
-                diff_text += f"• {diff}\n"
-
-            plt.figtext(0.5, 0.05, diff_text, ha='center', fontsize=12,
-                       bbox=dict(facecolor='#f0f0f0', alpha=0.5, boxstyle='round,pad=0.5'))
-
-        # Add generation timestamp
-        plt.figtext(0.98, 0.01, f"Generated: {datetime.now().strftime('%Y-%m-%d')}",
-                   ha='right', fontsize=8, fontstyle='italic', color='gray')
-
-        # Save the comparison chart with high quality
-        plt.tight_layout(rect=(0, 0.08, 1, 0.95))
+        # Save the figure
+        plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust for title
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
 
-        # Create a dictionary with metadata for API response
-        comparison_result = {
-            "original_time": original_time,
-            "rectified_time": rectified_time,
-            "time_difference_minutes": time_diff,
-            "time_difference_formatted": time_diff_str,
-            "time_direction": time_direction,
-            "key_differences": differences,
-            "generated_at": datetime.now().isoformat()
-        }
-
-        # If temporary file or base64 encoding requested, read image and convert to base64
-        if temp_output:
-            # Read the saved file and encode as base64
-            with open(output_path, 'rb') as img_file:
-                img_data = base64.b64encode(img_file.read()).decode('utf-8')
-
-            # Add base64 data to result
-            comparison_result["image_data"] = f"data:image/png;base64,{img_data}"
-            comparison_result["encoding"] = "base64"
-            comparison_result["mime_type"] = "image/png"
-
-            # Delete the temporary file
-            os.unlink(output_path)
-
-            # Return the complete result dictionary for API response
-            return comparison_result
-        else:
-            # Verify file was created
-            if not os.path.exists(output_path):
-                raise FileNotFoundError(f"Failed to create comparison chart at {output_path}")
-
-            # Add file information to result
-            comparison_result["file_path"] = output_path
-            comparison_result["file_size"] = os.path.getsize(output_path)
-
-            # For file output, just return the path as before for compatibility
-            logger.info(f"Comparison chart saved to {output_path}")
-            return output_path
+        return output_path
 
     except Exception as e:
-        logger.error(f"Error generating comparison chart: {str(e)}")
+        logger.error(f"Error generating comparison chart: {e}")
         logger.error(traceback.format_exc())
 
-        # Create a basic error image if generation fails
-        try:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.text(0.5, 0.5, f"Error generating comparison chart:\n{str(e)}",
-                   ha='center', va='center', fontsize=12, color='red')
-            ax.axis('off')
+        # Return a default/error image path if something goes wrong
+        error_img_path = os.path.join(tempfile.gettempdir(), f"chart_error_{uuid.uuid4()}.png")
 
-            # If output path is provided, save error image to file
-            if output_path and not temp_output:
-                plt.savefig(output_path, dpi=100, bbox_inches='tight')
-                plt.close(fig)
-                return output_path
-            else:
-                # Return error information in dictionary format for API
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-                plt.close(fig)
-                buf.seek(0)
-                img_data = base64.b64encode(buf.read()).decode('utf-8')
+        # Create a simple error chart
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f"Error generating chart:\n{str(e)}",
+                ha='center', va='center', fontsize=12)
+        ax.axis('off')
+        plt.savefig(error_img_path)
+        plt.close(fig)
 
-                return {
-                    "error": str(e),
-                    "generated_at": datetime.now().isoformat(),
-                    "image_data": f"data:image/png;base64,{img_data}",
-                    "encoding": "base64",
-                    "mime_type": "image/png"
-                }
-
-        except Exception as inner_e:
-            logger.error(f"Failed to create error chart: {inner_e}")
-            # If even the error image fails, return a dictionary with just the error
-            return {
-                "error": str(e),
-                "error_image_failed": str(inner_e),
-                "generated_at": datetime.now().isoformat()
-            }
-
-def _calculate_arc_difference(longitude1: float, longitude2: float) -> float:
-    """
-    Calculate the smallest arc difference between two zodiacal longitudes.
-
-    Args:
-        longitude1: First longitude in degrees
-        longitude2: Second longitude in degrees
-
-    Returns:
-        Smallest arc difference in degrees (0-180)
-    """
-    # Normalize longitudes to 0-360 range
-    lon1 = normalize_longitude(longitude1)
-    lon2 = normalize_longitude(longitude2)
-
-    # Calculate direct difference
-    diff = abs(lon1 - lon2)
-
-    # Return the smaller arc (direct or complement)
-    return min(diff, 360 - diff)
-
+        return error_img_path
 
 def _render_comparison_chart(ax: Axes, chart_data: Dict[str, Any], chart_type: str = "Chart") -> None:
     """
-    Render a Vedic chart for comparison purposes in the given axis.
+    Render a chart on the provided axes.
 
     Args:
-        ax: Matplotlib axis to render on
-        chart_data: Chart data to render
-        chart_type: Type of chart (Original or Rectified) for styling
+        ax: Matplotlib axes to render on
+        chart_data: Chart data dictionary
+        chart_type: Type of chart (for title)
     """
     # Set background color based on chart type
     if chart_type.lower() == "original":
@@ -905,17 +791,16 @@ def _render_comparison_chart(ax: Axes, chart_data: Dict[str, Any], chart_type: s
     ax.set_ylim(-0.5, 10.5)
     ax.axis('off')
 
-
 def _extract_key_differences(original_chart: Dict[str, Any], rectified_chart: Dict[str, Any]) -> List[str]:
     """
-    Extract key astrological differences between original and rectified charts.
+    Extract key differences between original and rectified charts.
 
     Args:
         original_chart: Original chart data
         rectified_chart: Rectified chart data
 
     Returns:
-        List of strings describing key differences
+        List of difference descriptions
     """
     differences = []
 
@@ -1010,7 +895,6 @@ def _extract_key_differences(original_chart: Dict[str, Any], rectified_chart: Di
                 differences.append(f"Lost {aspect_type} aspect between {planet1} and {planet2}")
 
     return differences
-
 
 def _calculate_time_difference(time1: str, time2: str) -> int:
     """
@@ -2115,3 +1999,24 @@ def generate_chart_image(chart_data: Dict[str, Any], output_path: str, include_3
 
         # If all else fails, re-raise the original error
         raise
+
+def _calculate_arc_difference(longitude1: float, longitude2: float) -> float:
+    """
+    Calculate the smallest arc difference between two zodiacal longitudes.
+
+    Args:
+        longitude1: First longitude in degrees
+        longitude2: Second longitude in degrees
+
+    Returns:
+        Smallest arc difference in degrees (0-180)
+    """
+    # Normalize longitudes to 0-360 range
+    lon1 = normalize_longitude(longitude1)
+    lon2 = normalize_longitude(longitude2)
+
+    # Calculate direct difference
+    diff = abs(lon1 - lon2)
+
+    # Return the smaller arc (direct or complement)
+    return min(diff, 360 - diff)

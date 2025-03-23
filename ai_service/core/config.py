@@ -7,8 +7,7 @@ import os
 from typing import Optional, Dict, Any, List
 import logging
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import BaseSettings, Field, validator
 
 # Load .env file
 load_dotenv()
@@ -72,26 +71,27 @@ class Settings(BaseSettings):
     DEFAULT_ZODIAC_TYPE: str = os.getenv("DEFAULT_ZODIAC_TYPE", "sidereal")
     DEFAULT_AYANAMSA: float = float(os.getenv("DEFAULT_AYANAMSA", "23.6647"))
 
-    @field_validator("DATABASE_URL", mode="before")
-    def assemble_db_url(cls, v: Optional[str], info) -> str:
+    @validator("DATABASE_URL", pre=True)
+    def assemble_db_url(cls, v: Optional[str], values) -> str:
         if v and len(v) > 0:
             return v
 
         # Build the URL from separate components
-        # Access values from info.data instead of the values parameter
-        db_user = info.data.get('DB_USER')
-        db_password = info.data.get('DB_PASSWORD')
-        db_host = info.data.get('DB_HOST')
-        db_port = info.data.get('DB_PORT')
-        db_name = info.data.get('DB_NAME')
+        db_user = values.get('DB_USER')
+        db_password = values.get('DB_PASSWORD')
+        db_host = values.get('DB_HOST')
+        db_port = values.get('DB_PORT')
+        db_name = values.get('DB_NAME')
 
         return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
 
     def dict_with_secrets_hidden(self) -> Dict[str, Any]:
         """Returns settings dict with sensitive values hidden"""
-        settings_dict = self.model_dump()
+        settings_dict = self.dict()
         sensitive_keys = ["SECRET_KEY", "OPENAI_API_KEY"]
 
         for key in sensitive_keys:

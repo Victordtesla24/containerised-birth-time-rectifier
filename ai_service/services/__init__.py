@@ -30,27 +30,20 @@ def get_chart_service() -> ChartService:
         logger.debug("Returning existing chart service instance")
         return _chart_service_instance
 
-    try:
-        # Try to get from dependency container
-        from ai_service.utils.dependency_container import get_container
-        container = get_container()
+    # Get from dependency container
+    from ai_service.utils.dependency_container import get_container
+    container = get_container()
 
-        # Try to get from container first
-        try:
-            chart_service = container.get("chart_service")
-            _chart_service_instance = chart_service
-            logger.info("Retrieved chart service from dependency container")
-            return chart_service
-        except ValueError:
-            # Create and register if not found
-            logger.info("Creating new chart service instance and registering with container")
-            chart_service = create_chart_service()
-            container.register_service("chart_service", chart_service)
-            _chart_service_instance = chart_service
-            return chart_service
-    except Exception as e:
-        # Create directly as fallback
-        logger.warning(f"Error accessing dependency container: {e}. Creating direct chart service instance.")
+    # Try to get from container first
+    try:
+        chart_service = container.get("chart_service")
+        _chart_service_instance = chart_service
+        logger.info("Retrieved chart service from dependency container")
+        return chart_service
+    except ValueError:
+        # Create and register if not found
+        logger.info("Creating new chart service instance and registering with container")
         chart_service = create_chart_service()
+        container.register_service("chart_service", chart_service)
         _chart_service_instance = chart_service
         return chart_service

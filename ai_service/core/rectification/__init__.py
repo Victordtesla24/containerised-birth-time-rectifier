@@ -1,26 +1,12 @@
 """
-Compatibility wrapper for the rectification module.
+Birth Time Rectification Module
 
-This file maintains backward compatibility with existing code while
-delegating to the new modular implementation.
+This module provides utilities for rectifying birth times using various
+astrological methods.
 
-IMPORTANT DEPRECATION NOTICE:
-------------------------------
-This module is provided for backward compatibility only and will be removed in a future version.
-Please update your imports to use the new modular structure:
-
-- Import from ai_service.core.rectification.main instead of ai_service.core.rectification
-- Import from ai_service.core.rectification.event_analysis for event analysis functions
-- Import from ai_service.core.rectification.chart_calculator for chart calculations
-- Import from ai_service.core.rectification.utils.storage for storage functions
-
-RECENT IMPROVEMENTS:
--------------------
-- Replaced mock OpenAI implementation with actual service for accurate rectification
-- Enhanced MinimalChart in ephemeris.py to provide more accurate planetary calculations
-- Standardized AI-assisted rectification response handling with robust parsing
-- Implemented proper astrological significance evaluation for transit analysis
-- Replaced fallbacks with alternative calculation methods for better results
+Usage:
+    from ai_service.core.rectification import rectify_birth_time, comprehensive_rectification
+    rectified_time, confidence = await rectify_birth_time(birth_dt, lat, lon, tz, answers)
 """
 
 import logging
@@ -29,23 +15,82 @@ from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
 import asyncio
 
-# Import from new modular structure
-from ai_service.core.rectification.main import rectify_birth_time as _rectify_birth_time
-from ai_service.core.rectification.main import comprehensive_rectification as _comprehensive_rectification
-from ai_service.core.rectification.constants import PLANETS_LIST, LIFE_EVENT_MAPPING
-from ai_service.core.rectification.event_analysis import extract_life_events_from_answers as _extract_life_events_from_answers
-from ai_service.core.rectification.utils.storage import store_rectified_chart as _store_rectified_chart
-from ai_service.core.rectification.chart_calculator import calculate_chart as _calculate_chart
-from ai_service.core.rectification.chart_calculator import get_planets_list as _get_planets_list
+# Import main functionality
+from .main import (
+    rectify_birth_time as _rectify_birth_time,
+    comprehensive_rectification as _comprehensive_rectification,
+    questionnaire_based_rectification,
+    chart_based_rectification,
+    generate_rectification_explanation,
+    generate_detailed_analysis
+)
 
-# Import methods directly to ensure they're available through this module
-from ai_service.core.rectification.methods.transit_analysis import analyze_life_events
-from ai_service.core.rectification.methods.ai_rectification import ai_assisted_rectification
-from ai_service.core.rectification.methods.solar_arc import solar_arc_rectification
-from ai_service.core.rectification.methods.progressed import progressed_ascendant_rectification
+# Import chart calculation utilities
+from .chart_calculator import (
+    calculate_chart as _calculate_chart,
+    get_planets_list as _get_planets_list
+)
+
+# Import event analysis functionality
+from .event_analysis import extract_life_events_from_answers as _extract_life_events_from_answers
+
+# Import constants
+from .constants import PLANETS_LIST, LIFE_EVENT_MAPPING
+
+# Import methods for specific rectification approaches
+from .methods.transit_analysis import analyze_life_events
+from .methods.ai_rectification import ai_assisted_rectification
+from .methods.solar_arc import solar_arc_rectification
+from .methods.progressed import progressed_ascendant_rectification
 
 # Import utilities
-from ai_service.core.rectification.utils.ephemeris import verify_ephemeris_files
+from .utils.storage import store_rectified_chart as _store_rectified_chart
+from .utils.ephemeris import verify_ephemeris_files
+
+# Import AI verification utilities
+from .ai_verification import verify_with_openai, create_standardized_openai_prompt
+
+# Set up logger
+logger = logging.getLogger(__name__)
+
+# Export all necessary functions and constants
+__all__ = [
+    # Main functions
+    'rectify_birth_time',
+    'comprehensive_rectification',
+    'questionnaire_based_rectification',
+    'chart_based_rectification',
+    'generate_rectification_explanation',
+    'generate_detailed_analysis',
+
+    # Chart utilities
+    'calculate_chart',
+    'get_planets_list',
+
+    # Event analysis
+    'extract_life_events_from_answers',
+
+    # Constants
+    'PLANETS_LIST',
+    'LIFE_EVENT_MAPPING',
+
+    # Method-specific functions
+    'analyze_life_events',
+    'ai_assisted_rectification',
+    'solar_arc_rectification',
+    'progressed_ascendant_rectification',
+
+    # Utilities
+    'store_rectified_chart',
+    'verify_ephemeris_files',
+
+    # AI verification
+    'verify_with_openai',
+    'create_standardized_openai_prompt'
+]
+
+# Log initialization
+logger.debug("Birth time rectification module initialized")
 
 # Forward compatibility functions
 async def rectify_birth_time(
@@ -135,17 +180,6 @@ def store_rectified_chart(chart_data: Dict[str, Any], rectification_id: str, bir
         return None
 
 # Log deprecation warning when module is imported
-logger = logging.getLogger(__name__)
 logger.warning(
     "ai_service.core.rectification is deprecated. Please update your imports to use the new modular structure."
 )
-
-# Make all needed functions and constants accessible through this module
-__all__ = [
-    'rectify_birth_time', 'comprehensive_rectification', 'extract_life_events_from_answers',
-    'calculate_chart', 'get_planets_list', 'store_rectified_chart',
-    'PLANETS_LIST', 'LIFE_EVENT_MAPPING',
-    'analyze_life_events',
-    'ai_assisted_rectification', 'solar_arc_rectification',
-    'progressed_ascendant_rectification', 'verify_ephemeris_files'
-]

@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Import chart_calculator and create stub methods as needed
 try:
+    # Updated import to use new modular structure
     from ai_service.core.rectification import chart_calculator as chart_calculator_module
 
     # Create a wrapper to ensure the module has the necessary methods

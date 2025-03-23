@@ -142,10 +142,11 @@ def calculate_outer_planet_position(jd: float, planet_id: int) -> Dict[str, Any]
         Dictionary with planet position data
 
     Raises:
-        ValueError: If calculation fails
+        EphemerisError: If Swiss Ephemeris is not available
+        ValueError: If calculation fails with Swiss Ephemeris
     """
     if not SWISSEPH_AVAILABLE:
-        raise ValueError("Swiss Ephemeris not available for outer planet calculation")
+        raise EphemerisError("Swiss Ephemeris not available for outer planet calculation")
 
     try:
         # Calculate planet positions with high precision
@@ -382,34 +383,52 @@ def calculate_chart(
         # Extract planets
         chart_data["planets"] = {}
 
-        # Get Julian Day for Swiss Ephemeris calculations
-        # This ensures consistent calculations between flatlib and Swiss Ephemeris
-        jd = swe.julday(
-            birth_dt.year,
-            birth_dt.month,
-            birth_dt.day,
-            birth_dt.hour + birth_dt.minute/60 + birth_dt.second/3600
-        )
+        # Get Julian Day for Swiss Ephemeris calculations if available
+        try:
+            if SWISSEPH_AVAILABLE:
+                jd = swe.julday(
+                    birth_dt.year,
+                    birth_dt.month,
+                    birth_dt.day,
+                    birth_dt.hour + birth_dt.minute/60 + birth_dt.second/3600
+                )
+            else:
+                # Using flatlib calculation for Julian Day
+                jd = None
+        except Exception as e:
+            logger.warning(f"Failed to calculate Julian Day: {e}, proceeding with flatlib only")
+            jd = None
 
         # Planet mapping between flatlib constants and Swiss Ephemeris
         planet_mappings = {
-            const.SUN: (swe.SUN, "sun"),
-            const.MOON: (swe.MOON, "moon"),
-            const.MERCURY: (swe.MERCURY, "mercury"),
-            const.VENUS: (swe.VENUS, "venus"),
-            const.MARS: (swe.MARS, "mars"),
-            const.JUPITER: (swe.JUPITER, "jupiter"),
-            const.SATURN: (swe.SATURN, "saturn"),
+            const.SUN: (swe.SUN if SWISSEPH_AVAILABLE else None, "sun"),
+            const.MOON: (swe.MOON if SWISSEPH_AVAILABLE else None, "moon"),
+            const.MERCURY: (swe.MERCURY if SWISSEPH_AVAILABLE else None, "mercury"),
+            const.VENUS: (swe.VENUS if SWISSEPH_AVAILABLE else None, "venus"),
+            const.MARS: (swe.MARS if SWISSEPH_AVAILABLE else None, "mars"),
+            const.JUPITER: (swe.JUPITER if SWISSEPH_AVAILABLE else None, "jupiter"),
+            const.SATURN: (swe.SATURN if SWISSEPH_AVAILABLE else None, "saturn"),
         }
 
-        # Add outer planets which need Swiss Ephemeris
-        outer_planets = {
-            "uranus": swe.URANUS,
-            "neptune": swe.NEPTUNE,
-            "pluto": swe.PLUTO,
-            "chiron": swe.CHIRON,
-            "north_node": swe.MEAN_NODE  # Using Mean Node
+        # Define outer planets (for flatlib fallback when SwissEph not available)
+        flatlib_outer_planets = {
+            "uranus": const.URANUS,
+            "neptune": const.NEPTUNE,
+            "pluto": const.PLUTO,
+            "chiron": None,  # Not directly available in flatlib
+            "north_node": const.NORTH_NODE
         }
+
+        # Add outer planets which need Swiss Ephemeris ideally
+        outer_planets = {}
+        if SWISSEPH_AVAILABLE:
+            outer_planets = {
+                "uranus": swe.URANUS,
+                "neptune": swe.NEPTUNE,
+                "pluto": swe.PLUTO,
+                "chiron": swe.CHIRON,
+                "north_node": swe.MEAN_NODE  # Using Mean Node
+            }
 
         # Process standard planets from flatlib
         for planet_name, (swe_id, output_name) in planet_mappings.items():
@@ -433,15 +452,38 @@ def calculate_chart(
                     }
             except Exception as e:
                 logger.error(f"Error extracting planet {planet_name}: {e}")
-                # Try Swiss Ephemeris as fallback
+                # Try Swiss Ephemeris as fallback if available
+                if SWISSEPH_AVAILABLE and swe_id is not None and jd is not None:
+                    try:
+                        planet_data = calculate_outer_planet_position(jd, swe_id)
+                        # Determine house for this planet
+                        house = _determine_house(chart_data["houses"], planet_data["longitude"])
+
+                        # Add to chart data
+                        chart_data["planets"][output_name] = {
+                            "name": output_name,
+                            "longitude": planet_data["longitude"],
+                            "latitude": planet_data["latitude"],
+                            "speed": planet_data["speed"],
+                            "sign": planet_data["sign"],
+                            "house": house,
+                            "retrograde": planet_data["retrograde"]
+                        }
+                    except Exception as e2:
+                        logger.error(f"Failed to calculate {output_name} with Swiss Ephemeris: {e2}")
+                        # Continue with other planets
+
+        # Calculate outer planets with Swiss Ephemeris if available, otherwise use flatlib
+        if SWISSEPH_AVAILABLE and jd is not None:
+            for planet_name, swe_id in outer_planets.items():
                 try:
                     planet_data = calculate_outer_planet_position(jd, swe_id)
                     # Determine house for this planet
                     house = _determine_house(chart_data["houses"], planet_data["longitude"])
 
                     # Add to chart data
-                    chart_data["planets"][output_name] = {
-                        "name": output_name,
+                    chart_data["planets"][planet_name] = {
+                        "name": planet_name,
                         "longitude": planet_data["longitude"],
                         "latitude": planet_data["latitude"],
                         "speed": planet_data["speed"],
@@ -449,32 +491,59 @@ def calculate_chart(
                         "house": house,
                         "retrograde": planet_data["retrograde"]
                     }
-                except Exception as e2:
-                    logger.error(f"Failed to calculate {output_name} with Swiss Ephemeris: {e2}")
-                    # Continue with other planets
+                except Exception as e:
+                    logger.error(f"Error calculating {planet_name} with Swiss Ephemeris: {e}")
+                    # Try flatlib as fallback
+                    flatlib_planet_name = flatlib_outer_planets.get(planet_name)
+                    if flatlib_planet_name:
+                        try:
+                            planet = flat_chart.getObject(flatlib_planet_name)
+                            if planet:
+                                # Determine house
+                                house = _determine_house(chart_data["houses"], float(planet.lon))
 
-        # Calculate outer planets with Swiss Ephemeris
-        for planet_name, swe_id in outer_planets.items():
-            try:
-                planet_data = calculate_outer_planet_position(jd, swe_id)
-                # Determine house for this planet
-                house = _determine_house(chart_data["houses"], planet_data["longitude"])
+                                # Add to chart data
+                                chart_data["planets"][planet_name] = {
+                                    "name": planet_name,
+                                    "longitude": float(planet.lon),
+                                    "latitude": float(planet.lat),
+                                    "speed": float(planet.speed),
+                                    "sign": planet.sign,
+                                    "house": house,
+                                    "retrograde": planet.speed < 0
+                                }
+                            else:
+                                logger.warning(f"Flatlib returned None for {planet_name}")
+                        except Exception as e3:
+                            logger.error(f"Failed to get {planet_name} with flatlib fallback: {e3}")
+                            # Skip this planet
+        else:
+            # No Swiss Ephemeris available, use flatlib for all planets including outer ones
+            logger.info("Using flatlib for all planet calculations (including outer planets)")
+            for planet_name, flatlib_planet_name in flatlib_outer_planets.items():
+                if flatlib_planet_name:
+                    try:
+                        planet = flat_chart.getObject(flatlib_planet_name)
+                        if planet:
+                            # Determine house
+                            house = _determine_house(chart_data["houses"], float(planet.lon))
 
-                # Add to chart data
-                chart_data["planets"][planet_name] = {
-                    "name": planet_name,
-                    "longitude": planet_data["longitude"],
-                    "latitude": planet_data["latitude"],
-                    "speed": planet_data["speed"],
-                    "sign": planet_data["sign"],
-                    "house": house,
-                    "retrograde": planet_data["retrograde"]
-                }
-            except Exception as e:
-                logger.error(f"Error calculating {planet_name} with Swiss Ephemeris: {e}")
-                # Don't create placeholder data, treat this as a critical error
-                # If Swiss Ephemeris fails, we shouldn't proceed with inaccurate data
-                raise ValueError(f"Failed to calculate position for {planet_name}. Accurate ephemeris data is required for chart calculation.")
+                            # Add to chart data
+                            chart_data["planets"][planet_name] = {
+                                "name": planet_name,
+                                "longitude": float(planet.lon),
+                                "latitude": float(planet.lat),
+                                "speed": float(planet.speed),
+                                "sign": planet.sign,
+                                "house": house,
+                                "retrograde": planet.speed < 0
+                            }
+                        else:
+                            logger.warning(f"Flatlib returned None for {planet_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to calculate {planet_name} with flatlib: {e}")
+                else:
+                    logger.warning(f"No flatlib constant available for {planet_name}")
 
         return chart_data
 
