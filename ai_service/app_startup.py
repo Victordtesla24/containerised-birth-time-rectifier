@@ -133,11 +133,30 @@ def initialize_services():
         container.register_instance("openai_service", openai_service)
         logger.info("OpenAI service initialized successfully")
 
-        # Initialize chart service
+        # Initialize chart service - with retry
         from ai_service.services import get_chart_service
-        chart_service = get_chart_service()
-        container.register_instance("chart_service", chart_service)
-        logger.info("Chart service initialized successfully")
+
+        # Try up to 3 times to initialize the chart service
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                chart_service = get_chart_service()
+                container.register_instance("chart_service", chart_service)
+                logger.info("Chart service initialized successfully")
+                break
+            except Exception as chart_err:
+                if attempt < max_attempts:
+                    logger.warning(f"Chart service initialization failed (attempt {attempt}/{max_attempts}): {chart_err}")
+                    # Delay before retry
+                    import time
+                    time.sleep(1)
+                else:
+                    logger.error(f"Chart service initialization failed after {max_attempts} attempts: {chart_err}")
+                    # Create chart service directly
+                    from ai_service.services.chart_service import create_chart_service
+                    chart_service = create_chart_service()
+                    container.register_instance("chart_service", chart_service)
+                    logger.info("Created chart service directly as fallback")
 
         # Initialize session service
         from ai_service.services.session_service import SessionService

@@ -36,11 +36,11 @@ class BaseChartVerifier:
 # Import services we want to mock - handle import errors gracefully
 try:
     from ai_service.api.services.openai.service import OpenAIService
-    from ai_service.services.chart_service import ChartService, ChartVerifier
+    from ai_service.services.chart_service import ChartService
     # Use the actual classes for mocking
     ServiceClass = OpenAIService
     ChartServiceClass = ChartService
-    VerifierClass = ChartVerifier
+    VerifierClass = BaseChartVerifier
 except ImportError:
     logger.warning("Service modules not available, using base classes for mocks")
     # Use the base classes if imports fail

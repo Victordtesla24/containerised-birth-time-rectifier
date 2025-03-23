@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document identifies gaps, simulations, and mockups in the backend services that do not align with production requirements. The analysis compares current implementation against the expected application flow detailed in the sequence diagram (`docs/architecture/sequence_diagram.md`).
+This document identifies gaps, simulations, and mockups in the backend services that do not align with production requirements. The analysis compares current implementation against the expected application flow detailed in the sequence diagram (`docs/architecture/sequence_diagram.md`). This updated analysis includes specific code-level issues and required implementation changes.
 
 ## Key Issues Summary
 
@@ -26,7 +26,7 @@ This document identifies gaps, simulations, and mockups in the backend services 
 
 10. **WebSocket Implementation**: ⚠️ NEW Real-time updates through WebSocket connections aren't consistently implemented, particularly for rectification progress updates.
 
-## Detailed Findings
+## Detailed Findings with Code-Level Analysis
 
 ### Chart Service Implementations
 
@@ -40,6 +40,245 @@ This document identifies gaps, simulations, and mockups in the backend services 
 | `ai_service/services/chart_service.py` | 300-345 | ⚠️ UNRESOLVED | MOCK | Harmonic chart calculation doesn't properly implement divisional charts required for Vedic analysis. |
 | `ai_service/services/chart_service.py` | 525-575 | ⚠️ NEW | INCOMPLETE | Chart generation function doesn't produce 3D visualizations as described in the user testing instructions. |
 
+#### Code-Level Analysis:
+
+**1. Chart Export Functionality Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/services/chart_service_export.py
+def export_chart(chart_data, chart_output_dir=None, format="pdf", ...):
+    # ... processing code ...
+
+    # Define the output file path based on format
+    file_extension = format.lower()
+    output_filename = f"{chart_id}_{export_id}.{file_extension}"
+    output_path = os.path.join(export_subdir, output_filename)
+
+    # Dictionary to track all generated files
+    generated_files = {}
+
+    # Generate the appropriate file based on format
+    if format.lower() == "pdf":
+        # Use the PDF generator for comprehensive report
+        pdf_generator = PDFGenerator(output_dir=export_subdir)
+        file_path = pdf_generator.generate_full_report(
+            chart_data=chart_data,
+            interpretation=chart_data.get("interpretation"),
+            # ... other parameters
+        )
+        generated_files["main"] = file_path
+
+    # ... other format handling ...
+
+    # Verify all file paths exist - but doesn't properly handle failure
+    for key, path in list(generated_files.items()):
+        if not path or not os.path.exists(path):
+            logger.warning(f"File {key} not generated at {path}")
+            generated_files.pop(key, None)
+        else:
+            # Add file size information
+            generated_files[f"{key}_size"] = os.path.getsize(path)
+
+    # Create export metadata - returns even if no files were generated!
+    export_data = {
+        "export_id": export_id,
+        "chart_id": chart_id,
+        "format": format,
+        "generated_at": datetime.now().isoformat(),
+        "file_paths": generated_files,
+        "download_url": download_url,
+        # ... other metadata ...
+    }
+
+    # Return export metadata without confirming successful generation
+    return export_data
+```
+
+**Issues:**
+1. The function logs warnings but doesn't fail if files aren't generated
+2. It returns metadata even when no files were successfully created
+3. It doesn't ensure that visualization utilities are actually called with proper parameters
+4. There's no validation of file content beyond existence and size
+5. No clear error handling for PDF generation or image creation failures
+
+**Required Changes:**
+```python
+def export_chart(chart_data, chart_output_dir=None, format="pdf", ...):
+    # ... existing initialization code ...
+
+    # Track generation success
+    generated_files = {}
+    generation_success = False
+
+    # Generate the appropriate file based on format
+    if format.lower() == "pdf":
+        try:
+            # Use the PDF generator for comprehensive report
+            pdf_generator = PDFGenerator(output_dir=export_subdir)
+
+            file_path = pdf_generator.generate_full_report(
+                chart_data=chart_data,
+                interpretation=chart_data.get("interpretation"),
+                # ... other parameters
+            )
+
+            # Verify file was created and has content
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                generated_files["main"] = file_path
+                generation_success = True
+            else:
+                raise FileNotFoundError(f"PDF file not created or empty: {file_path}")
+
+        except Exception as e:
+            logger.error(f"PDF generation failed: {e}")
+            raise ChartExportError(f"Failed to generate PDF: {str(e)}")
+
+    # ... similar improvements for other formats ...
+
+    # Verify we have at least one generated file
+    if not generation_success or not generated_files:
+        raise ChartExportError(f"Failed to generate any files for format: {format}")
+
+    # Create export metadata only when successful
+    export_data = {
+        "export_id": export_id,
+        "chart_id": chart_id,
+        "format": format,
+        "generated_at": datetime.now().isoformat(),
+        "file_paths": generated_files,
+        "download_url": download_url,
+        "generation_verified": True,
+        # ... other metadata ...
+    }
+
+    return export_data
+```
+
+**Verification Criteria:**
+1. Function must raise exceptions when file generation fails instead of returning metadata
+2. Generated files must be verified for existence, size, and content validity
+3. Each format should have appropriate validation (PDF structure, image dimensions)
+4. Success should be confirmed before returning metadata
+5. Tests should verify failure modes by mocking visualization utilities that fail
+
+**2. OpenAI Integration for Rectification Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/services/chart_service.py
+async def update_chart_with_rectification(self, chart_id: str, rectification_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Update a chart with rectification results.
+
+    Args:
+        chart_id: ID of the chart to update
+        rectification_data: Rectification results
+
+    Returns:
+        Updated chart data
+    """
+    # This method is kept as is since it's not directly related to calculation but to database operations
+    # Placeholder for the original implementation
+    return {
+        "chart_id": chart_id,
+        "status": "updated",
+        "rectification_applied": True,
+        "updated_at": datetime.now().isoformat()
+    }
+```
+
+**Issues:**
+1. The method is a placeholder that doesn't actually update the chart with rectification results
+2. There's no integration with OpenAI for verification despite the service being available
+3. It doesn't interact with the database to update the chart
+4. No validation of the rectification data is performed
+
+**Required Changes:**
+```python
+async def update_chart_with_rectification(self, chart_id: str, rectification_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Update a chart with rectification results and verify with OpenAI.
+
+    Args:
+        chart_id: ID of the chart to update
+        rectification_data: Rectification results
+
+    Returns:
+        Updated chart data with verification
+    """
+    try:
+        # Validate rectification data
+        required_fields = ["rectified_time", "confidence", "method"]
+        for field in required_fields:
+            if field not in rectification_data:
+                raise ValueError(f"Missing required field '{field}' in rectification data")
+
+        # Get original chart from database
+        from ai_service.database.repositories import ChartRepository
+        chart_repo = ChartRepository()
+        original_chart = await chart_repo.get_chart(chart_id)
+
+        if not original_chart:
+            raise ValueError(f"Chart not found with ID: {chart_id}")
+
+        # Update chart with rectification data
+        updated_chart = {**original_chart, **rectification_data}
+        updated_chart["rectification_applied"] = True
+        updated_chart["updated_at"] = datetime.now().isoformat()
+
+        # Create differential to track changes
+        time_difference_minutes = calculate_time_difference_minutes(
+            original_chart.get("birth_time", ""),
+            rectification_data.get("rectified_time", "")
+        )
+
+        updated_chart["rectification_details"] = {
+            "original_time": original_chart.get("birth_time", ""),
+            "rectified_time": rectification_data.get("rectified_time", ""),
+            "time_difference_minutes": time_difference_minutes,
+            "confidence": rectification_data.get("confidence", 0),
+            "method": rectification_data.get("method", "unknown")
+        }
+
+        # Verify rectification with OpenAI if confidence is below threshold
+        if rectification_data.get("confidence", 0) < 80:
+            # Get OpenAI service
+            from ai_service.api.services.openai import get_openai_service
+            openai_service = get_openai_service()
+
+            if openai_service:
+                verification_result = await openai_service.verify_rectification(
+                    original_chart=original_chart,
+                    rectified_chart=updated_chart,
+                    rectification_details=updated_chart["rectification_details"]
+                )
+
+                # Add verification data to chart
+                updated_chart["verification"] = verification_result
+
+        # Store updated chart in database
+        stored_chart = await chart_repo.update_chart(chart_id, updated_chart)
+
+        # Ensure the update was successful
+        if not stored_chart:
+            raise RuntimeError(f"Failed to update chart in database: {chart_id}")
+
+        return stored_chart
+
+    except Exception as e:
+        logger.error(f"Error updating chart with rectification: {e}")
+        logger.error(traceback.format_exc())
+        raise
+```
+
+**Verification Criteria:**
+1. Function must properly validate rectification data before processing
+2. It should retrieve the original chart from the database
+3. OpenAI verification should be called when confidence is below threshold
+4. Database should be updated with the rectified data and verification results
+5. Tests should verify proper handling of OpenAI verification failures
+
 ### Chart Visualization Issues
 
 | File | Line(s) | Status | Issue | Description |
@@ -51,15 +290,308 @@ This document identifies gaps, simulations, and mockups in the backend services 
 | `ai_service/utils/vedic_chart_renderer.py` | 90-125 | ✅ FIXED | IMPLEMENTATION | Proper Vedic chart renderer is now implemented with North Indian style chart format. |
 | `ai_service/utils/vedic_chart_renderer.py` | 268-345 | ✅ FIXED | IMPLEMENTATION | Chart comparison visualization is properly implemented but not connected to API. |
 
-### Database Implementation Issues
+#### Code-Level Analysis:
 
-| File | Line(s) | Status | Issue | Description |
-|------|---------|--------|-------|-------------|
-| `ai_service/database/repositories.py` | 29-42 | ⚠️ UNRESOLVED | ERROR HANDLING | Database failure fallbacks are missing or incomplete for critical operations. |
-| `ai_service/database/repositories.py` | 162-181 | ⚠️ UNRESOLVED | INCOMPLETE | `store_comparison` method lacks proper validation and error handling for database failures. |
-| `ai_service/database/repositories.py` | 252-288 | ⚠️ UNRESOLVED | INCONSISTENT | Error handling varies across repository methods, lacking a consistent approach. |
-| `ai_service/database/repositories.py` | 363-375 | ⚠️ UNRESOLVED | ERROR HANDLING | Export storage doesn't verify file existence before storing metadata. |
-| `ai_service/database/repositories.py` | 450-497 | ⚠️ UNRESOLVED | IMPLEMENTATION | Database error categorization is incomplete, missing handling for deadlocks and timeouts. |
+**1. Vedic Chart Visualization Integration Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/utils/chart_visualizer.py
+def generate_vedic_chart(chart_data, output_path=None, style="north_indian"):
+    """Generate a Vedic chart visualization."""
+    # Chart generation code but not connected to export system
+
+    # Creates image but doesn't ensure it's used in exports
+    # ...rendering code...
+
+    return output_path
+```
+
+**Issues:**
+1. Function creates charts but there's no integration with the export system
+2. No verification that the generated file exists and has content
+3. No error handling for visualization failures
+4. The generated charts aren't properly connected to API responses
+
+**Required Changes:**
+```python
+def generate_vedic_chart(chart_data, output_path=None, style="north_indian"):
+    """
+    Generate a Vedic chart visualization with proper export integration.
+
+    Args:
+        chart_data: Chart data to visualize
+        output_path: Path to save the generated image
+        style: Chart style ('north_indian' or 'south_indian')
+
+    Returns:
+        Dictionary with path and metadata about the generated chart
+    """
+    try:
+        # Create directory if it doesn't exist
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        else:
+            # Create a temporary file if no path provided
+            output_dir = tempfile.gettempdir()
+            chart_id = chart_data.get("chart_id", f"chart_{uuid.uuid4().hex[:8]}")
+            output_path = os.path.join(output_dir, f"{chart_id}_{style}_vedic_chart.png")
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Validate chart data
+        required_fields = ["planets", "houses", "angles"]
+        for field in required_fields:
+            if field not in chart_data:
+                raise ValueError(f"Missing required field '{field}' in chart data")
+
+        # Generate the chart based on style
+        if style == "north_indian":
+            fig = _render_north_indian_chart(chart_data)
+        elif style == "south_indian":
+            fig = _render_south_indian_chart(chart_data)
+        else:
+            raise ValueError(f"Unsupported Vedic chart style: {style}")
+
+        # Save the chart with proper quality settings
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+        # Verify the file was created successfully
+        if not os.path.exists(output_path):
+            raise FileNotFoundError(f"Failed to create chart image at {output_path}")
+
+        # Get file size and modification time for verification
+        file_stats = os.stat(output_path)
+
+        # Return metadata for export integration
+        return {
+            "file_path": output_path,
+            "chart_style": style,
+            "chart_type": "vedic",
+            "file_size": file_stats.st_size,
+            "created_at": datetime.fromtimestamp(file_stats.st_mtime).isoformat(),
+            "verified": True
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating Vedic chart: {e}")
+        logger.error(traceback.format_exc())
+        raise
+```
+
+**Verification Criteria:**
+1. Function should properly validate chart data before visualization
+2. It should create the output directory if it doesn't exist
+3. It must verify that the file was created successfully
+4. The returned metadata should be usable by the export system
+5. API routes should properly connect to this visualization function
+
+**2. PDF Generation Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/utils/chart_visualizer.py
+def generate_chart_pdf(chart_data, output_path, include_interpretation=True):
+    """Generate a PDF report for a chart."""
+    # PDF generation code but lacks comprehensive production quality
+
+    # Missing detailed error handling
+    # ...incomplete PDF generation code...
+
+    return output_path
+```
+
+**Issues:**
+1. PDF generation doesn't create production-quality reports with complete content
+2. No verification of PDF structure or content quality
+3. Limited integration with interpretation data
+4. No error handling for PDF creation failures
+5. No proper formatting of planetary positions, aspects, etc.
+
+**Required Changes:**
+```python
+def generate_chart_pdf(chart_data, output_path, include_interpretation=True, include_aspects=True,
+                      include_houses=True, include_transits=False, paper_size="letter"):
+    """
+    Generate a comprehensive production-quality PDF chart report.
+
+    Args:
+        chart_data: Chart data to include in the report
+        output_path: Path to save the generated PDF
+        include_interpretation: Whether to include astrological interpretation
+        include_aspects: Whether to include aspect analysis
+        include_houses: Whether to include house analysis
+        include_transits: Whether to include transit analysis
+        paper_size: Paper size for the PDF ('letter', 'a4', 'legal')
+
+    Returns:
+        Dictionary containing path and metadata about the generated PDF
+    """
+    try:
+        # Import PDF generation tools
+        from reportlab.lib.pagesizes import letter, A4, legal
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Validate chart data
+        required_fields = ["planets", "houses", "angles"]
+        for field in required_fields:
+            if field not in chart_data:
+                raise ValueError(f"Missing required field '{field}' in chart data")
+
+        # Set page size
+        if paper_size.lower() == "a4":
+            page_size = A4
+        elif paper_size.lower() == "legal":
+            page_size = legal
+        else:
+            page_size = letter
+
+        # Create PDF document
+        doc = SimpleDocTemplate(
+            output_path,
+            pagesize=page_size,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+
+        # Prepare styles
+        styles = getSampleStyleSheet()
+        title_style = styles["Title"]
+        heading_style = styles["Heading1"]
+        subheading_style = styles["Heading2"]
+        normal_style = styles["Normal"]
+
+        # Create story (content) for the PDF
+        story = []
+
+        # Add title
+        birth_details = chart_data.get("birth_details", {})
+        name = birth_details.get("name", "Birth Chart")
+        birth_date = birth_details.get("date", chart_data.get("date", ""))
+        birth_time = birth_details.get("time", chart_data.get("time", ""))
+        location = birth_details.get("location", "")
+
+        title = f"Astrological Birth Chart: {name}"
+        story.append(Paragraph(title, title_style))
+        story.append(Spacer(1, 12))
+
+        # Add birth details
+        birth_details_text = f"Born on {birth_date} at {birth_time}"
+        if location:
+            birth_details_text += f" in {location}"
+
+        story.append(Paragraph(birth_details_text, normal_style))
+        story.append(Spacer(1, 24))
+
+        # Generate chart image for the PDF
+        chart_image_path = _generate_chart_image_for_pdf(chart_data)
+        if chart_image_path and os.path.exists(chart_image_path):
+            # Add chart image
+            story.append(Paragraph("Birth Chart", heading_style))
+            story.append(Spacer(1, 12))
+            story.append(Image(chart_image_path, width=400, height=400))
+            story.append(Spacer(1, 24))
+
+        # Add planetary positions
+        story.append(Paragraph("Planetary Positions", heading_style))
+        story.append(Spacer(1, 12))
+
+        # Create planetary positions table
+        planets_data = [["Planet", "Sign", "Degree", "House", "Retrograde"]]
+        for planet_name, planet_data in chart_data.get("planets", {}).items():
+            planets_data.append([
+                planet_name.capitalize(),
+                planet_data.get("sign", ""),
+                f"{planet_data.get('longitude', 0) % 30:.2f}°",
+                str(planet_data.get("house", "")),
+                "Yes" if planet_data.get("retrograde", False) else "No"
+            ])
+
+        planets_table = Table(planets_data, colWidths=[100, 100, 80, 80, 80])
+        planets_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+
+        story.append(planets_table)
+        story.append(Spacer(1, 24))
+
+        # Add aspects if requested
+        if include_aspects and "aspects" in chart_data:
+            # ... aspect table generation code (similar to planets table) ...
+            story.append(Paragraph("Planetary Aspects", heading_style))
+            story.append(Spacer(1, 12))
+
+            # Create aspects table
+            aspects_data = [["Aspect", "Planets", "Orb", "Significance"]]
+            for aspect in chart_data.get("aspects", [])[:10]:  # Limit to top 10 aspects
+                aspects_data.append([
+                    aspect.get("type", ""),
+                    f"{aspect.get('planet1', '')} - {aspect.get('planet2', '')}",
+                    f"{aspect.get('orb', 0):.2f}°",
+                    aspect.get("significance", "")
+                ])
+
+            aspects_table = Table(aspects_data, colWidths=[80, 120, 80, 160])
+            aspects_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+
+            story.append(aspects_table)
+            story.append(Spacer(1, 24))
+
+        # Build the PDF
+        doc.build(story)
+
+        # Verify the file was created successfully
+        if not os.path.exists(output_path):
+            raise FileNotFoundError(f"Failed to create PDF at {output_path}")
+
+        # Return metadata for export integration
+        return {
+            "file_path": output_path,
+            "file_size": os.path.getsize(output_path),
+            "created_at": datetime.now().isoformat(),
+            "paper_size": paper_size,
+            "includes": {
+                "interpretation": include_interpretation,
+                "aspects": include_aspects,
+                "houses": include_houses,
+                "transits": include_transits
+            },
+            "verified": True
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating chart PDF: {e}")
+        logger.error(traceback.format_exc())
+        raise
+```
+
+**Verification Criteria:**
+1. PDF should include all major chart elements (planetary positions, aspects, etc.)
+2. Function should properly handle various content inclusion options
+3. The output should be properly formatted and professional looking
+4. Error handling should catch and report all failure modes
+5. Integration with the export system should be seamless
 
 ### Core Rectification Issues
 
@@ -80,170 +612,60 @@ This document identifies gaps, simulations, and mockups in the backend services 
 | `ai_service/core/rectification.py` | 508-562 | ⚠️ UNRESOLVED | INCONSISTENT | AI-assisted rectification doesn't consistently handle API response formats. |
 | `ai_service/core/rectification.py` | 661-699 | ⚠️ UNRESOLVED | GAP | Transit analysis doesn't fully implement proper astrological significance evaluation. |
 
-### Questionnaire Service Issues
+#### Code-Level Analysis:
 
-| File | Line(s) | Status | Issue | Description |
-|------|---------|--------|-------|-------------|
-| `ai_service/api/services/questionnaire_service.py` | 782-801 | ✅ FIXED | MOCK | `get_next_question` method now properly uses OpenAI to generate dynamic, astrologically relevant questions. |
-| `ai_service/api/services/questionnaire_service.py` | 803-818 | ✅ FIXED | INCOMPLETE | `submit_answer` method now properly analyzes answers with astrological context. |
-| `ai_service/api/services/questionnaire_service.py` | 820-835 | ⚠️ UNRESOLVED | MOCK | `complete_questionnaire` method provides completion status without comprehensive analysis of answers. |
-| `ai_service/api/services/questionnaire_service.py` | 432-467 | ⚠️ UNRESOLVED | GAP | Answer analysis doesn't properly link responses to astrological factors for rectification. |
-| `ai_service/api/services/questionnaire_service.py` | 154-198 | ✅ FIXED | FALLBACK | Improved question system with proper OpenAI integration. |
-| `ai_service/api/services/questionnaire_service.py` | 322-386 | ✅ FIXED | INCOMPLETE | Question generation now leverages AI capabilities properly. |
-| `ai_service/api/services/questionnaire_service.py` | 617-659 | ⚠️ UNRESOLVED | IMPLEMENTATION | Birth time indicator extraction is simplistic and misses many astrological indicators. |
-| `src/components/questionnaire/QuestionnaireForm.tsx` | 90-110 | ✅ FIXED | IMPLEMENTATION | Frontend questionnaire component now properly handles contradictory answers. |
+**1. Astrological Library Fallback Issue:**
 
-### API Routing Gaps
+**Current Implementation:**
+```python
+# In ai_service/core/rectification/chart_calculator.py
+try:
+    import swisseph as swe
+    SWISSEPH_AVAILABLE = True
+except ImportError:
+    SWISSEPH_AVAILABLE = False
+    logging.error("Swiss Ephemeris (swisseph) not available. This is REQUIRED for accurate calculations.")
+    # Missing proper error handling, just logs an error and continues
 
-| File | Line(s) | Status | Issue | Description |
-|------|---------|--------|-------|-------------|
-| `ai_service/api/routers/questionnaire.py` | 495-518 | ⚠️ UNRESOLVED | INCOMPLETE | `process_rectification` function lacks comprehensive error handling and proper integration with OpenAI. |
-| `ai_service/api/routers/chart.py` | 153-178 | ⚠️ UNRESOLVED | GAP | Chart comparison endpoint provides basic differences but lacks deeper astrological interpretation. |
-| `ai_service/api/routers/chart.py` | 180-210 | ⚠️ UNRESOLVED | GAP | Export functionality is incomplete, lacking proper file generation. |
-| `ai_service/api/routers/questionnaire.py` | 399-446 | ✅ FIXED | ERROR HANDLING | Next question generation now properly handles OpenAI API failures with retry logic. |
-| `ai_service/api/routers/questionnaire.py` | 631-681 | ⚠️ UNRESOLVED | IMPLEMENTATION | Rectification status checking doesn't provide detailed progress information. |
-| `ai_service/api/routers/chart.py` | 235-299 | ⚠️ UNRESOLVED | MOCK | Chart download endpoint doesn't verify file existence before attempting to serve. |
-| `api_gateway/main.py` | 151-175 | ✅ FIXED | IMPLEMENTATION | Session initialization endpoint is now properly implemented. |
-| `api_gateway/main.py` | 295-329 | ⚠️ NEW | IMPLEMENTATION | Error handling in proxy requests is basic and doesn't implement the enhanced error handling sequence. |
+# Later in the code:
+if not SWISSEPH_AVAILABLE:
+    # Returns dummy data instead of failing appropriately
+    return {
+        "chart_id": f"error_{uuid.uuid4().hex[:8]}",
+        "status": "error",
+        "timestamp": datetime.now().isoformat(),
+    }
+```
 
-### OpenAI Integration Gaps
+**Issues:**
+1. Code detects missing dependencies but continues execution
+2. Returns dummy data instead of raising appropriate exceptions
+3. No fallback to alternative calculation method
+4. Error handling is inconsistent across different dependency failures
+5. The user may receive incorrect charts without clear notification
 
-| File | Line(s) | Status | Issue | Description |
-|------|---------|--------|-------|-------------|
-| `ai_service/services/chart_service.py` | 412-427 | ⚠️ UNRESOLVED | GAP | Rectification doesn't properly use OpenAI integration for birth time determination. |
-| `ai_service/core/rectification.py` | 237-255 | ⚠️ UNRESOLVED | INCONSISTENT | Use of OpenAI varies based on code path, lacking consistent approach to leveraging AI. |
-| `ai_service/api/services/questionnaire_service.py` | 782-801 | ✅ FIXED | GAP | Question generation now properly uses OpenAI capabilities to create astrologically relevant questions. |
-| `ai_service/api/services/questionnaire_service.py` | 873-954 | ⚠️ UNRESOLVED | INCOMPLETE | Analysis of responses using OpenAI doesn't provide deep astrological insights. |
-| `ai_service/services/chart_service.py` | 135-199 | ⚠️ UNRESOLVED | ERROR HANDLING | OpenAI verification response parsing has numerous fallbacks that reduce accuracy. |
-| `ai_service/api/routers/questionnaire.py` | 495-640 | ⚠️ UNRESOLVED | IMPLEMENTATION | OpenAI integration for rectification process lacks structured prompt strategy. |
+**Required Changes:**
+```python
+# Import with proper alternative library support
+try:
+    import swisseph as swe
+    SWISSEPH_AVAILABLE = True
+    CALCULATION_ENGINE = "swisseph"
+except ImportError:
+    try:
+        # Alternative calculation library
+        import flatlib.ephem
+        FLATLIB_AVAILABLE = True
+        SWISSEPH_AVAILABLE = False
+        CALCULATION_ENGINE = "flatlib"
+        logging.warning("Swiss Ephemeris not available, using flatlib as alternative.")
+    except ImportError:
+        FLATLIB_AVAILABLE = False
+        SWISSEPH_AVAILABLE = False
+        CALCULATION_ENGINE = None
+        logging.critical("No astrological calculation libraries available. Cannot proceed.")
+        # Don't continue silently - make this a fatal error
+        raise ImportError("Required astrological libraries (swisseph or flatlib) are not available")
 
-### Session Management and Real-time Communication
-
-| File | Line(s) | Status | Issue | Description |
-|------|---------|--------|-------|-------------|
-| `ai_service/services/session_service.py` | 37-75 | ✅ FIXED | IMPLEMENTATION | Session initialization and management now properly uses Redis with error handling. |
-| `api_gateway/websocket_proxy.py` | 190-220 | ⚠️ NEW | INCOMPLETE | WebSocket proxy lacks proper message validation and error recovery mechanisms. |
-| `api_gateway/websocket_events.py` | 20-50 | ⚠️ NEW | GAP | Event emission doesn't provide detailed progress information for rectification process. |
-| `src/services/api/WebSocketService.ts` | 45-88 | ⚠️ NEW | ERROR HANDLING | WebSocket client doesn't properly handle connection failures and reconnection logic. |
-
-## Sequence Diagram Flow Alignment Gaps
-
-The following components in the expected sequence flow are not properly implemented:
-
-1. **Birth Time Rectification Process**
-   - ⚠️ UNRESOLVED: The sequence diagram shows an AI analysis algorithm determining birth time (POST `/api/chart/rectify`)
-   - Current implementation attempts rectification but doesn't consistently use AI analysis as specified
-   - Multiple fallback paths don't use proper astrological calculations
-   - The error handling for OpenAI failures results in simplified calculations rather than appropriate fallbacks
-
-2. **Questionnaire Completion Process**
-   - ✅ PARTIALLY FIXED: The diagram shows POST `/questionnaire/complete` triggering sophisticated rectification process
-   - Question generation and answer handling has improved significantly
-   - ⚠️ UNRESOLVED: The answer analysis still doesn't properly extract all astrologically relevant patterns
-
-3. **Chart Export**
-   - ⚠️ UNRESOLVED: The diagram shows POST `/api/chart/export` generating a PDF
-   - Current implementation creates export metadata but doesn't properly generate visualization files
-   - The chart visualization utilities exist but aren't called by the export functionality
-
-4. **Chart Comparison**
-   - ⚠️ UNRESOLVED: The diagram shows GET `/api/chart/compare` providing in-depth analysis of differences
-   - Current implementation provides basic comparison without deeper astrological interpretation
-   - The comparison visualization exists but isn't included in API responses
-
-5. **Verification with OpenAI**
-   - ⚠️ UNRESOLVED: The diagram shows consistent verification of charts with OpenAI
-   - OpenAI integration is inconsistently applied throughout the codebase
-   - Error handling for OpenAI verification failures results in reduced accuracy
-
-6. **Health Check and Error Handling**
-   - ✅ PARTIALLY FIXED: Health check endpoints are now implemented
-   - ⚠️ UNRESOLVED: Enhanced error handling with retry logic is still incomplete
-   - Error responses vary in format and detail across endpoints
-
-7. **WebSocket Communication** (NEW)
-   - ⚠️ NEW: The sequence diagram shows real-time updates for rectification progress
-   - Current implementation has WebSocket proxy but lacks proper error handling and reconnection logic
-   - Progress updates don't provide detailed status information
-
-8. **Session Management** (NEW)
-   - ✅ FIXED: The sequence diagram shows session initialization and management
-   - Current implementation properly integrates with Redis for session storage
-   - Session token handling and validation are properly implemented
-
-## Implementation Recommendations
-
-1. **Chart Service Improvements**
-   - Implement proper chart export functionality with PDF/image generation in `chart_service.py`
-   - Enhance rectification integration with OpenAI for more accurate birth time determination
-   - Improve chart comparison with deeper astrological interpretation
-   - Connect chart visualization functions with export functionality
-   - Implement proper harmonic chart calculations for Vedic divisional charts
-
-2. **Database Enhancements**
-   - Standardize error handling across database repository methods
-   - Implement proper retry logic and connection pooling for database resilience
-   - Add proper validation for all database operations
-   - Add file existence verification before storing export metadata
-   - Enhance error categorization to include common database failure modes
-
-3. **Core Rectification Fixes**
-   - Implement alternative calculation methods when primary libraries are unavailable
-   - Add proper handling for missing questionnaire answers using alternative rectification techniques
-   - Enhance transit analysis with robust fallbacks
-   - Improve AI-assisted rectification with standardized response parsing
-   - Implement proper astrological significance evaluation for transit analysis
-
-4. **Questionnaire Service Improvements**
-   - Complete the answer analysis system to connect responses with astrological factors
-   - Enhance the `complete_questionnaire` method with comprehensive analysis
-   - Improve birth time indicator extraction with more sophisticated pattern recognition
-   - Maintain improved question generation capabilities already implemented
-   - Ensure proper error handling for all questionnaire interactions
-
-5. **API Router Enhancements**
-   - Complete the chart comparison endpoint with deeper astrological analysis
-   - Implement proper file generation for chart exports
-   - Add comprehensive error handling across all endpoints
-   - Add detailed progress information for rectification status checking
-   - Verify file existence before attempting to serve downloads
-
-6. **OpenAI Integration**
-   - Standardize OpenAI usage throughout the application
-   - Implement consistent verification process using OpenAI
-   - Leverage OpenAI for generating astrologically meaningful interpretations
-   - Add structured prompt strategies for consistent AI responses
-   - Implement proper error handling for API failures
-
-7. **Visualization Integration**
-   - Connect chart visualization functions with export system
-   - Enhance PDF generation for production-quality reports
-   - Include comparison visualizations in API responses
-   - Implement proper file storage and retrieval for generated visualizations
-   - Ensure 3D visualizations match the requirements in user testing documentation
-
-8. **WebSocket Implementation** (NEW)
-   - Enhance WebSocket proxy with proper message validation and error recovery
-   - Implement detailed progress updates for the rectification process
-   - Add reconnection logic to WebSocket client implementation
-   - Ensure consistent event format across all WebSocket messages
-   - Add proper error handling for connection failures
-
-9. **Enhanced Error Handling** (NEW)
-   - Implement the enhanced error handling sequence with retry logic
-   - Standardize error response formats across all endpoints
-   - Add consistent logging for API failures
-   - Implement graceful degradation for non-critical component failures
-   - Add detailed error information for client debugging
-
-## Conclusion
-
-The Birth Time Rectifier application has made significant progress in several areas, particularly in session management and questionnaire implementation. However, critical gaps remain in the core astrological functionality, OpenAI integration, chart export, and WebSocket communication.
-
-The most urgent areas to address are:
-1. Inconsistent OpenAI integration in chart verification and rectification
-2. Missing chart export functionality
-3. Incomplete rectification process that doesn't follow the expected sequence
-4. Inadequate WebSocket implementation for real-time updates
-
-By addressing these gaps, the application will align with the intended sequence diagram flow and provide reliable astrological analysis for birth time rectification as detailed in the architecture documentation.
+# Update the calculate_chart function to use alternative implementations
+def calculate_chart(birth_dt, latitude, longitude, timezone_str, house_system

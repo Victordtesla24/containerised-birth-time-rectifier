@@ -833,7 +833,7 @@ class WebSocketProxy:
             Connected WebSocket instance
 
         Raises:
-            Exception: If the connection could not be established
+            Exception: If the connection could not be established after retries
         """
         import websockets
 
@@ -866,19 +866,52 @@ class WebSocketProxy:
             else:
                 upstream_url = f"{upstream_url}?token={token}"
 
-        # Connect to the upstream WebSocket
-        logger.info(f"Connecting to upstream WebSocket: {upstream_url}")
-        ws = await websockets.connect(upstream_url)
+        # Implement retry logic with exponential backoff
+        max_retries = WS_RETRY_ATTEMPTS
+        retry_delay = WS_RETRY_DELAY
+        attempt = 0
+        last_exception = None
 
-        # Send initial connection message
-        init_message = json.dumps({
-            "type": "proxy_connection",
-            "session_id": session_id,
-            "timestamp": datetime.now().isoformat()
-        })
-        await ws.send(init_message)
+        # Connection options with proper timeouts
+        connection_options = {
+            "ping_interval": WS_PING_INTERVAL,
+            "ping_timeout": WS_PING_TIMEOUT,
+            "max_size": WS_MAX_SIZE,
+            "close_timeout": 10,  # Ensure clean connection close
+            "max_queue": WS_MAX_QUEUE
+        }
 
-        return ws
+        while attempt < max_retries:
+            try:
+                logger.info(f"Connecting to upstream WebSocket: {upstream_url} (attempt {attempt+1}/{max_retries})")
+
+                # Connect with proper timeout settings
+                ws = await websockets.connect(
+                    upstream_url,
+                    **connection_options
+                )
+
+                # Log successful connection
+                logger.info(f"Successfully connected to upstream WebSocket for session {session_id}")
+                return ws
+
+            except (ConnectionRefusedError, ConnectionError, socket.gaierror, OSError) as e:
+                attempt += 1
+                last_exception = e
+                if attempt < max_retries:
+                    wait_time = retry_delay * (2 ** (attempt - 1))  # Exponential backoff
+                    logger.warning(f"Connection to upstream WebSocket failed: {e}. Retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to connect to upstream WebSocket after {max_retries} attempts: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error connecting to upstream WebSocket: {e}")
+                logger.error(traceback.format_exc())
+                last_exception = e
+                break
+
+        # If we get here, all retries failed
+        raise ConnectionError(f"Failed to connect to upstream WebSocket: {last_exception}")
 
     async def forward_to_upstream(self, websocket: WebSocket, upstream_ws: Any, session_id: str) -> None:
         """

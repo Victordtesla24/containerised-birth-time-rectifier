@@ -26,6 +26,13 @@ from ai_service.core.rectification.chart_calculator import (
     normalize_longitude
 )
 
+# Import our custom SwissEph compatibility layer
+from ai_service.utils.swisseph_proxy import (
+    SUN, MOON, MERCURY, VENUS, MARS, JUPITER, SATURN, URANUS, NEPTUNE, PLUTO,
+    SIDM_LAHIRI, SIDM_RAMAN, SIDM_KRISHNAMURTI, SIDM_DJWHAL_KHUL, SIDM_FAGAN_BRADLEY,
+    FLG_SWIEPH, FLG_SPEED, julday, calc_ut, set_ephe_path, set_sid_mode, get_ayanamsa_ut
+)
+
 # Create a logger
 logger = logging.getLogger(__name__)
 
@@ -101,10 +108,11 @@ def calculate_tropical_chart(birth_datetime: datetime, latitude: float, longitud
     Returns:
         Dict containing tropical chart data.
     """
-    import swisseph as swe
+    # Import the swisseph proxy module which handles both swisseph and pyswisseph
+    import ai_service.utils.swisseph_proxy as swe
 
     # Set ephemeris path if available
-    ephemeris_path = os.environ.get("SWISSEPH_PATH")
+    ephemeris_path = os.environ.get("SWISSEPH_PATH", "/app/ephemeris")
     if ephemeris_path:
         swe.set_ephe_path(ephemeris_path)
 
@@ -246,10 +254,11 @@ def calculate_vedic_chart(birth_datetime: datetime, latitude: float, longitude: 
     Returns:
         Dict containing Vedic chart data.
     """
-    import swisseph as swe
+    # Import the swisseph proxy module which handles both swisseph and pyswisseph
+    import ai_service.utils.swisseph_proxy as swe
 
     # Set ephemeris path if available
-    ephemeris_path = os.environ.get("SWISSEPH_PATH")
+    ephemeris_path = os.environ.get("SWISSEPH_PATH", "/app/ephemeris")
     if ephemeris_path:
         swe.set_ephe_path(ephemeris_path)
 
