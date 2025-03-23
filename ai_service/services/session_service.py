@@ -1,296 +1,129 @@
 """
-Session Service for Birth Time Rectifier.
+Session management service for the Birth Time Rectifier API.
 
-This module provides session management functionality with Redis integration.
+This module handles session creation, storage, and retrieval.
 """
 
-import asyncio
-import json
 import logging
-import os
 import time
 import uuid
-from typing import Dict, Any, Optional, List, Tuple, Union
-
+from typing import Dict, Any, Optional
 import redis
-from redis.exceptions import RedisError
+import json
+
+from ai_service.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Redis connection pool (singleton)
-REDIS_CONNECTION_POOL = None
-
 class SessionService:
-    """Session service for managing user sessions with Redis."""
+    """Service for managing user sessions."""
 
-    def __init__(self):
-        """Initialize the session service."""
-        self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
-        self.session_expiry = int(os.getenv("SESSION_EXPIRY", "86400"))  # 24 hours default
-        self._initialize_redis_pool()
+    def __init__(self, redis_url: Optional[str] = None):
+        """
+        Initialize the session service.
 
-    def _initialize_redis_pool(self):
-        """Initialize Redis connection pool if not already initialized."""
-        global REDIS_CONNECTION_POOL
+        Args:
+            redis_url: Optional Redis URL. If not provided, uses the URL from settings.
+        """
+        self.redis_url = redis_url or settings.REDIS_URL
+        self.session_expiry = settings.SESSION_EXPIRY_DAYS * 24 * 60 * 60  # Convert days to seconds
+
         try:
-            if REDIS_CONNECTION_POOL is None:
-                REDIS_CONNECTION_POOL = redis.ConnectionPool.from_url(
-                    self.redis_url,
-                    decode_responses=True,
-                    socket_timeout=5.0,
-                    socket_connect_timeout=5.0,
-                    health_check_interval=30
-                )
-                logger.info(f"Redis connection pool initialized with URL: {self.redis_url}")
+            self.redis = redis.from_url(self.redis_url)
+            logger.info(f"Connected to Redis at {self.redis_url}")
         except Exception as e:
-            logger.error(f"Failed to initialize Redis connection pool: {e}")
-            raise
-
-    def _get_redis_client(self):
-        """Get a Redis client from the connection pool."""
-        try:
-            if REDIS_CONNECTION_POOL is None:
-                self._initialize_redis_pool()
-
-            return redis.Redis(connection_pool=REDIS_CONNECTION_POOL)
-        except Exception as e:
-            logger.error(f"Failed to get Redis client: {e}")
-            raise
+            logger.error(f"Failed to connect to Redis: {e}")
+            self.redis = None
 
     def create_session(self) -> str:
         """
         Create a new session.
 
         Returns:
-            str: The session ID.
+            Session ID
         """
         session_id = str(uuid.uuid4())
+
+        # Create session data
         session_data = {
-            "created_at": int(time.time()),
-            "last_accessed": int(time.time()),
-            "birth_details": {},
-            "questionnaire": {
-                "answers": [],
-                "current_question_index": 0,
-                "confidence_score": 20  # Starting confidence score
-            },
-            "charts": {
-                "original": None,
-                "rectified": None
-            }
+            "created_at": time.time(),
+            "expires_at": time.time() + self.session_expiry,
+            "status": "active"
         }
 
-        try:
-            redis_client = self._get_redis_client()
-            redis_client.setex(
-                f"session:{session_id}",
-                self.session_expiry,
-                json.dumps(session_data)
-            )
-            logger.info(f"Created new session: {session_id}")
-            return session_id
-        except RedisError as e:
-            logger.error(f"Redis error while creating session: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error while creating session: {e}")
-            raise
+        # Store in Redis if available, otherwise just return the ID
+        if self.redis:
+            try:
+                self.redis.setex(
+                    f"session:{session_id}",
+                    self.session_expiry,
+                    json.dumps(session_data)
+                )
+                logger.info(f"Created session {session_id} in Redis")
+            except Exception as e:
+                logger.error(f"Failed to store session in Redis: {e}")
+
+        return session_id
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get session data by session ID.
+        Retrieve a session.
 
         Args:
-            session_id: The session ID.
+            session_id: The session ID
 
         Returns:
-            Optional[Dict[str, Any]]: The session data or None if not found.
+            Session data or None if not found
         """
-        try:
-            redis_client = self._get_redis_client()
-            session_data = redis_client.get(f"session:{session_id}")
+        if not self.redis:
+            logger.warning("Redis not available for session retrieval")
+            return None
 
-            if session_data:
-                session = json.loads(session_data)
-                # Update last accessed time
-                session["last_accessed"] = int(time.time())
-                redis_client.setex(
-                    f"session:{session_id}",
-                    self.session_expiry,
-                    json.dumps(session)
-                )
-                return session
-            return None
-        except RedisError as e:
-            logger.error(f"Redis error while getting session {session_id}: {e}")
-            return None
+        try:
+            data = self.redis.get(f"session:{session_id}")
+            if not data:
+                return None
+
+            return json.loads(data)
         except Exception as e:
-            logger.error(f"Unexpected error while getting session {session_id}: {e}")
+            logger.error(f"Failed to retrieve session from Redis: {e}")
             return None
 
     def update_session(self, session_id: str, data: Dict[str, Any]) -> bool:
         """
-        Update session data.
+        Update a session with new data.
 
         Args:
-            session_id: The session ID.
-            data: The new data to update.
+            session_id: The session ID
+            data: The data to update
 
         Returns:
-            bool: True if successful, False otherwise.
+            True if successful, False otherwise
         """
-        try:
-            redis_client = self._get_redis_client()
-            # Get current session data
-            current_session_data = redis_client.get(f"session:{session_id}")
-
-            if not current_session_data:
-                logger.warning(f"Cannot update non-existent session: {session_id}")
-                return False
-
-            # Parse and update
-            session = json.loads(current_session_data)
-            session.update(data)
-            session["last_accessed"] = int(time.time())
-
-            # Save back to Redis
-            redis_client.setex(
-                f"session:{session_id}",
-                self.session_expiry,
-                json.dumps(session)
-            )
-            logger.debug(f"Updated session: {session_id}")
-            return True
-        except RedisError as e:
-            logger.error(f"Redis error while updating session {session_id}: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error while updating session {session_id}: {e}")
+        if not self.redis:
+            logger.warning("Redis not available for session update")
             return False
 
-    def update_birth_details(self, session_id: str, birth_details: Dict[str, Any]) -> bool:
-        """
-        Update birth details in the session.
-
-        Args:
-            session_id: The session ID.
-            birth_details: The birth details to store.
-
-        Returns:
-            bool: True if successful, False otherwise.
-        """
         try:
-            redis_client = self._get_redis_client()
-            session_data = redis_client.get(f"session:{session_id}")
-
+            # Get existing session data
+            session_data = self.get_session(session_id)
             if not session_data:
-                logger.warning(f"Cannot update birth details for non-existent session: {session_id}")
+                logger.warning(f"Session {session_id} not found for update")
                 return False
 
-            session = json.loads(session_data)
-            session["birth_details"] = birth_details
-            session["last_accessed"] = int(time.time())
+            # Update with new data
+            session_data.update(data)
 
-            redis_client.setex(
+            # Store back in Redis
+            self.redis.setex(
                 f"session:{session_id}",
                 self.session_expiry,
-                json.dumps(session)
+                json.dumps(session_data)
             )
-            logger.info(f"Updated birth details for session: {session_id}")
+
             return True
         except Exception as e:
-            logger.error(f"Error updating birth details for session {session_id}: {e}")
-            return False
-
-    def update_questionnaire_progress(
-        self,
-        session_id: str,
-        answers: List[Dict[str, Any]] = None,
-        current_question_index: int = None,
-        confidence_score: float = None
-    ) -> bool:
-        """
-        Update questionnaire progress in the session.
-
-        Args:
-            session_id: The session ID.
-            answers: Updated list of answers.
-            current_question_index: Current question index.
-            confidence_score: Current confidence score.
-
-        Returns:
-            bool: True if successful, False otherwise.
-        """
-        try:
-            redis_client = self._get_redis_client()
-            session_data = redis_client.get(f"session:{session_id}")
-
-            if not session_data:
-                logger.warning(f"Cannot update questionnaire for non-existent session: {session_id}")
-                return False
-
-            session = json.loads(session_data)
-
-            # Update only the fields that were provided
-            if answers is not None:
-                session["questionnaire"]["answers"] = answers
-
-            if current_question_index is not None:
-                session["questionnaire"]["current_question_index"] = current_question_index
-
-            if confidence_score is not None:
-                session["questionnaire"]["confidence_score"] = confidence_score
-
-            session["last_accessed"] = int(time.time())
-
-            redis_client.setex(
-                f"session:{session_id}",
-                self.session_expiry,
-                json.dumps(session)
-            )
-            logger.debug(f"Updated questionnaire progress for session: {session_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating questionnaire progress for session {session_id}: {e}")
-            return False
-
-    def update_chart_data(self, session_id: str, chart_type: str, chart_data: Dict[str, Any]) -> bool:
-        """
-        Update chart data in the session.
-
-        Args:
-            session_id: The session ID.
-            chart_type: Type of chart (original or rectified).
-            chart_data: The chart data to store.
-
-        Returns:
-            bool: True if successful, False otherwise.
-        """
-        if chart_type not in ["original", "rectified"]:
-            logger.warning(f"Invalid chart type: {chart_type}")
-            return False
-
-        try:
-            redis_client = self._get_redis_client()
-            session_data = redis_client.get(f"session:{session_id}")
-
-            if not session_data:
-                logger.warning(f"Cannot update chart data for non-existent session: {session_id}")
-                return False
-
-            session = json.loads(session_data)
-            session["charts"][chart_type] = chart_data
-            session["last_accessed"] = int(time.time())
-
-            redis_client.setex(
-                f"session:{session_id}",
-                self.session_expiry,
-                json.dumps(session)
-            )
-            logger.info(f"Updated {chart_type} chart data for session: {session_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating chart data for session {session_id}: {e}")
+            logger.error(f"Failed to update session in Redis: {e}")
             return False
 
     def delete_session(self, session_id: str) -> bool:
@@ -298,16 +131,120 @@ class SessionService:
         Delete a session.
 
         Args:
-            session_id: The session ID.
+            session_id: The session ID
 
         Returns:
-            bool: True if successful, False otherwise.
+            True if successful, False otherwise
         """
+        if not self.redis:
+            logger.warning("Redis not available for session deletion")
+            return False
+
         try:
-            redis_client = self._get_redis_client()
-            result = redis_client.delete(f"session:{session_id}")
-            logger.info(f"Deleted session: {session_id}, result: {result}")
+            result = self.redis.delete(f"session:{session_id}")
             return result > 0
         except Exception as e:
-            logger.error(f"Error deleting session {session_id}: {e}")
+            logger.error(f"Failed to delete session from Redis: {e}")
+            return False
+
+    def is_valid_session(self, session_id: str) -> bool:
+        """
+        Check if a session is valid.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            True if valid, False otherwise
+        """
+        session_data = self.get_session(session_id)
+        if not session_data:
+            return False
+
+        # Check if session has expired
+        if session_data.get("expires_at", 0) < time.time():
+            return False
+
+        return session_data.get("status") == "active"
+
+    def extend_session(self, session_id: str) -> bool:
+        """
+        Extend a session's expiry time.
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.redis:
+            logger.warning("Redis not available for session extension")
+            return False
+
+        try:
+            # Get existing session data
+            session_data = self.get_session(session_id)
+            if not session_data:
+                logger.warning(f"Session {session_id} not found for extension")
+                return False
+
+            # Update expiry time
+            session_data["expires_at"] = time.time() + self.session_expiry
+
+            # Store back in Redis
+            self.redis.setex(
+                f"session:{session_id}",
+                self.session_expiry,
+                json.dumps(session_data)
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to extend session in Redis: {e}")
+            return False
+
+    def store_chart_in_session(self, session_id: str, chart_id: str, chart_data: Dict[str, Any]) -> bool:
+        """
+        Store chart data in a session.
+
+        Args:
+            session_id: The session ID
+            chart_id: The chart ID
+            chart_data: The chart data
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.redis:
+            logger.warning("Redis not available for storing chart in session")
+            return False
+
+        try:
+            # Get existing session data
+            session_data = self.get_session(session_id)
+            if not session_data:
+                logger.warning(f"Session {session_id} not found for storing chart")
+                return False
+
+            # Initialize charts dict if not exists
+            if "charts" not in session_data:
+                session_data["charts"] = {}
+
+            # Store chart data
+            session_data["charts"][chart_id] = {
+                "id": chart_id,
+                "created_at": time.time(),
+                "data": chart_data
+            }
+
+            # Store back in Redis
+            self.redis.setex(
+                f"session:{session_id}",
+                self.session_expiry,
+                json.dumps(session_data)
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store chart in session: {e}")
             return False

@@ -12,6 +12,7 @@ import importlib.util
 from typing import Dict, Any, List, Optional, TypedDict, cast, Union, TYPE_CHECKING, Callable
 import sys
 import random
+import traceback
 
 # Import the base OpenAI library for model selection
 import openai
@@ -452,10 +453,11 @@ class OpenAIService:
 
             # Add to cache if enabled
             if self.cache_enabled:
-                self.cache[cache_key] = {
-                    "timestamp": time.time(),
-                    "response": response_obj
-                }
+                self.cache[cache_key] = CacheEntry(
+                    timestamp=time.time(),
+                    response=response_obj,
+                    response_json=None
+                )
 
             logger.info(f"OpenAI API call successful for {task_type}")
             return response_obj
@@ -1263,10 +1265,11 @@ class OpenAIService:
             # If status code is 200, cache the response
             if response.status_code == 200 and self.cache_enabled:
                 response_json = response.json()
-                self.cache[cache_key] = {
-                    "response_json": response_json,
-                    "timestamp": time.time()
-                }
+                self.cache[cache_key] = CacheEntry(
+                    timestamp=time.time(),
+                    response=response_json,
+                    response_json=None
+                )
 
             return response
 
@@ -1457,6 +1460,420 @@ class OpenAIService:
                 "content": f"Error: {str(e)}",
                 "model": request["model"],
                 "error": True
+            }
+
+    async def analyze_birth_time_rectification(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Perform astrological birth time rectification analysis using OpenAI.
+
+        This method provides a comprehensive astrological analysis for birth time rectification
+        considering questionnaire answers, life events, and the original chart data.
+
+        Args:
+            data: Dictionary containing:
+                - birth_data: Birth information
+                - answers: Questionnaire answers
+                - events: Significant life events
+                - original_chart: Original chart data
+
+        Returns:
+            Dictionary containing:
+                - time_shift_minutes: Recommended adjustment in minutes
+                - rectified_time: Rectified birth time
+                - confidence_score: Confidence score (0-100)
+                - explanation: Detailed astrological explanation
+                - astrological_factors: Specific astrological factors considered
+        """
+        try:
+            logger.info("Starting AI-assisted birth time rectification analysis")
+
+            # Extract input data
+            birth_data = data.get("birth_data", {})
+            answers = data.get("answers", [])
+            events = data.get("events", [])
+            original_chart = data.get("original_chart", {})
+
+            # Validate required data
+            if not birth_data or not original_chart:
+                raise ValueError("Missing required birth data or original chart for rectification analysis")
+
+            # Extract original birth information
+            birth_date = birth_data.get("birth_date", "")
+            birth_time = birth_data.get("birth_time", "")
+            location = birth_data.get("location", "Unknown")
+
+            # Format birth information for prompt
+            birth_info = f"Date: {birth_date}, Time: {birth_time}, Location: {location}"
+
+            # Format original chart data for analysis
+            formatted_chart = self._format_chart_data_for_rectification(original_chart)
+
+            # Format questionnaire answers for the prompt
+            formatted_answers = self._format_answers_for_rectification(answers)
+
+            # Format life events for analysis
+            formatted_events = self._format_events_for_rectification(events)
+
+            # Create system prompt with precise astrological instructions
+            system_prompt = """
+You are an expert astrological rectification specialist with profound knowledge of both Vedic and Western astrological systems.
+
+Your task is to analyze birth data, questionnaire answers, life events, and original chart positions to determine if the birth time requires rectification and by how many minutes.
+
+Follow these principles:
+1. Use proper astrological techniques including:
+   - Transit analysis of significant life events
+   - Analysis of planetary hour rulers
+   - House cusp sensitivity analysis
+   - Ascendant degree fine-tuning
+   - Nakshatra progression timing
+   - Divisional chart (D9, D10, D60) harmony
+
+2. Consider house placements of planets and their impact on:
+   - Physical appearance and constitution (1st house/Lagna)
+   - Family dynamics (4th house)
+   - Career trajectory (10th house)
+   - Relationship patterns (7th house)
+   - Financial patterns (2nd house)
+   - Children and creativity (5th house)
+
+3. Pay special attention to:
+   - Ascendant degree and nakshatra pada
+   - Moon's exact degree and nakshatra
+   - Position of chart ruler/lord of ascendant
+   - Planets near house cusps (within 2 degrees)
+   - Mutual reception between planets
+   - Planetary yogas formed in the chart
+
+4. For Vedic analysis, consider:
+   - Vimshottari dasha periods aligning with life events
+   - Navamsa (D9) chart alignment and strength
+   - Applicable yogas and doshas
+   - Strength of planets (shadbala)
+
+5. For Western analysis, consider:
+   - Solar arc directions to angles
+   - Secondary progressions, especially Moon
+   - Angular planets and their transits
+   - House ruler placements
+
+Provide a time adjustment in minutes (positive or negative), confidence score (0-100), and detailed astrological justification.
+            """
+
+            # Create user prompt with comprehensive data
+            user_prompt = f"""
+Please analyze this birth time rectification case:
+
+BIRTH INFORMATION:
+{birth_info}
+
+ORIGINAL CHART DATA:
+{formatted_chart}
+
+QUESTIONNAIRE ANSWERS:
+{formatted_answers}
+
+LIFE EVENTS:
+{formatted_events}
+
+Based on sound astrological principles, determine if the birth time requires rectification.
+If rectification is needed, specify:
+1. The exact adjustment in minutes (positive for later, negative for earlier)
+2. The astrological factors supporting this adjustment
+3. A confidence score for the rectification (0-100)
+4. How the adjustment impacts key chart factors (ascendant, houses, planetary placements)
+            """
+
+            # Select the appropriate model for rectification (use most capable model)
+            model = self._select_model("rectification")
+
+            # Prepare messages
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            # Generate completion with appropriate parameters
+            response = await self._call_with_retry(
+                self._send_request,
+                messages=messages,
+                model=model,
+                max_tokens=4000,  # Ensure enough tokens for comprehensive analysis
+                temperature=0.2   # Low temperature for consistent astrological analysis
+            )
+
+            # Process and extract structured data from the response
+            return self._parse_rectification_response(response, birth_data)
+
+        except Exception as e:
+            logger.error(f"Error in AI-assisted birth time rectification: {str(e)}")
+            logger.error(traceback.format_exc())
+            # Return a safe fallback with error information
+            return {
+                "time_shift_minutes": 0,
+                "rectified_time": birth_data.get("birth_time", ""),
+                "confidence_score": 0,
+                "explanation": f"Rectification analysis failed: {str(e)}",
+                "astrological_factors": [],
+                "error": str(e)
+            }
+
+    def _format_chart_data_for_rectification(self, chart_data: Dict[str, Any]) -> str:
+        """
+        Format chart data for rectification analysis.
+
+        Args:
+            chart_data: Original chart data
+
+        Returns:
+            Formatted chart data string for prompt
+        """
+        formatted_output = []
+
+        # Add basic chart information
+        formatted_output.append("CHART POSITIONS:")
+
+        # Add ascendant information
+        ascendant = chart_data.get("angles", {}).get("asc", {})
+        if ascendant:
+            asc_sign = ascendant.get("sign", "Unknown")
+            asc_degree = ascendant.get("longitude", 0) % 30
+            formatted_output.append(f"Ascendant: {asc_sign} {asc_degree:.2f}°")
+
+        # Add planetary positions
+        formatted_output.append("\nPLANETS:")
+        planets = chart_data.get("planets", {})
+        for planet_name, planet_data in planets.items():
+            if isinstance(planet_data, dict):
+                sign = planet_data.get("sign", "Unknown")
+                degree = planet_data.get("longitude", 0) % 30
+                house = planet_data.get("house", "Unknown")
+                retrograde = "R" if planet_data.get("retrograde", False) else ""
+
+                formatted_output.append(f"{planet_name.capitalize()}: {sign} {degree:.2f}° (House {house}) {retrograde}")
+
+        # Add house cusps
+        formatted_output.append("\nHOUSE CUSPS:")
+        houses = chart_data.get("houses", [])
+        if houses:
+            for i, house_deg in enumerate(houses):
+                house_num = i + 1
+                if isinstance(house_deg, (int, float)):
+                    sign_num = int(house_deg / 30) % 12
+                    zodiac_signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                                   "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+                    sign = zodiac_signs[sign_num]
+                    degree = house_deg % 30
+                    formatted_output.append(f"House {house_num}: {sign} {degree:.2f}°")
+
+        # Add divisional chart information if available
+        if "divisional_charts" in chart_data:
+            formatted_output.append("\nKEY DIVISIONAL CHART POSITIONS:")
+            divisional = chart_data.get("divisional_charts", {})
+            # Add D9 (Navamsa) information
+            if "D9" in divisional:
+                formatted_output.append("Navamsa (D9) Key Positions:")
+                d9_asc = divisional["D9"].get("angles", {}).get("asc", {})
+                if d9_asc:
+                    formatted_output.append(f"D9 Ascendant: {d9_asc.get('sign', 'Unknown')}")
+                # Add Moon and Sun positions in D9
+                d9_planets = divisional["D9"].get("planets", {})
+                for planet in ["Sun", "Moon"]:
+                    if planet.lower() in d9_planets:
+                        p_data = d9_planets[planet.lower()]
+                        formatted_output.append(f"D9 {planet}: {p_data.get('sign', 'Unknown')}")
+
+        return "\n".join(formatted_output)
+
+    def _format_answers_for_rectification(self, answers: List[Dict[str, Any]]) -> str:
+        """
+        Format questionnaire answers for rectification analysis.
+
+        Args:
+            answers: List of questionnaire answers
+
+        Returns:
+            Formatted answers string for prompt
+        """
+        if not answers:
+            return "No questionnaire answers provided."
+
+        formatted_output = []
+        for i, answer in enumerate(answers):
+            question = answer.get("question", "Unknown question")
+            response = answer.get("answer", "No answer")
+            formatted_output.append(f"Q{i+1}: {question}\nA: {response}\n")
+
+        return "\n".join(formatted_output)
+
+    def _format_events_for_rectification(self, events: List[Dict[str, Any]]) -> str:
+        """
+        Format life events for rectification analysis.
+
+        Args:
+            events: List of life events
+
+        Returns:
+            Formatted events string for prompt
+        """
+        if not events:
+            return "No life events provided."
+
+        formatted_output = []
+        for i, event in enumerate(events):
+            event_type = event.get("type", "Unknown")
+            date = event.get("date", "Unknown date")
+            description = event.get("description", "No description")
+            formatted_output.append(f"Event {i+1} - {event_type}: {date}\nDescription: {description}\n")
+
+        return "\n".join(formatted_output)
+
+    def _parse_rectification_response(self, response: Dict[str, Any], birth_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse the OpenAI response for rectification analysis.
+
+        Args:
+            response: OpenAI API response
+            birth_data: Original birth data
+
+        Returns:
+            Structured rectification data
+        """
+        try:
+            from datetime import datetime, timedelta
+            import re
+
+            # Extract response content
+            content = response.get("content", "")
+
+            # Default values
+            time_shift_minutes = 0
+            confidence_score = 0
+            explanation = "No explanation provided."
+            astrological_factors = []
+
+            # Parse the time adjustment - look for numbers followed by "minute" patterns
+            time_patterns = [
+                r"(\-?\+?\d+)\s*minutes?",
+                r"(\-?\+?\d+)\s*mins",
+                r"time\s*adjustment\s*of\s*(\-?\+?\d+)",
+                r"time\s*shift\s*of\s*(\-?\+?\d+)",
+                r"adjust.*by\s*(\-?\+?\d+)\s*minutes?",
+                r"(\-?\+?\d+)\s*minutes?.*adjustment",
+                r"shift.*by\s*(\-?\+?\d+)\s*minutes?"
+            ]
+
+            # Try each pattern
+            for pattern in time_patterns:
+                matches = re.search(pattern, content, re.IGNORECASE)
+                if matches:
+                    time_shift_str = matches.group(1).replace("+", "")
+                    try:
+                        time_shift_minutes = int(time_shift_str)
+                        break
+                    except ValueError:
+                        continue
+
+            # Parse confidence score - look for numbers followed by % or "confidence"
+            confidence_patterns = [
+                r"confidence\s*score\s*:?\s*(\d+)",
+                r"confidence\s*:?\s*(\d+)",
+                r"(\d+)\s*%\s*confidence",
+                r"confidence.*?(\d+)\s*%",
+                r"confidence.*?(\d+)\/100"
+            ]
+
+            # Try each pattern
+            for pattern in confidence_patterns:
+                matches = re.search(pattern, content, re.IGNORECASE)
+                if matches:
+                    try:
+                        confidence_score = int(matches.group(1))
+                        # Ensure it's in the 0-100 range
+                        confidence_score = max(0, min(100, confidence_score))
+                        break
+                    except ValueError:
+                        continue
+
+            # Extract explanation - use the entire response if no specific segment found
+            explanation_patterns = [
+                r"(?:explanation|justification|reasoning):(.*?)(?:\n\n|\Z)",
+                r"(?:astrological\s*explanation):(.*?)(?:\n\n|\Z)",
+                r"(?:rationale):(.*?)(?:\n\n|\Z)"
+            ]
+
+            for pattern in explanation_patterns:
+                matches = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
+                if matches:
+                    explanation = matches.group(1).strip()
+                    break
+
+            # If no specific explanation section found, use the full response
+            if explanation == "No explanation provided." and content:
+                explanation = content
+
+            # Extract astrological factors
+            factor_patterns = [
+                r"(?:astrological\s*factors|key\s*factors):(.*?)(?:\n\n|\Z)",
+                r"(?:factors\s*supporting|supporting\s*factors):(.*?)(?:\n\n|\Z)"
+            ]
+
+            for pattern in factor_patterns:
+                matches = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
+                if matches:
+                    factors_text = matches.group(1).strip()
+                    factors_list = [f.strip() for f in re.split(r'\n\d+\.|\n-|\n\*', factors_text) if f.strip()]
+                    if factors_list and factors_list[0]:
+                        astrological_factors = factors_list
+                    break
+
+            # If no structured factors found, try to extract bullet points or numbered items
+            if not astrological_factors:
+                factor_items = re.findall(r'\n\d+\.\s*(.*?)(?:\n|$)|\n-\s*(.*?)(?:\n|$)|\n\*\s*(.*?)(?:\n|$)', content)
+                flat_factors = []
+                for item_match in factor_items:
+                    for group in item_match:
+                        if group.strip():
+                            flat_factors.append(group.strip())
+                if flat_factors:
+                    astrological_factors = flat_factors
+
+            # Calculate rectified time based on original time
+            birth_time = birth_data.get("birth_time", "")
+            rectified_time = birth_time
+
+            if birth_time and time_shift_minutes:
+                try:
+                    # Parse original birth time
+                    birth_dt = datetime.strptime(birth_time, "%H:%M:%S")
+
+                    # Apply time shift
+                    rectified_dt = birth_dt + timedelta(minutes=time_shift_minutes)
+
+                    # Format rectified time
+                    rectified_time = rectified_dt.strftime("%H:%M:%S")
+                except Exception as time_error:
+                    logger.error(f"Error calculating rectified time: {str(time_error)}")
+
+            # Return structured rectification results
+            return {
+                "time_shift_minutes": time_shift_minutes,
+                "rectified_time": rectified_time,
+                "confidence_score": confidence_score,
+                "explanation": explanation,
+                "astrological_factors": astrological_factors,
+                "full_response": content
+            }
+
+        except Exception as e:
+            logger.error(f"Error parsing rectification response: {str(e)}")
+            return {
+                "time_shift_minutes": 0,
+                "rectified_time": birth_data.get("birth_time", ""),
+                "confidence_score": 0,
+                "explanation": f"Error parsing response: {str(e)}",
+                "astrological_factors": [],
+                "full_response": response.get("content", "")
             }
 
 def create_openai_service() -> OpenAIService:

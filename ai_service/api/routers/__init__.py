@@ -18,6 +18,7 @@ try:
     from ai_service.api.routers.session import router as session_router
     from ai_service.api.routers.questionnaire import router as questionnaire_router
     from ai_service.api.routers.geocode import router as geocode_router
+    from ai_service.api.routers.websocket import router as websocket_router
 
     # Include routers with appropriate prefixes and tags
     router.include_router(health_router, tags=["health"])
@@ -26,6 +27,7 @@ try:
     router.include_router(session_router, prefix="/session", tags=["session"])
     router.include_router(questionnaire_router, prefix="/questionnaire", tags=["questionnaire"])
     router.include_router(geocode_router, prefix="/geocode", tags=["geocoding"])
+    router.include_router(websocket_router, tags=["websocket"])
 
     # Additional routers would be included here
 

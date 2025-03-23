@@ -134,6 +134,15 @@ def get_container() -> DependencyContainer:
     """Get the global dependency container."""
     return container
 
+def initialize_container() -> None:
+    """
+    Initialize the dependency container.
+    This resets the container state and prepares it for use.
+    """
+    global container
+    container = DependencyContainer()
+    logger.info("Dependency container re-initialized")
+
 def register_openai_service():
     """Register the OpenAI service in the dependency container."""
     from ai_service.api.services.openai.service import OpenAIService
@@ -163,3 +172,34 @@ def register_chart_service():
 # Call this on module import to ensure the services are registered
 register_openai_service()
 register_chart_service()
+
+def get_instance(cls_or_name: Type[T] | str) -> Optional[T]:
+    """
+    Get an instance from the container by class or name.
+
+    Args:
+        cls_or_name: The class or name of the instance to retrieve.
+
+    Returns:
+        The instance or None if not found.
+    """
+    container_instance = get_container()
+
+    # If it's a class, try to find by class name first
+    if isinstance(cls_or_name, type):
+        class_name = cls_or_name.__name__
+        try:
+            return cast(T, container_instance.get(class_name))
+        except ValueError:
+            # Try checking if any registered service is an instance of this class
+            for name in container_instance._instances:
+                instance = container_instance._instances[name]
+                if isinstance(instance, cls_or_name):
+                    return cast(T, instance)
+            return None
+    else:
+        # It's a string name
+        try:
+            return cast(T, container_instance.get(cls_or_name))
+        except ValueError:
+            return None

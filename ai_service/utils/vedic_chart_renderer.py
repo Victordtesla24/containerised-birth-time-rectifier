@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from matplotlib import path as mpath
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -40,19 +41,18 @@ ZODIAC_SIGNS = {
 
 # Planet symbols
 PLANET_SYMBOLS = {
-    "Sun": "☉",
-    "Moon": "☽",
-    "Mercury": "☿",
-    "Venus": "♀",
-    "Mars": "♂",
-    "Jupiter": "♃",
-    "Saturn": "♄",
-    "Rahu": "☊",
-    "Ketu": "☋",
-    "Uranus": "⛢",
-    "Neptune": "♆",
-    "Pluto": "♇",
-    "Ascendant": "Asc"
+    "sun": "☉",
+    "moon": "☽",
+    "mercury": "☿",
+    "venus": "♀",
+    "mars": "♂",
+    "jupiter": "♃",
+    "saturn": "♄",
+    "uranus": "♅",
+    "neptune": "♆",
+    "pluto": "♇",
+    "rahu": "☊",
+    "ketu": "☋"
 }
 
 # Planet colors - used for standard and relationship highlighting
@@ -80,472 +80,314 @@ RELATIONSHIP_COLORS = {
 }
 
 class VedicChartRenderer:
-    """
-    Renderer for North Indian (Kundli) style Vedic astrological charts.
-    """
+    """Renderer for Vedic astrological charts in North Indian format (Kundli)."""
 
-    def __init__(self, chart_data: Dict[str, Any], output_dir: Optional[str] = None):
+    def __init__(
+        self,
+        planets: Dict[str, Any],
+        houses: List[Dict[str, Any]],
+        ascendant: Dict[str, Any],
+        width: int = 1000,
+        height: int = 1000,
+        background_color: str = "white",
+        line_color: str = "black",
+        text_color: str = "black",
+        planet_color: str = "red"
+    ):
         """
         Initialize the Vedic chart renderer.
 
         Args:
-            chart_data: The chart data containing planetary positions and house information.
-            output_dir: Optional directory for saving chart images.
+            planets: Dictionary of planets with their positions
+            houses: List of houses with their positions
+            ascendant: Ascendant (Lagna) information
+            width: Chart width in pixels
+            height: Chart height in pixels
+            background_color: Background color
+            line_color: Line color for chart grid
+            text_color: Text color
+            planet_color: Color for planet symbols
         """
-        self.chart_data = chart_data
-        self.output_dir = output_dir or tempfile.mkdtemp()
-        self._validate_chart_data()
-
-    def _validate_chart_data(self):
-        """Validate the chart data contains required fields."""
-        required_fields = ["planets", "houses", "ascendant"]
-        for field in required_fields:
-            if field not in self.chart_data:
-                logger.warning(f"Chart data missing required field: {field}")
-
-    def render_north_indian_chart(self, output_path: Optional[str] = None) -> str:
-        """
-        Render a traditional North Indian style chart (Kundli format).
-
-        Args:
-            output_path: Optional path to save the rendered chart image.
-
-        Returns:
-            str: Path to the rendered chart image.
-        """
-        # Set up figure and axis
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.set_aspect('equal')
-
-        # Turn off axis
-        ax.axis('off')
-
-        # Draw the main square
-        main_square = patches.Rectangle((0, 0), 10, 10, linewidth=2, edgecolor='black', facecolor='none')
-        ax.add_patch(main_square)
-
-        # Draw diagonal lines to create the central house
-        diag1 = patches.PathPatch(
-            matplotlib.path.Path([(0, 0), (10, 10)]),
-            linewidth=1.5, edgecolor='black', facecolor='none'
-        )
-        diag2 = patches.PathPatch(
-            matplotlib.path.Path([(0, 10), (10, 0)]),
-            linewidth=1.5, edgecolor='black', facecolor='none'
-        )
-        ax.add_patch(diag1)
-        ax.add_patch(diag2)
-
-        # Add house separators
-        # Left compartment
-        ax.add_patch(patches.Rectangle((0, 3.33), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Right compartment
-        ax.add_patch(patches.Rectangle((6.67, 3.33), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Bottom compartment
-        ax.add_patch(patches.Rectangle((3.33, 0), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Top compartment
-        ax.add_patch(patches.Rectangle((3.33, 6.67), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Define house positions (house_number: (x, y))
-        house_positions = {
-            1: (5, 5),       # Center house
-            2: (8.33, 8.33),  # Top right
-            3: (8.33, 5),     # Right
-            4: (8.33, 1.67),  # Bottom right
-            5: (5, 1.67),     # Bottom
-            6: (1.67, 1.67),  # Bottom left
-            7: (1.67, 5),     # Left
-            8: (1.67, 8.33),  # Top left
-            9: (5, 8.33),     # Top
-            10: (3.33, 6.67), # Top middle
-            11: (6.67, 6.67), # Top right middle
-            12: (3.33, 3.33)  # Left middle
-        }
-
-        # Add house numbers
-        for house_num, pos in house_positions.items():
-            ax.text(pos[0], pos[1], str(house_num),
-                    horizontalalignment='center', verticalalignment='center',
-                    fontsize=14, fontweight='bold')
-
-        # Map the planets to houses
-        planets_by_house = {}
-        for planet in self.chart_data.get("planets", []):
-            house = planet.get("house")
-            if house not in planets_by_house:
-                planets_by_house[house] = []
-            planets_by_house[house].append(planet)
-
-        # Get the ascendant sign for determining relationships
-        ascendant = self.chart_data.get("ascendant", {}).get("sign", "Unknown")
-
-        # Add planets to houses with relationship highlighting
-        for house_num, planets in planets_by_house.items():
-            if house_num not in house_positions:
-                continue
-
-            # Position for the house
-            x, y = house_positions[house_num]
-
-            # Arrange planets vertically within the house
-            spacing = 0.4
-            start_y = y + (len(planets) - 1) * spacing / 2
-
-            for i, planet in enumerate(planets):
-                planet_name = planet.get("name")
-                planet_symbol = PLANET_SYMBOLS.get(planet_name, "?")
-                planet_sign = planet.get("sign")
-                planet_degree = planet.get("longitude", 0) % 30  # Degree within sign
-
-                # Determine relationship to ascendant
-                # This is a simplified version - in practice, you'd use more complex rules
-                relationship = self._determine_relationship(planet_name, ascendant)
-
-                # Choose color based on relationship
-                if relationship == "friendly":
-                    color = RELATIONSHIP_COLORS["friendly"]
-                elif relationship == "enemy":
-                    color = RELATIONSHIP_COLORS["enemy"]
-                else:
-                    color = PLANET_COLORS.get(planet_name, "black")
-
-                # Place the planet in the house
-                planet_y = start_y - i * spacing
-
-                # Create text with symbol and degrees
-                text = f"{planet_symbol} {planet_degree:.1f}°"
-
-                # Draw with appropriate color based on relationship
-                ax.text(x, planet_y, text,
-                        color=color,
-                        horizontalalignment='center',
-                        verticalalignment='center',
-                        fontsize=11, fontweight='bold')
-
-        # Title
-        chart_type = "Rectified " if self.chart_data.get("rectified", False) else ""
-        ax.set_title(f"{chart_type}North Indian Vedic Chart (Kundli)", fontsize=16)
-
-        # Add timestamp to bottom
-        timestamp = self.chart_data.get("timestamp", "")
-        if timestamp:
-            plt.figtext(0.5, 0.01, f"Generated: {timestamp}",
-                        ha="center", fontsize=8, color="gray")
-
-        # Save the figure if output path is provided
-        if not output_path:
-            # Create a default path if not provided
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_path = os.path.join(self.output_dir, "vedic_kundli_chart.png")
-
-        plt.savefig(output_path, bbox_inches='tight', dpi=150)
-        plt.close()
-
-        logger.info(f"North Indian Vedic chart rendered to {output_path}")
-        return output_path
-
-    def _determine_relationship(self, planet_name: str, ascendant_sign: str) -> str:
-        """
-        Determine the relationship of a planet to the ascendant sign.
-
-        Args:
-            planet_name: The name of the planet.
-            ascendant_sign: The zodiac sign of the ascendant.
-
-        Returns:
-            str: Relationship type ("friendly", "enemy", or "neutral").
-        """
-        # This is a simplified version of relationship determination
-        # Real implementation would have full planetary relationship matrix
-
-        # Simple rulership pairs (planet is strong in these signs)
-        rulerships = {
-            "Sun": ["Leo"],
-            "Moon": ["Cancer"],
-            "Mercury": ["Gemini", "Virgo"],
-            "Venus": ["Taurus", "Libra"],
-            "Mars": ["Aries", "Scorpio"],
-            "Jupiter": ["Sagittarius", "Pisces"],
-            "Saturn": ["Capricorn", "Aquarius"]
-        }
-
-        # Simple debilitation (planet is weak in these signs)
-        debilitations = {
-            "Sun": ["Libra"],
-            "Moon": ["Scorpio"],
-            "Mercury": ["Pisces"],
-            "Venus": ["Virgo"],
-            "Mars": ["Cancer"],
-            "Jupiter": ["Capricorn"],
-            "Saturn": ["Aries"]
-        }
-
-        # Check if planet is in a friendly sign for the ascendant ruler
-        ascendant_ruler = self._get_ruler_of_sign(ascendant_sign)
-
-        # If the planet rules the ascendant, it's friendly
-        if planet_name == ascendant_ruler:
-            return "friendly"
-
-        # If the planet is in a sign it rules, it's friendly
-        if ascendant_sign in rulerships.get(planet_name, []):
-            return "friendly"
-
-        # If the planet is in a sign where it's debilitated, it's an enemy
-        if ascendant_sign in debilitations.get(planet_name, []):
-            return "enemy"
-
-        # Default - neutral relationship
-        return "neutral"
-
-    def _get_ruler_of_sign(self, sign: str) -> str:
-        """Get the planetary ruler of a zodiac sign."""
-        rulers = {
-            "Aries": "Mars",
-            "Taurus": "Venus",
-            "Gemini": "Mercury",
-            "Cancer": "Moon",
-            "Leo": "Sun",
-            "Virgo": "Mercury",
-            "Libra": "Venus",
-            "Scorpio": "Mars",
-            "Sagittarius": "Jupiter",
-            "Capricorn": "Saturn",
-            "Aquarius": "Saturn",
-            "Pisces": "Jupiter"
-        }
-        return rulers.get(sign, "Unknown")
-
-    def render_chart_comparison(self, comparison_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
-        """
-        Render a comparison between two Vedic charts side by side.
-
-        Args:
-            comparison_data: Dictionary containing original and rectified chart data.
-            output_path: Optional path to save the rendered comparison image.
-
-        Returns:
-            str: Path to the rendered comparison image.
-        """
-        original_chart = comparison_data.get("original", {})
-        rectified_chart = comparison_data.get("rectified", {})
-
-        if not original_chart or not rectified_chart:
-            logger.error("Comparison data must include both original and rectified charts")
-            return ""
-
-        # Create figure with two subplots side by side
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-
-        # Temporarily store chart_data and set to original chart
-        temp_chart_data = self.chart_data
-        self.chart_data = original_chart
-
-        # Render original chart on left subplot
-        self._render_chart_on_axis(ax1, "Original Birth Chart")
-
-        # Set to rectified chart
-        self.chart_data = rectified_chart
-
-        # Render rectified chart on right subplot
-        self._render_chart_on_axis(ax2, "Rectified Birth Chart")
-
-        # Restore original chart_data
-        self.chart_data = temp_chart_data
-
-        # Add a title for the comparison
-        plt.suptitle("Vedic Chart Comparison", fontsize=20)
-
-        # Add explanation of differences
-        diff_text = self._generate_differences_text(original_chart, rectified_chart)
-        plt.figtext(0.5, 0.01, diff_text, ha="center", fontsize=10,
-                   bbox={"facecolor":"lightgray", "alpha":0.5, "pad":5})
-
-        # Save the figure if output path is provided
-        if not output_path:
-            # Create a default path if not provided
-            os.makedirs(self.output_dir, exist_ok=True)
-            output_path = os.path.join(self.output_dir, "vedic_chart_comparison.png")
-
-        plt.savefig(output_path, bbox_inches='tight', dpi=150)
-        plt.close()
-
-        logger.info(f"Vedic chart comparison rendered to {output_path}")
-        return output_path
-
-    def _render_chart_on_axis(self, ax, title):
-        """Helper method to render a chart on a given matplotlib axis."""
-        # Turn off axis
-        ax.axis('off')
-        ax.set_aspect('equal')
-
-        # Draw the main square
-        main_square = patches.Rectangle((0, 0), 10, 10, linewidth=2, edgecolor='black', facecolor='none')
-        ax.add_patch(main_square)
-
-        # Draw diagonal lines to create the central house
-        diag1 = patches.PathPatch(
-            matplotlib.path.Path([(0, 0), (10, 10)]),
-            linewidth=1.5, edgecolor='black', facecolor='none'
-        )
-        diag2 = patches.PathPatch(
-            matplotlib.path.Path([(0, 10), (10, 0)]),
-            linewidth=1.5, edgecolor='black', facecolor='none'
-        )
-        ax.add_patch(diag1)
-        ax.add_patch(diag2)
-
-        # Add house separators
-        # Left compartment
-        ax.add_patch(patches.Rectangle((0, 3.33), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Right compartment
-        ax.add_patch(patches.Rectangle((6.67, 3.33), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Bottom compartment
-        ax.add_patch(patches.Rectangle((3.33, 0), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Top compartment
-        ax.add_patch(patches.Rectangle((3.33, 6.67), 3.33, 3.33, linewidth=1.5, edgecolor='black', facecolor='none'))
-
-        # Define house positions (house_number: (x, y))
-        house_positions = {
-            1: (5, 5),       # Center house
-            2: (8.33, 8.33),  # Top right
-            3: (8.33, 5),     # Right
-            4: (8.33, 1.67),  # Bottom right
-            5: (5, 1.67),     # Bottom
-            6: (1.67, 1.67),  # Bottom left
-            7: (1.67, 5),     # Left
-            8: (1.67, 8.33),  # Top left
-            9: (5, 8.33),     # Top
-            10: (3.33, 6.67), # Top middle
-            11: (6.67, 6.67), # Top right middle
-            12: (3.33, 3.33)  # Left middle
-        }
-
-        # Add house numbers
-        for house_num, pos in house_positions.items():
-            ax.text(pos[0], pos[1], str(house_num),
-                    horizontalalignment='center', verticalalignment='center',
-                    fontsize=14, fontweight='bold')
-
-        # Map the planets to houses
-        planets_by_house = {}
-        for planet in self.chart_data.get("planets", []):
-            house = planet.get("house")
-            if house not in planets_by_house:
-                planets_by_house[house] = []
-            planets_by_house[house].append(planet)
-
-        # Get the ascendant sign for determining relationships
-        ascendant = self.chart_data.get("ascendant", {}).get("sign", "Unknown")
-
-        # Add planets to houses with relationship highlighting
-        for house_num, planets in planets_by_house.items():
-            if house_num not in house_positions:
-                continue
-
-            # Position for the house
-            x, y = house_positions[house_num]
-
-            # Arrange planets vertically within the house
-            spacing = 0.4
-            start_y = y + (len(planets) - 1) * spacing / 2
-
-            for i, planet in enumerate(planets):
-                planet_name = planet.get("name")
-                planet_symbol = PLANET_SYMBOLS.get(planet_name, "?")
-                planet_sign = planet.get("sign")
-                planet_degree = planet.get("longitude", 0) % 30  # Degree within sign
-
-                # Determine relationship to ascendant
-                relationship = self._determine_relationship(planet_name, ascendant)
-
-                # Choose color based on relationship
-                if relationship == "friendly":
-                    color = RELATIONSHIP_COLORS["friendly"]
-                elif relationship == "enemy":
-                    color = RELATIONSHIP_COLORS["enemy"]
-                else:
-                    color = PLANET_COLORS.get(planet_name, "black")
-
-                # Place the planet in the house
-                planet_y = start_y - i * spacing
-
-                # Create text with symbol and degrees
-                text = f"{planet_symbol} {planet_degree:.1f}°"
-
-                # Draw with appropriate color based on relationship
-                ax.text(x, planet_y, text,
-                        color=color,
-                        horizontalalignment='center',
-                        verticalalignment='center',
-                        fontsize=11, fontweight='bold')
-
-        # Title
-        ax.set_title(title, fontsize=16)
-
-    def _generate_differences_text(self, original_chart, rectified_chart):
-        """Generate text describing the key differences between original and rectified charts."""
-        differences = []
-
-        # Compare ascendants
-        orig_asc = original_chart.get("ascendant", {})
-        rect_asc = rectified_chart.get("ascendant", {})
-
-        if orig_asc.get("sign") != rect_asc.get("sign"):
-            differences.append(f"• Ascendant changed from {orig_asc.get('sign')} to {rect_asc.get('sign')}")
-        elif abs(orig_asc.get("longitude", 0) - rect_asc.get("longitude", 0)) > 1:
-            orig_deg = orig_asc.get("longitude", 0) % 30
-            rect_deg = rect_asc.get("longitude", 0) % 30
-            differences.append(f"• Ascendant degree changed from {orig_deg:.1f}° to {rect_deg:.1f}° {rect_asc.get('sign')}")
-
-        # Compare planets' house placements
-        orig_planets = {p.get("name"): p for p in original_chart.get("planets", [])}
-        rect_planets = {p.get("name"): p for p in rectified_chart.get("planets", [])}
-
-        for planet_name, rect_planet in rect_planets.items():
-            if planet_name in orig_planets:
-                orig_planet = orig_planets[planet_name]
-
-                # Check if house changed
-                if orig_planet.get("house") != rect_planet.get("house"):
-                    differences.append(
-                        f"• {planet_name} moved from house {orig_planet.get('house')} to {rect_planet.get('house')}"
-                    )
-
-                # Check if sign changed
-                if orig_planet.get("sign") != rect_planet.get("sign"):
-                    differences.append(
-                        f"• {planet_name} moved from {orig_planet.get('sign')} to {rect_planet.get('sign')}"
-                    )
-
-        # If any house cusps changed significantly
-        orig_houses = original_chart.get("houses", [])
-        rect_houses = rectified_chart.get("houses", [])
-
-        if len(orig_houses) == len(rect_houses) and len(orig_houses) > 0:
-            for i in range(len(orig_houses)):
-                if orig_houses[i].get("sign") != rect_houses[i].get("sign"):
-                    differences.append(
-                        f"• House {i+1} cusp moved from {orig_houses[i].get('sign')} to {rect_houses[i].get('sign')}"
-                    )
-
-        # Get birth time difference if available
-        orig_time = original_chart.get("birth_time", "")
-        rect_time = rectified_chart.get("birth_time", "")
-
-        if orig_time and rect_time and orig_time != rect_time:
-            differences.append(f"• Birth time adjusted from {orig_time} to {rect_time}")
-
-        # Combine the differences
-        if differences:
-            text = "Key differences:\n" + "\n".join(differences)
+        self.planets = planets
+        self.houses = houses
+        self.ascendant = ascendant
+        self.width = width
+        self.height = height
+        self.background_color = background_color
+        self.line_color = line_color
+        self.text_color = text_color
+        self.planet_color = planet_color
+
+        # Computed properties
+        self.ascendant_sign = self.ascendant.get("sign", "Aries")
+        self.ascendant_house = 1  # In Vedic astrology, ascendant is always in the 1st house
+
+        # Find the zodiac sign that corresponds to the 1st house (ascendant/lagna)
+        for house in self.houses:
+            if house.get("house") == 1:
+                self.first_house_sign = house.get("sign", self.ascendant_sign)
+                break
         else:
-            text = "No significant differences detected between charts."
+            self.first_house_sign = self.ascendant_sign
 
-        return text
+    def render(self, output_path: str) -> str:
+        """
+        Render the Vedic chart and save it to the specified path.
+
+        Args:
+            output_path: Path where to save the output image
+
+        Returns:
+            The path to the saved image
+        """
+        try:
+            # Create figure with the specified size
+            fig, ax = plt.subplots(figsize=(10, 10))
+
+            # Set up the plot
+            ax.set_xlim(0, self.width)
+            ax.set_ylim(0, self.height)
+            ax.set_aspect('equal')
+            ax.axis('off')  # Hide axes
+
+            # Draw the North Indian chart structure (Kundli)
+            self._draw_kundli_structure(ax)
+
+            # Draw zodiac signs in each house based on ascendant position
+            self._draw_zodiac_signs(ax)
+
+            # Draw planets in their respective houses
+            self._draw_planets(ax)
+
+            # Save the chart
+            plt.tight_layout()
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+
+            logger.info(f"Vedic chart saved to {output_path}")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error rendering Vedic chart: {e}")
+            raise
+
+    def _draw_kundli_structure(self, ax):
+        """
+        Draw the North Indian chart structure (Kundli square).
+
+        Args:
+            ax: Matplotlib axis
+        """
+        # Main square
+        main_square = patches.Rectangle(
+            (100, 100), self.width-200, self.height-200,
+            linewidth=2, edgecolor=self.line_color, facecolor='none'
+        )
+        ax.add_patch(main_square)
+
+        # Center square
+        center_x = self.width/2
+        center_y = self.height/2
+        center_width = (self.width-200)/3
+        center_height = (self.height-200)/3
+
+        center_square = patches.Rectangle(
+            (center_x - center_width/2, center_y - center_height/2),
+            center_width, center_height,
+            linewidth=2, edgecolor=self.line_color, facecolor='none'
+        )
+        ax.add_patch(center_square)
+
+        # Draw diagonals
+        ax.plot([100, self.width-100], [100, self.height-100],
+                color=self.line_color, linestyle='-', linewidth=1)
+        ax.plot([100, self.width-100], [self.height-100, 100],
+                color=self.line_color, linestyle='-', linewidth=1)
+
+        # Draw horizontal and vertical dividers
+        h_third = (self.height-200)/3
+        w_third = (self.width-200)/3
+
+        # Horizontal lines
+        ax.plot([100, self.width-100], [100 + h_third, 100 + h_third],
+                color=self.line_color, linestyle='-', linewidth=1)
+        ax.plot([100, self.width-100], [100 + 2*h_third, 100 + 2*h_third],
+                color=self.line_color, linestyle='-', linewidth=1)
+
+        # Vertical lines
+        ax.plot([100 + w_third, 100 + w_third], [100, self.height-100],
+                color=self.line_color, linestyle='-', linewidth=1)
+        ax.plot([100 + 2*w_third, 100 + 2*w_third], [100, self.height-100],
+                color=self.line_color, linestyle='-', linewidth=1)
+
+        # Label the houses
+        self._label_houses(ax)
+
+    def _label_houses(self, ax):
+        """
+        Label the houses with their numbers.
+
+        Args:
+            ax: Matplotlib axis
+        """
+        # Define house positions in the North Indian chart
+        # Houses are numbered 1-12, with 1 being the Ascendant/Lagna house
+
+        # In North Indian chart, houses are fixed positions:
+        # 1  12  11
+        # 2   9  10
+        # 3   4   5
+        house_positions = {
+            1: (self.width/6, self.height/6),     # Top-left
+            2: (self.width/6, self.height/2),     # Middle-left
+            3: (self.width/6, 5*self.height/6),   # Bottom-left
+            4: (self.width/2, 5*self.height/6),   # Bottom-center
+            5: (5*self.width/6, 5*self.height/6), # Bottom-right
+            6: (5*self.width/6, self.height/2),   # Middle-right
+            7: (5*self.width/6, self.height/6),   # Top-right
+            8: (self.width/2, self.height/6),     # Top-center
+            9: (self.width/2, self.height/2),     # Center
+            10: (5*self.width/6, self.height/3),  # Upper-right
+            11: (2*self.width/3, self.height/6),  # Upper-center-right
+            12: (self.width/3, self.height/6),    # Upper-center-left
+        }
+
+        # Adjust house numbers based on the Ascendant house
+        # In Vedic astrology with North Indian style, the 1st house is always the Ascendant house
+        # and is always placed at the top-left position
+
+        # Draw house numbers
+        for house_num, (x, y) in house_positions.items():
+            ax.text(x, y, str(house_num), fontsize=14,
+                   ha='center', va='center', color=self.text_color,
+                   bbox=dict(facecolor=self.background_color, alpha=0.7, boxstyle='round'))
+
+    def _draw_zodiac_signs(self, ax):
+        """
+        Draw zodiac signs in the chart.
+
+        Args:
+            ax: Matplotlib axis
+        """
+        # Map of house positions for the signs
+        # In North Indian chart, signs are placed according to the Ascendant position
+
+        # House positions (same as in _label_houses)
+        house_positions = {
+            1: (self.width/6, self.height/6 + 30),     # Top-left
+            2: (self.width/6, self.height/2 + 30),     # Middle-left
+            3: (self.width/6, 5*self.height/6 + 30),   # Bottom-left
+            4: (self.width/2, 5*self.height/6 + 30),   # Bottom-center
+            5: (5*self.width/6, 5*self.height/6 + 30), # Bottom-right
+            6: (5*self.width/6, self.height/2 + 30),   # Middle-right
+            7: (5*self.width/6, self.height/6 + 30),   # Top-right
+            8: (self.width/2, self.height/6 + 30),     # Top-center
+            9: (self.width/2, self.height/2 + 30),     # Center
+            10: (5*self.width/6, self.height/3 + 30),  # Upper-right
+            11: (2*self.width/6, self.height/6 + 30),  # Upper-center-right
+            12: (self.width/3, self.height/6 + 30),    # Upper-center-left
+        }
+
+        # Zodiac sign order
+        zodiac_order = [
+            "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+            "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+        ]
+
+        # Find the index of the ascendant sign
+        try:
+            asc_index = zodiac_order.index(self.ascendant_sign)
+        except ValueError:
+            logger.warning(f"Ascendant sign {self.ascendant_sign} not found in zodiac signs")
+            asc_index = 0
+
+        # Draw zodiac signs for each house
+        for house_num in range(1, 13):
+            # Calculate which sign goes in this house
+            sign_index = (asc_index + house_num - 1) % 12
+            sign = zodiac_order[sign_index]
+            symbol = ZODIAC_SIGNS.get(sign, sign)
+
+            # Get position for this house
+            x, y = house_positions.get(house_num, (0, 0))
+
+            # Draw the sign
+            ax.text(x, y, symbol, fontsize=16,
+                   ha='center', va='center', color=self.text_color,
+                   bbox=dict(facecolor=self.background_color, alpha=0.8))
+
+    def _draw_planets(self, ax):
+        """
+        Draw planets in their respective houses.
+
+        Args:
+            ax: Matplotlib axis
+        """
+        # Determine where each planet should be placed
+        planet_house_map = {}
+
+        zodiac_order = [
+            "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+            "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+        ]
+
+        # Find the index of the ascendant sign
+        try:
+            asc_index = zodiac_order.index(self.ascendant_sign)
+        except ValueError:
+            logger.warning(f"Ascendant sign {self.ascendant_sign} not found in zodiac signs")
+            asc_index = 0
+
+        # Determine which house each planet is in
+        for planet_name, planet_data in self.planets.items():
+            if isinstance(planet_data, dict):
+                # Get the sign the planet is in
+                planet_sign = planet_data.get("sign", "")
+
+                if not planet_sign or planet_sign not in zodiac_order:
+                    logger.warning(f"Invalid sign for planet {planet_name}: {planet_sign}")
+                    continue
+
+                # Calculate which house this sign corresponds to
+                sign_index = zodiac_order.index(planet_sign)
+                house_offset = (sign_index - asc_index) % 12 + 1
+
+                # Add to map
+                if house_offset not in planet_house_map:
+                    planet_house_map[house_offset] = []
+                planet_house_map[house_offset].append(planet_name)
+
+        # House positions for planets (adjusted from center of each house)
+        house_positions = {
+            1: (self.width/6, self.height/6 - 30),     # Top-left
+            2: (self.width/6, self.height/2 - 30),     # Middle-left
+            3: (self.width/6, 5*self.height/6 - 30),   # Bottom-left
+            4: (self.width/2, 5*self.height/6 - 30),   # Bottom-center
+            5: (5*self.width/6, 5*self.height/6 - 30), # Bottom-right
+            6: (5*self.width/6, self.height/2 - 30),   # Middle-right
+            7: (5*self.width/6, self.height/6 - 30),   # Top-right
+            8: (self.width/2, self.height/6 - 30),     # Top-center
+            9: (self.width/2, self.height/2 - 30),     # Center
+            10: (5*self.width/6, self.height/3 - 30),  # Upper-right
+            11: (2*self.width/6, self.height/6 - 30),  # Upper-center-right
+            12: (self.width/3, self.height/6 - 30),    # Upper-center-left
+        }
+
+        # Draw planets in their houses
+        for house_num, planet_list in planet_house_map.items():
+            if house_num < 1 or house_num > 12:
+                continue
+
+            x, y = house_positions.get(house_num, (0, 0))
+
+            # If multiple planets in a house, arrange them
+            planet_text = ""
+            for i, planet_name in enumerate(planet_list):
+                symbol = PLANET_SYMBOLS.get(planet_name.lower(), planet_name[0])
+                planet_text += symbol + " "
+
+            # Draw all planets for this house
+            if planet_text:
+                ax.text(x, y, planet_text, fontsize=14,
+                       ha='center', va='center', color=self.planet_color,
+                       bbox=dict(facecolor=self.background_color, alpha=0.8, boxstyle='round'))

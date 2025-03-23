@@ -1,135 +1,102 @@
 """
-Pydantic compatibility layer.
+Pydantic compatibility module.
 
-This module provides compatibility between different versions of Pydantic,
-particularly to handle the transition between Pydantic V1 and Pydantic V2
-where Config.Extra has been deprecated in favor of model_config with string literals.
+This module handles compatibility between different versions of Pydantic,
+particularly for transitioning from v1 to v2.
 """
 
 import logging
-import sys
-import inspect
 import warnings
-import types
-from typing import Any, Dict, Type, Optional, TypeVar, cast
+import sys
+from typing import Any, Dict, TypeVar, Type, cast, Generic, Optional, Union, ClassVar
 
 logger = logging.getLogger(__name__)
 
-# Try to import from pydantic
-try:
-    import pydantic
-    from pydantic import BaseModel
-    PYDANTIC_V2 = hasattr(pydantic, "__version__") and pydantic.__version__.startswith("2.")
-except ImportError:
-    PYDANTIC_V2 = False
-    logger.warning("Pydantic not installed, compatibility layer will have no effect")
+T = TypeVar('T')
 
-# Create a direct replacement for the Extra enum that won't emit warnings
-class SilentExtra:
-    """Replacement for Pydantic's Extra enum that doesn't emit deprecation warnings."""
-    allow = 'allow'
-    ignore = 'ignore'
-    forbid = 'forbid'
+def configure_pydantic_compat():
+    """
+    Configure Pydantic compatibility settings.
 
-    def __eq__(self, other):
-        """Allow comparison with string values."""
-        if isinstance(other, str):
-            return other in (self.allow, self.ignore, self.forbid)
-        return super().__eq__(other)
+    This function:
+    1. Silences deprecation warnings from Pydantic
+    2. Applies patches for compatibility between versions
+    """
+    # Silence deprecation warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
 
-def update_models_in_module(module_name):
-    """Update all Pydantic models in a module to use V2 style configuration."""
+    # Apply patches
     try:
-        module = sys.modules.get(module_name)
-        if not module:
-            return False
+        import pydantic
 
-        updated = 0
-        for name, obj in inspect.getmembers(module):
-            # Check if it's a Pydantic model class
-            if (
-                inspect.isclass(obj) and
-                hasattr(obj, "__mro__") and
-                BaseModel in obj.__mro__ and
-                hasattr(obj, "Config") and
-                hasattr(obj.Config, "extra")
-            ):
-                # Convert from v1 Config.extra to v2 model_config
-                extra_value = getattr(obj.Config, "extra", None)
-                if extra_value:
-                    # Map the Extra enum to string values
-                    if hasattr(extra_value, "name"):
-                        # Handle enum case (like Extra.allow)
-                        string_value = extra_value.name.lower()
-                    else:
-                        # Handle string-like case
-                        string_value = str(extra_value).lower()
+        # Check pydantic version
+        version = getattr(pydantic, "__version__", "unknown")
+        logger.info(f"Configured Pydantic compatibility (version: {version})")
 
-                    # Set the new model_config
-                    if not hasattr(obj, "model_config"):
-                        obj.model_config = {"extra": string_value}
-                    else:
-                        obj.model_config["extra"] = string_value
+        if version.startswith("2."):
+            _apply_v2_patches()
+        else:
+            _apply_v1_patches()
+    except ImportError:
+        logger.warning("Pydantic not found, skipping compatibility configuration")
 
-                    updated += 1
-                    logger.info(f"Updated {module_name}.{name} to use model_config['extra'] = '{string_value}'")
-
-        return updated > 0
-    except Exception as e:
-        logger.warning(f"Error updating models in module {module_name}: {e}")
-        return False
-
-def silence_extra_deprecation_warnings():
-    """Directly patch Pydantic to use our silent Extra implementation."""
-    if not PYDANTIC_V2:
-        return
-
+def _apply_v1_patches():
+    """Apply patches for Pydantic v1.x compatibility."""
     try:
-        # First approach: replace the Extra class in pydantic.config
-        if hasattr(pydantic, "config") and hasattr(pydantic.config, "Extra"):
-            # Store a reference to the original for restoration if needed
-            original_extra = pydantic.config.Extra
-
-            # Replace with our silent version
-            pydantic.config.Extra = SilentExtra()
-
-            # Make any getattr to pydantic.config that looks for Extra return our version
-            original_getattr = pydantic.config.__getattribute__
-
-            def patched_getattr(self, name):
-                if name == 'Extra':
-                    return SilentExtra()
-                return original_getattr(self, name)
-
-            # Apply the patch
-            pydantic.config.__getattribute__ = patched_getattr
-
-            # Also try to patch the warning itself
-            warnings.filterwarnings("ignore", message=".*pydantic.config.Extra is deprecated.*")
-
-            logger.info("Successfully silenced Pydantic Extra deprecation warnings")
-            return True
+        # No patches needed yet
+        pass
     except Exception as e:
-        logger.warning(f"Error silencing Extra deprecation warnings: {e}")
-        return False
+        logger.error(f"Error applying Pydantic v1 patches: {e}")
 
-def setup_pydantic_compatibility():
-    """Set up the Pydantic compatibility layer by updating model configurations."""
-    if not PYDANTIC_V2:
-        return False
+def _apply_v2_patches():
+    """Apply patches for Pydantic v2.x compatibility."""
+    try:
+        # Import v2-specific modules
+        from pydantic import BaseModel
 
-    # First silence the deprecation warnings
-    silence_extra_deprecation_warnings()
+        # Add patches for v1 compatibility if not already present
 
-    # Find and update all pydantic models in ai_service modules
-    updated_modules = 0
-    for module_name in list(sys.modules.keys()):
-        if module_name.startswith('ai_service.'):
-            if update_models_in_module(module_name):
-                updated_modules += 1
+        # Add dict method if not present
+        if not hasattr(BaseModel, "dict"):
+            def dict_wrapper(self, **kwargs) -> Dict[str, Any]:
+                return self.model_dump(**kwargs)
 
-    logger.info(f"Pydantic compatibility: updated models in {updated_modules} modules")
-    return True
+            # Add the method to the class
+            setattr(BaseModel, "dict", dict_wrapper)
+            logger.debug("Added dict() method to BaseModel for v2 compatibility")
 
-# Auto-apply the compatibility layer when this module is imported
-setup_pydantic_compatibility()
+        # Add parse_obj method if not present
+        if not hasattr(BaseModel, "parse_obj"):
+            @classmethod
+            def parse_obj_wrapper(cls: Type[T], obj: Any) -> T:
+                """Parse a Python object into a model instance."""
+                return cls.model_validate(obj)
+
+            # Add the classmethod to the class
+            setattr(BaseModel, "parse_obj", parse_obj_wrapper)
+            logger.debug("Added parse_obj() method to BaseModel for v2 compatibility")
+
+        # Add construct method if not present
+        if not hasattr(BaseModel, "construct"):
+            @classmethod
+            def construct_wrapper(cls: Type[T], _fields_set: Optional[set] = None, **values: Any) -> T:
+                """Create a model without validation."""
+                return cls.model_construct(_fields_set=_fields_set or set(), **values)
+
+            # Add the classmethod to the class
+            setattr(BaseModel, "construct", construct_wrapper)
+            logger.debug("Added construct() method to BaseModel for v2 compatibility")
+
+        # Add from_orm method if not present
+        if not hasattr(BaseModel, "from_orm"):
+            @classmethod
+            def from_orm_wrapper(cls: Type[T], obj: Any) -> T:
+                """Create a model from an ORM object."""
+                return cls.model_validate(obj)
+
+            # Add the classmethod to the class
+            setattr(BaseModel, "from_orm", from_orm_wrapper)
+            logger.debug("Added from_orm() method to BaseModel for v2 compatibility")
+
+    except Exception as e:
+        logger.error(f"Error applying Pydantic v2 patches: {e}")

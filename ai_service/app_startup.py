@@ -122,25 +122,34 @@ def initialize_services():
     """Initialize required services."""
     try:
         # Import deps lazily to avoid circular imports
-        from ai_service.utils.dependency_container import register_instance
+        from ai_service.utils.dependency_container import get_container
+
+        # Get the container instance
+        container = get_container()
 
         # Initialize OpenAI service
         from ai_service.api.services.openai.service import create_openai_service
         openai_service = create_openai_service()
-        register_instance("openai_service", openai_service)
+        container.register_instance("openai_service", openai_service)
         logger.info("OpenAI service initialized successfully")
 
         # Initialize chart service
-        from ai_service.services.chart_service import create_chart_service
-        chart_service = create_chart_service()
-        register_instance("chart_service", chart_service)
+        from ai_service.services import get_chart_service
+        chart_service = get_chart_service()
+        container.register_instance("chart_service", chart_service)
         logger.info("Chart service initialized successfully")
 
         # Initialize session service
         from ai_service.services.session_service import SessionService
         session_service = SessionService()
-        register_instance("session_service", session_service)
+        container.register_instance("session_service", session_service)
         logger.info("Session service initialized successfully")
+
+        # Initialize WebSocket service
+        from ai_service.services.websocket_service import get_websocket_manager
+        websocket_manager = get_websocket_manager()
+        container.register_instance("websocket_manager", websocket_manager)
+        logger.info("WebSocket service initialized successfully")
 
     except Exception as e:
         logger.error(f"Error initializing services: {e}")

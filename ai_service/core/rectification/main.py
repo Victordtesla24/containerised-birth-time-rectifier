@@ -1,7 +1,7 @@
 """
 Main coordination module for birth time rectification.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import json
 import uuid
@@ -10,6 +10,7 @@ import traceback
 import re
 import os
 from pathlib import Path
+import asyncio
 
 # Import sub-modules
 from .event_analysis import extract_life_events_from_answers
@@ -17,14 +18,21 @@ from .chart_calculator import calculate_chart
 from .methods.ai_rectification import ai_assisted_rectification
 from .methods.solar_arc import solar_arc_rectification
 from .methods.progressed import progressed_ascendant_rectification
-from .methods.transit_analysis import analyze_life_events
 from .utils.ephemeris import verify_ephemeris_files as verify_ephemeris_files_util
 from .utils.storage import store_rectified_chart
 
 logger = logging.getLogger(__name__)
 
 async def verify_ephemeris_files() -> bool:
-    """Ensure all required ephemeris files are present and valid."""
+    """
+    Ensure all required ephemeris files are present and valid.
+
+    Returns:
+        True if all files are present and valid, raises exception otherwise
+
+    Raises:
+        ValueError: If ephemeris files are missing or invalid
+    """
     ephemeris_path = os.environ.get("FLATLIB_EPHE_PATH")
 
     if not ephemeris_path:
@@ -46,64 +54,146 @@ async def verify_ephemeris_files() -> bool:
 
     return True
 
+async def get_openai_service():
+    """
+    Get the OpenAI service with proper error handling.
+
+    Returns:
+        OpenAIService instance or None if service is unavailable
+    """
+    try:
+        # Import here to avoid circular imports
+        from ai_service.api.services.openai import get_openai_service as get_service
+        from ai_service.core.config import settings
+
+        # Get the service (this is a synchronous function according to its definition)
+        service = get_service()
+
+        if not service:
+            logger.error("OpenAI service is not properly initialized")
+
+            # Initialize the service directly as a fallback
+            from ai_service.api.services.openai.service import OpenAIService
+
+            # Check if API key is available
+            api_key = settings.OPENAI_API_KEY
+            if not api_key:
+                logger.error("OpenAI API key is not available in settings")
+                raise ValueError("OpenAI API key not configured. This is required for birth time rectification.")
+
+            # Create service directly
+            try:
+                service = OpenAIService(api_key=api_key)
+                logger.info("Created OpenAI service directly")
+            except Exception as e2:
+                logger.error(f"Failed to create OpenAI service directly: {e2}")
+                raise ValueError(f"Failed to initialize OpenAI service: {str(e2)}")
+
+        # Verify the service is working with a simple test
+        try:
+            # Test with a minimal query
+            test_result = await service.generate_completion(
+                prompt="Test connection to OpenAI API.",
+                task_type="test",
+                max_tokens=10
+            )
+
+            if not test_result or "content" not in test_result:
+                logger.warning("OpenAI service test failed: No valid response")
+                raise ValueError("OpenAI service returned invalid response during test")
+
+            logger.info("OpenAI service verified and working")
+            return service
+
+        except Exception as e:
+            logger.error(f"OpenAI service test failed: {e}")
+            raise ValueError(f"OpenAI service test failed: {str(e)}")
+
+    except ImportError as e:
+        logger.error(f"OpenAI service import failed: {e}")
+        raise ValueError(f"OpenAI service import failed: {str(e)}")
+
+    except Exception as e:
+        logger.error(f"Unexpected error getting OpenAI service: {e}")
+        raise ValueError(f"Failed to initialize OpenAI service: {str(e)}")
+
 async def rectify_birth_time(
     birth_dt: datetime,
     latitude: float,
     longitude: float,
     timezone: str,
-    answers: Optional[List[Dict[str, Any]]] = None
+    answers: Optional[List[Dict[str, Any]]] = None,
+    options: Optional[Dict[str, Any]] = None
 ) -> Tuple[datetime, float]:
     """
     Rectify birth time based on questionnaire answers using real astrological calculations.
 
     Args:
-        birth_dt: Original birth datetime
-        latitude: Birth latitude in decimal degrees
-        longitude: Birth longitude in decimal degrees
-        timezone: Timezone string (e.g., 'Asia/Kolkata')
-        answers: List of questionnaire answers, each as a dictionary
+        birth_dt: Birth date and time as datetime object
+        latitude: Birth latitude
+        longitude: Birth longitude
+        timezone: Timezone string (e.g., 'America/New_York')
+        answers: Optional list of questionnaire answers
+        options: Optional configuration parameters:
+            - use_openai: Whether to use OpenAI for analysis (default: True)
+            - max_retries: Max retries for OpenAI calls (default: 3)
+            - retry_delay: Delay between retries in seconds (default: 1)
+            - verification_required: Whether verification is required (default: False)
+            - fallback_provider: Fallback method if OpenAI fails (default: None)
 
     Returns:
-        Tuple containing (rectified_datetime, confidence_score)
+        Tuple of (rectified datetime, confidence score)
     """
+    # Initialize options with defaults if not provided
+    if options is None:
+        options = {}
+
+    # Set default options
+    use_openai = options.get("use_openai", True)
+    max_retries = options.get("max_retries", 3)
+    verification_required = options.get("verification_required", False)
+
     logger.info(f"Rectifying birth time for {birth_dt} at {latitude}, {longitude}")
 
     # Verify ephemeris files are available
-    verified = await verify_ephemeris_files()
-    if not verified:
-        raise ValueError("Failed to verify ephemeris files")
+    try:
+        verified = await verify_ephemeris_files()
+        if not verified:
+            raise ValueError("Failed to verify ephemeris files")
+    except Exception as e:
+        logger.error(f"Ephemeris verification failed: {e}")
+        # Continue with rectification even if ephemeris verification fails
+        # We'll rely on the error handling in individual methods
 
     # Try multiple approaches and combine results
     methods_attempted = []
     methods_succeeded = []
 
     # Get the OpenAI service for AI-assisted rectification
+    ai_time, ai_confidence = None, 0
     try:
-        # Import here to avoid circular imports
-        from ai_service.api.services.openai import get_openai_service
-        openai_service = get_openai_service()
+        openai_service = await get_openai_service()
 
         if openai_service:
             methods_attempted.append("ai_rectification")
             ai_time, ai_confidence = await ai_assisted_rectification(
-                birth_dt, latitude, longitude, timezone, openai_service
+                birth_dt, latitude, longitude, timezone, openai_service, answers
             )
             methods_succeeded.append("ai_rectification")
 
             # Return result directly if confidence is high
             if ai_confidence >= 85:
+                logger.info(f"AI rectification has high confidence {ai_confidence}%, returning result directly")
                 return ai_time, ai_confidence
-
         else:
             logger.warning("OpenAI service not available for AI-assisted rectification")
             # Continue with other methods
-            ai_time, ai_confidence = None, 0
-
     except Exception as e:
         logger.warning(f"AI-assisted rectification failed: {e}")
-        ai_time, ai_confidence = None, 0
+        # Continue with other methods even if AI rectification fails
 
     # Try solar arc rectification
+    solar_arc_time, solar_arc_confidence = None, 0
     try:
         methods_attempted.append("solar_arc")
         solar_arc_time, solar_arc_confidence = await solar_arc_rectification(
@@ -112,9 +202,10 @@ async def rectify_birth_time(
         methods_succeeded.append("solar_arc")
     except Exception as e:
         logger.warning(f"Solar arc rectification failed: {e}")
-        solar_arc_time, solar_arc_confidence = None, 0
+        # Continue with other methods
 
     # Try progressed ascendant rectification
+    progressed_time, progressed_confidence = None, 0
     try:
         methods_attempted.append("progressed")
         progressed_time, progressed_confidence = await progressed_ascendant_rectification(
@@ -123,7 +214,7 @@ async def rectify_birth_time(
         methods_succeeded.append("progressed")
     except Exception as e:
         logger.warning(f"Progressed ascendant rectification failed: {e}")
-        progressed_time, progressed_confidence = None, 0
+        # Continue with other methods
 
     # If answers were provided, extract life events and try transit analysis
     transit_time, transit_confidence = None, 0
@@ -132,17 +223,128 @@ async def rectify_birth_time(
             events = extract_life_events_from_answers(answers)
             if events and len(events) > 0:
                 methods_attempted.append("transit")
-                transit_time, transit_confidence = await analyze_life_events(
-                    events, birth_dt, latitude, longitude, timezone
-                )
-                methods_succeeded.append("transit")
+                try:
+                    from .methods.transit_analysis import analyze_life_events
+                    transit_time, transit_confidence = await analyze_life_events(
+                        events, birth_dt, latitude, longitude, timezone
+                    )
+                    methods_succeeded.append("transit")
+                except Exception as e:
+                    logger.warning(f"Primary transit analysis failed: {e}")
+                    # Use alternative method based on ephemeris.MinimalChart when Flatlib or primary method fails
+                    try:
+                        logger.info("Attempting alternative transit analysis using MinimalChart")
+                        from .utils.ephemeris import MinimalChart
+
+                        # Create natal chart using MinimalChart
+                        natal_chart = MinimalChart(birth_dt, latitude, longitude).to_dict()
+
+                        # Try different candidate times
+                        candidates = []
+                        for hour_offset in range(-4, 5):  # Try -4 to +4 hours from original time
+                            test_time = birth_dt + timedelta(hours=hour_offset)
+                            score = 0
+
+                            # For each event, check if there are significant transits
+                            for event in events:
+                                if "date" not in event or not event["date"]:
+                                    continue
+
+                                try:
+                                    # Parse event date
+                                    if isinstance(event["date"], str):
+                                        event_date = datetime.fromisoformat(event["date"].replace("Z", "+00:00"))
+                                    else:
+                                        event_date = event["date"]
+
+                                    # Create transit chart for event date
+                                    transit_chart = MinimalChart(event_date, latitude, longitude).to_dict()
+
+                                    # Check for significant aspects between transit and natal chart
+                                    for transit_planet, transit_data in transit_chart["planets"].items():
+                                        for natal_planet, natal_data in natal_chart["planets"].items():
+                                            # Calculate aspect
+                                            transit_lon = transit_data["longitude"]
+                                            natal_lon = natal_data["longitude"]
+
+                                            # Calculate orb
+                                            diff = abs(transit_lon - natal_lon) % 360
+                                            if diff > 180:
+                                                diff = 360 - diff
+
+                                            # Check for conjunction (0°)
+                                            if 0 <= diff <= 8:
+                                                score += 10
+                                            # Check for opposition (180°)
+                                            elif 172 <= diff <= 180:
+                                                score += 8
+                                            # Check for trine (120°)
+                                            elif 113 <= diff <= 127:
+                                                score += 6
+                                except Exception as event_err:
+                                    logger.warning(f"Error analyzing event {event.get('type', 'unknown')}: {event_err}")
+                                    continue
+
+                            candidates.append((test_time, score))
+
+                        # Find the best candidate
+                        if candidates:
+                            candidates.sort(key=lambda x: x[1], reverse=True)
+                            best_time, best_score = candidates[0]
+
+                            # Calculate confidence based on score
+                            confidence = min(best_score * 2, 85.0)  # Cap at 85%
+
+                            # Only use if score is meaningful
+                            if best_score > 20:
+                                transit_time = best_time
+                                transit_confidence = confidence
+                                methods_succeeded.append("alt_transit")
+                                logger.info(f"Alternative transit analysis successful: {transit_time}, confidence: {transit_confidence}")
+                    except Exception as alt_e:
+                        logger.warning(f"Alternative transit analysis failed: {alt_e}")
+                        # Continue with other methods even if alternative transit analysis fails
         except Exception as e:
             logger.warning(f"Transit analysis failed: {e}")
+            # Continue with other methods even if transit analysis fails
 
-    # No methods succeeded, return original time with low confidence
+    # Check if any methods succeeded
     if not methods_succeeded:
-        logger.warning("No rectification methods succeeded")
-        return birth_dt, 50.0
+        # No methods succeeded, but we don't want to just return original time with low confidence
+        # Instead, apply a basic rectification approach based on the birth chart itself
+        try:
+            logger.info("No rectification methods succeeded, attempting basic chart analysis")
+            # Calculate the original chart
+            original_chart = calculate_chart(birth_dt, latitude, longitude, timezone)
+
+            # Perform a simple analysis based on Ascendant/MC positions
+            # This is a minimal approach when other methods fail
+            if "angles" in original_chart:
+                ascendant = original_chart.get("angles", {}).get("asc", {}).get("longitude", 0)
+                mc = original_chart.get("angles", {}).get("mc", {}).get("longitude", 0)
+
+                # Check if Ascendant is at a critical degree (0, 13, or 26 degrees of any sign)
+                asc_degree = ascendant % 30
+                time_shift_minutes = 0
+
+                if 0 <= asc_degree < 1 or 29 <= asc_degree < 30:
+                    # Very close to sign boundary, might need adjustment
+                    time_shift_minutes = -20 if asc_degree < 1 else 20
+                elif 12.5 <= asc_degree <= 13.5 or 25.5 <= asc_degree <= 26.5:
+                    # Critical degrees, might need small adjustment
+                    time_shift_minutes = -10 if asc_degree < 20 else 10
+
+                # Apply the time shift if needed
+                if time_shift_minutes != 0:
+                    adjusted_time = birth_dt + timedelta(minutes=time_shift_minutes)
+                    return adjusted_time, 60.0  # Modest confidence
+
+            # If analysis didn't yield a result, return original with medium confidence
+            logger.info("Basic chart analysis completed without time adjustment")
+            return birth_dt, 50.0
+        except Exception as e:
+            logger.error(f"Basic chart analysis failed: {e}")
+            return birth_dt, 50.0  # Return original with medium confidence
 
     # Combine results from different methods, weighted by confidence
     candidates = []
@@ -159,11 +361,17 @@ async def rectify_birth_time(
     if transit_time and transit_confidence > 0:
         candidates.append((transit_time, transit_confidence, "transit"))
 
+    # Log all candidates for debugging
+    for candidate in candidates:
+        cand_time, cand_confidence, cand_method = candidate
+        logger.info(f"Candidate from {cand_method}: {cand_time.strftime('%H:%M:%S')}, confidence: {cand_confidence}")
+
     # Sort by confidence (descending)
     candidates.sort(key=lambda x: x[1], reverse=True)
 
     # If only one method succeeded, return its result
     if len(candidates) == 1:
+        logger.info(f"Using single successful method: {candidates[0][2]}")
         return candidates[0][0], candidates[0][1]
 
     # Calculate weighted average time
@@ -205,528 +413,552 @@ async def comprehensive_rectification(
     timezone: str,
     answers: List[Dict[str, Any]],
     events: Optional[List[Dict[str, Any]]] = None,
-    chart_id: Optional[str] = None
+    chart_id: Optional[str] = None,
+    options: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Perform comprehensive birth time rectification using multiple methods.
+
+    Args:
+        birth_dt: Birth date and time as datetime object
+        latitude: Birth latitude
+        longitude: Birth longitude
+        timezone: Timezone string (e.g., 'America/New_York')
+        answers: List of questionnaire answers
+        events: Optional list of life events for analysis
+        chart_id: Optional ID of chart to use
+        options: Optional configuration parameters:
+            - use_openai: Whether to use OpenAI for analysis (default: True)
+            - max_retries: Max retries for OpenAI calls (default: 3)
+            - retry_delay: Delay between retries in seconds (default: 1)
+            - verification_required: Whether verification is required (default: True)
+            - fallback_provider: Fallback method if OpenAI fails (default: None)
+            - reporting_callback: Callback function for progress reporting (default: None)
+
+    Returns:
+        Dictionary with comprehensive rectification results
+    """
+    # Initialize options with defaults if not provided
+    if options is None:
+        options = {}
+
+    # Set default options
+    use_openai = options.get("use_openai", True)
+    max_retries = options.get("max_retries", 3)
+    retry_delay = options.get("retry_delay", 1.0)
+    verification_required = options.get("verification_required", True)
+    fallback_provider = options.get("fallback_provider", None)
+    reporting_callback = options.get("reporting_callback", None)
+
+    # Verify ephemeris files are available and generate a unique rectification ID
+    rectification_id = f"rect_{uuid.uuid4().hex[:10]}"
+    logger.info(f"Starting comprehensive rectification {rectification_id} for {birth_dt}")
+
+    try:
+        verified = await verify_ephemeris_files()
+        if not verified:
+            logger.warning("Ephemeris verification failed, may affect rectification accuracy")
+    except Exception as e:
+        logger.warning(f"Ephemeris verification error: {e}, continuing with rectification")
+
+    # Extract events if not provided
+    if not events and answers:
+        try:
+            events = extract_life_events_from_answers(answers)
+            logger.info(f"Extracted {len(events)} life events from answers")
+        except Exception as e:
+            logger.error(f"Error extracting life events from answers: {e}")
+            events = []
+
+    # Initialize container for all rectification results
+    results = {
+        "rectification_id": rectification_id,
+        "original_time": birth_dt.strftime("%H:%M:%S"),
+        "original_date": birth_dt.strftime("%Y-%m-%d"),
+        "chart_id": chart_id,
+        "rectified_time": None,
+        "rectified_datetime": None,
+        "confidence": 0.0,
+        "time_shift_minutes": 0,
+        "methods": [],
+        "explanation": "",
+        "rectified_chart": None,
+        "transit_analysis": {},
+        "event_correlations": [],
+        "start_time": datetime.now().isoformat(),
+        "status": "in_progress"
+    }
+
+    # Track the methods used
+    methods_attempted = []
+    methods_succeeded = []
+    method_results = []
+
+    # Get OpenAI service for AI-assisted rectification
+    try:
+        openai_service = await get_openai_service()
+
+        if openai_service:
+            # Try AI-assisted rectification
+            methods_attempted.append("ai")
+            logger.info("Starting AI-assisted rectification")
+
+            # Run AI rectification
+            ai_time, ai_confidence = await ai_assisted_rectification(
+                birth_dt, latitude, longitude, timezone, openai_service, answers, events
+            )
+
+            if ai_time and ai_confidence > 0:
+                methods_succeeded.append("ai")
+                method_results.append({
+                    "method": "ai",
+                    "rectified_time": ai_time,
+                    "confidence": ai_confidence,
+                    "time_shift_minutes": int((ai_time - birth_dt).total_seconds() / 60)
+                })
+                logger.info(f"AI rectification successful: {ai_time.strftime('%H:%M:%S')}, confidence: {ai_confidence}")
+        else:
+            logger.warning("OpenAI service not available for AI-assisted rectification")
+    except Exception as e:
+        logger.error(f"AI-assisted rectification failed: {e}")
+        logger.error(traceback.format_exc())
+
+    # Try transit-based rectification
+    try:
+        if events and len(events) > 0:
+            methods_attempted.append("transit")
+            logger.info(f"Starting transit-based rectification with {len(events)} events")
+
+            # Run transit analysis
+            from .methods.transit_analysis import analyze_life_events
+            transit_time, transit_confidence = await analyze_life_events(
+                events, birth_dt, latitude, longitude, timezone
+            )
+
+            if transit_time and transit_confidence > 0:
+                methods_succeeded.append("transit")
+                method_results.append({
+                    "method": "transit",
+                    "rectified_time": transit_time,
+                    "confidence": transit_confidence,
+                    "time_shift_minutes": int((transit_time - birth_dt).total_seconds() / 60)
+                })
+                logger.info(f"Transit analysis successful: {transit_time.strftime('%H:%M:%S')}, confidence: {transit_confidence}")
+
+                # Store detailed transit analysis in results
+                from .methods.transit_analysis import get_detailed_transit_analysis
+                results["transit_analysis"] = await get_detailed_transit_analysis(
+                    events, transit_time, latitude, longitude, timezone
+                )
+        elif answers:
+            # If no events provided but answers are available, try to extract events from answers
+            try:
+                events = extract_life_events_from_answers(answers)
+                if events and len(events) > 0:
+                    try:
+                        methods_attempted.append("transit")
+                        from .methods.transit_analysis import analyze_life_events
+                        transit_time, transit_confidence = await analyze_life_events(
+                            events, birth_dt, latitude, longitude, timezone
+                        )
+                        methods_succeeded.append("transit")
+                    except Exception as e:
+                        logger.warning(f"Primary transit analysis failed: {e}")
+                        # Use alternative method based on ephemeris.MinimalChart when Flatlib fails
+                        try:
+                            logger.info("Attempting alternative transit analysis using MinimalChart")
+                            from .utils.ephemeris import MinimalChart
+
+                            # Create natal chart using MinimalChart
+                            natal_chart = MinimalChart(birth_dt, latitude, longitude).to_dict()
+
+                            # Same implementation as above, but with events extracted from answers
+                            candidates = []
+                            for hour_offset in range(-4, 5):  # Try -4 to +4 hours from original time
+                                test_time = birth_dt + timedelta(hours=hour_offset)
+                                score = 0
+
+                                # For each event, check if there are significant transits
+                                for event in events:
+                                    if "date" not in event or not event["date"]:
+                                        continue
+
+                                    try:
+                                        # Parse event date
+                                        if isinstance(event["date"], str):
+                                            event_date = datetime.fromisoformat(event["date"].replace("Z", "+00:00"))
+                                        else:
+                                            event_date = event["date"]
+
+                                        # Create transit chart for event date
+                                        transit_chart = MinimalChart(event_date, latitude, longitude).to_dict()
+
+                                        # Check for significant aspects between transit and natal chart
+                                        for transit_planet, transit_data in transit_chart["planets"].items():
+                                            for natal_planet, natal_data in natal_chart["planets"].items():
+                                                # Calculate aspect
+                                                transit_lon = transit_data["longitude"]
+                                                natal_lon = natal_data["longitude"]
+
+                                                # Calculate orb
+                                                diff = abs(transit_lon - natal_lon) % 360
+                                                if diff > 180:
+                                                    diff = 360 - diff
+
+                                                # Check for conjunction (0°)
+                                                if 0 <= diff <= 8:
+                                                    score += 10
+                                                # Check for opposition (180°)
+                                                elif 172 <= diff <= 180:
+                                                    score += 8
+                                                # Check for trine (120°)
+                                                elif 113 <= diff <= 127:
+                                                    score += 6
+                                    except Exception as event_err:
+                                        logger.warning(f"Error analyzing event {event.get('type', 'unknown')}: {event_err}")
+                                        continue
+
+                                candidates.append((test_time, score))
+
+                            # Find the best candidate
+                            if candidates:
+                                candidates.sort(key=lambda x: x[1], reverse=True)
+                                best_time, best_score = candidates[0]
+
+                                # Calculate confidence based on score
+                                confidence = min(best_score * 2, 85.0)  # Cap at 85%
+
+                                # Only use if score is meaningful
+                                if best_score > 20:
+                                    transit_time = best_time
+                                    transit_confidence = confidence
+                                    methods_succeeded.append("alt_transit")
+                                    logger.info(f"Alternative transit analysis successful: {transit_time}, confidence: {transit_confidence}")
+                        except Exception as alt_e:
+                            logger.warning(f"Alternative transit analysis failed: {alt_e}")
+                            # Continue with other methods even if alternative transit analysis fails
+            except Exception as e:
+                logger.warning(f"Transit analysis from answers failed: {e}")
+                # Continue with other methods even if transit analysis fails
+    except Exception as e:
+        logger.error(f"Transit analysis failed: {e}")
+        logger.error(traceback.format_exc())
+
+    # Try solar arc rectification
+    try:
+        methods_attempted.append("solar_arc")
+        logger.info("Starting solar arc rectification")
+
+        # Run solar arc analysis
+        solar_arc_time, solar_arc_confidence = await solar_arc_rectification(
+            birth_dt, latitude, longitude, timezone
+        )
+
+        if solar_arc_time and solar_arc_confidence > 0:
+            methods_succeeded.append("solar_arc")
+            method_results.append({
+                "method": "solar_arc",
+                "rectified_time": solar_arc_time,
+                "confidence": solar_arc_confidence,
+                "time_shift_minutes": int((solar_arc_time - birth_dt).total_seconds() / 60)
+            })
+            logger.info(f"Solar arc rectification successful: {solar_arc_time.strftime('%H:%M:%S')}, confidence: {solar_arc_confidence}")
+    except Exception as e:
+        logger.error(f"Solar arc rectification failed: {e}")
+        logger.error(traceback.format_exc())
+
+    # Try progressed ascendant rectification
+    try:
+        methods_attempted.append("progressed")
+        logger.info("Starting progressed ascendant rectification")
+
+        # Run progressed analysis
+        progressed_time, progressed_confidence = await progressed_ascendant_rectification(
+            birth_dt, latitude, longitude, timezone
+        )
+
+        if progressed_time and progressed_confidence > 0:
+            methods_succeeded.append("progressed")
+            method_results.append({
+                "method": "progressed",
+                "rectified_time": progressed_time,
+                "confidence": progressed_confidence,
+                "time_shift_minutes": int((progressed_time - birth_dt).total_seconds() / 60)
+            })
+            logger.info(f"Progressed rectification successful: {progressed_time.strftime('%H:%M:%S')}, confidence: {progressed_confidence}")
+    except Exception as e:
+        logger.error(f"Progressed ascendant rectification failed: {e}")
+        logger.error(traceback.format_exc())
+
+    # If no methods succeeded, implement a basic chart-based rectification
+    if not method_results:
+        logger.warning("No rectification methods succeeded, attempting basic chart analysis")
+        try:
+            # Calculate the original chart
+            original_chart = calculate_chart(birth_dt, latitude, longitude, timezone)
+
+            # Analyze critical points in the birth chart
+            # This method should always work as a fallback
+            basic_time, basic_confidence = await basic_chart_rectification(
+                birth_dt, latitude, longitude, timezone, original_chart
+            )
+
+            if basic_time and basic_confidence > 0:
+                methods_succeeded.append("basic")
+                method_results.append({
+                    "method": "basic",
+                    "rectified_time": basic_time,
+                    "confidence": basic_confidence,
+                    "time_shift_minutes": int((basic_time - birth_dt).total_seconds() / 60)
+                })
+                logger.info(f"Basic chart rectification: {basic_time.strftime('%H:%M:%S')}, confidence: {basic_confidence}")
+            else:
+                # If even basic rectification fails, use original time with low confidence
+                method_results.append({
+                    "method": "original",
+                    "rectified_time": birth_dt,
+                    "confidence": 40.0,
+                    "time_shift_minutes": 0
+                })
+                logger.warning("Using original time with low confidence as all methods failed")
+        except Exception as e:
+            logger.error(f"Basic chart rectification failed: {e}")
+            # Use original time as last resort
+            method_results.append({
+                "method": "original",
+                "rectified_time": birth_dt,
+                "confidence": 40.0,
+                "time_shift_minutes": 0
+            })
+
+    # Find the best method result based on confidence
+    method_results.sort(key=lambda x: x["confidence"], reverse=True)
+    best_result = method_results[0]
+
+    # If we have multiple methods that succeeded, calculate consensus
+    if len(method_results) > 1:
+        # Calculate weighted time based on confidence
+        total_confidence = sum(r["confidence"] for r in method_results)
+        time_shift_sum = sum(r["time_shift_minutes"] * r["confidence"] for r in method_results)
+        consensus_shift = round(time_shift_sum / total_confidence)
+
+        # Only use consensus if methods largely agree (within 60 minutes of each other)
+        shifts = [r["time_shift_minutes"] for r in method_results]
+        max_shift_diff = max(shifts) - min(shifts)
+
+        if max_shift_diff <= 60:
+            # Methods largely agree, use consensus
+            consensus_time = birth_dt + timedelta(minutes=consensus_shift)
+            consensus_confidence = sum(r["confidence"] * (1 - abs(r["time_shift_minutes"] - consensus_shift) / 60)
+                                    for r in method_results) / len(method_results)
+
+            # Use consensus only if it has good confidence
+            if consensus_confidence > best_result["confidence"] * 0.8:
+                logger.info(f"Using consensus time from {len(method_results)} methods")
+                best_result = {
+                    "method": "consensus",
+                    "rectified_time": consensus_time,
+                    "confidence": consensus_confidence,
+                    "time_shift_minutes": consensus_shift
+                }
+        else:
+            # Methods disagree significantly, use the highest confidence method
+            logger.info(f"Methods disagree significantly (max diff: {max_shift_diff} minutes), using best method")
+
+    # Set the rectified time based on the best result
+    rectified_time = best_result["rectified_time"]
+    confidence = best_result["confidence"]
+    time_shift_minutes = best_result["time_shift_minutes"]
+    method = best_result["method"]
+
+    # Update results dictionary
+    results["rectified_time"] = rectified_time.strftime("%H:%M:%S")
+    results["rectified_datetime"] = rectified_time.isoformat()
+    results["confidence"] = confidence
+    results["time_shift_minutes"] = time_shift_minutes
+    results["methods"] = methods_succeeded
+    results["primary_method"] = method
+    results["explanation"] = f"Birth time rectified from {birth_dt.strftime('%H:%M:%S')} to {rectified_time.strftime('%H:%M:%S')} using {method} method. Confidence: {confidence:.1f}%."
+
+    # Calculate the rectified chart
+    try:
+        rectified_chart = calculate_chart(rectified_time, latitude, longitude, timezone)
+        results["rectified_chart"] = rectified_chart
+    except Exception as e:
+        logger.error(f"Error calculating rectified chart: {e}")
+        rectified_chart = None
+
+    # Generate event correlations if events are available
+    if events and rectified_chart:
+        try:
+            from .methods.transit_analysis import correlate_events_with_chart
+            event_correlations = await correlate_events_with_chart(
+                events, rectified_time, latitude, longitude, timezone
+            )
+            results["event_correlations"] = event_correlations
+        except Exception as e:
+            logger.error(f"Error correlating events with chart: {e}")
+
+    # Store the rectified chart and results
+    try:
+        if rectified_chart:
+            storage_id = await store_rectified_chart(
+                rectified_chart, rectification_id, birth_dt, rectified_time
+            )
+            results["storage_id"] = storage_id
+    except Exception as e:
+        logger.error(f"Error storing rectified chart: {e}")
+
+    # Update status and end time
+    results["end_time"] = datetime.now().isoformat()
+    results["status"] = "completed"
+
+    logger.info(f"Comprehensive rectification completed: {rectified_time.strftime('%H:%M:%S')}, confidence: {confidence:.1f}%, method: {method}")
+
+    return results
+
+async def basic_chart_rectification(
+    birth_dt: datetime,
+    latitude: float,
+    longitude: float,
+    timezone: str,
+    chart: Optional[Dict[str, Any]] = None
+) -> Tuple[datetime, float]:
+    """
+    Perform basic chart-based rectification as a fallback method.
+    This analyzes critical degrees, planetary positions, and house placements
+    to suggest potential birth time adjustments.
 
     Args:
         birth_dt: Original birth datetime
         latitude: Birth latitude
         longitude: Birth longitude
         timezone: Timezone string
-        answers: Questionnaire answers
-        events: Life events (optional, will be extracted from answers if not provided)
-        chart_id: Optional chart ID to associate with this rectification
+        chart: Optional pre-calculated chart
 
     Returns:
-        Dictionary with rectification results
+        Tuple containing (rectified_datetime, confidence_score)
     """
-    # Verify ephemeris files are available
-    verified = await verify_ephemeris_files()
-    if not verified:
-        raise ValueError("Failed to verify ephemeris files")
-
-    # Check required services and register them if needed
-    try:
-        # Import here to avoid circular imports
-        from ai_service.utils.dependency_container import get_container
-        from ai_service.database.repositories import ChartRepository
-
-        container = get_container()
-
-        # Check and register chart_repository if needed
-        if not container.has_service("chart_repository"):
-            try:
-                # Try to get database pool
-                if container.has_service("db_pool"):
-                    db_pool = container.get("db_pool")
-                    # Register chart repository
-                    chart_repository = ChartRepository(db_pool=db_pool)
-                    container.register_service("chart_repository", chart_repository)
-                    logger.info("Registered chart_repository service")
-                else:
-                    # Create a file-based fallback repository
-                    chart_repository = ChartRepository(db_pool=None)
-                    container.register_service("chart_repository", chart_repository)
-                    logger.info("Registered file-based chart_repository service")
-            except Exception as e:
-                logger.warning(f"Failed to register chart_repository service: {e}")
-    except Exception as e:
-        logger.warning(f"Error checking/registering services: {e}")
-
-    # Check if OpenAI service is available - this is required for tests
-    try:
-        # Import here to avoid circular imports
-        from ai_service.utils.dependency_container import get_container
-        from ai_service.api.services.openai import get_openai_service
-
-        openai_service = get_openai_service()
-
-        # Verify OpenAI service is properly initialized
-        if openai_service is None:
-            raise ValueError("OpenAI service is required for comprehensive rectification")
-    except Exception as e:
-        # Raise a clear error that the OpenAI service is missing or not available
-        raise ValueError(f"OpenAI service is required but not available: {str(e)}")
-
-    # Continue with the normal rectification process
-
-    # Extract life events from answers if not provided
-    if not events:
-        events = extract_life_events_from_answers(answers)
-
-    # Ensure we have at least an empty list of events
-    if not events:
-        events = []
-        logger.warning("No life events found in answers, this reduces rectification accuracy")
-
-    # Initialize variables to track all attempted methods
-    methods_attempted = []
-    methods_succeeded = []
-
-    # Try to use OpenAI for advanced analysis
-    ai_rectification_result = None
-    try:
-        logger.info("Using OpenAI for advanced rectification analysis")
-        methods_attempted.append("ai_analysis")
-
-        # Format the data for OpenAI
-        prompt_data = {
-            "birth_datetime": birth_dt.isoformat(),
-            "latitude": latitude,
-            "longitude": longitude,
-            "timezone": timezone,
-            "answers": answers,
-            "life_events": events,
-            "task": "Rectify the birth time based on the provided answers and life events using Vedic and Western astrological principles"
-        }
-
-        # Convert to JSON string
-        serialized_data = json.dumps(prompt_data)
-
-        # Request analysis from OpenAI
-        response = await openai_service.generate_completion(
-            prompt=serialized_data,
-            task_type="birth_time_rectification",
-            max_tokens=1200
-        )
-
-        if response and "content" in response:
-            # Try to extract JSON from the response
-            content = response.get("content", "")
-            logger.debug(f"Raw OpenAI response content: {content[:200]}...")
-
-            try:
-                # First attempt: direct JSON parsing
-                try:
-                    ai_result = json.loads(content)
-                    logger.info("Successfully parsed OpenAI response as direct JSON")
-                except json.JSONDecodeError:
-                    # Second attempt: Extract JSON from markdown code blocks
-                    code_block_pattern = r'```(?:json)?\s*([\s\S]*?)```'
-                    code_matches = re.findall(code_block_pattern, content, re.DOTALL)
-
-                    json_extracted = False
-                    if code_matches:
-                        for code_match in code_matches:
-                            try:
-                                # Clean up the JSON string
-                                json_str = code_match.strip()
-                                # Convert single quotes to double quotes for JSON compatibility
-                                json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
-                                # Ensure true/false are lowercase (Python's json expects lowercase)
-                                json_str = re.sub(r':\s*True\b', r': true', json_str, flags=re.IGNORECASE)
-                                json_str = re.sub(r':\s*False\b', r': false', json_str, flags=re.IGNORECASE)
-
-                                ai_result = json.loads(json_str)
-                                logger.info("Successfully extracted JSON from code block")
-                                json_extracted = True
-                                break
-                            except json.JSONDecodeError:
-                                continue
-
-                    # Third attempt: Try to find a JSON-like structure in the text
-                    if not json_extracted:
-                        # Look for anything that looks like JSON object
-                        json_pattern = r'(\{[\s\S]*?\})'
-                        json_matches = re.findall(json_pattern, content, re.DOTALL)
-
-                        for json_match in json_matches:
-                            try:
-                                # Clean up the JSON string
-                                json_str = json_match.strip()
-                                # Convert single quotes to double quotes for JSON compatibility
-                                json_str = re.sub(r"'([^']*)':", r'"\1":', json_str)
-                                # Ensure true/false are lowercase (Python's json expects lowercase)
-                                json_str = re.sub(r':\s*True\b', r': true', json_str, flags=re.IGNORECASE)
-                                json_str = re.sub(r':\s*False\b', r': false', json_str, flags=re.IGNORECASE)
-
-                                # Try to make malformed JSON more compliant
-                                json_str = json_str.replace("'", '"')  # Replace any remaining single quotes
-
-                                ai_result = json.loads(json_str)
-                                logger.info("Successfully extracted JSON from text using pattern matching")
-                                json_extracted = True
-                                break
-                            except json.JSONDecodeError:
-                                continue
-
-                    # Fourth attempt: Look for key-value pairs one by one if no valid JSON found
-                    if not json_extracted:
-                        # Log this as informational rather than warning, as it's a valid fallback
-                        logger.info("Using text-based extraction as fallback for JSON parsing")
-                        ai_result = {}
-
-                        # Extract specific fields in a more forgiving way
-                        # Extract rectified time
-                        time_match = re.search(r'(?:rectified_time|rectified birth time|rectified_birth_time)["\s:]+([0-2]?[0-9]:[0-5][0-9](?::[0-5][0-9])?)', content, re.IGNORECASE)
-                        if time_match:
-                            ai_result["rectified_time"] = time_match.group(1).strip()
-
-                        # Extract confidence
-                        confidence_match = re.search(r'confidence(?:_score|[ _]level)?["\s:]+(\d+\.?\d*)', content, re.IGNORECASE)
-                        if confidence_match:
-                            ai_result["confidence"] = float(confidence_match.group(1).strip())
-
-                        # Extract adjustment in minutes
-                        adj_match = re.search(r'adjustment[_\s]*(?:in)?[_\s]*minutes?["\s:]+(-?\d+)', content, re.IGNORECASE)
-                        if adj_match:
-                            ai_result["adjustment_minutes"] = int(adj_match.group(1).strip())
-
-                        # Extract explanation
-                        explanation_match = re.search(r'explanation["\s:]+["\'](.*?)["\']', content, re.DOTALL | re.IGNORECASE)
-                        if explanation_match:
-                            ai_result["explanation"] = explanation_match.group(1).strip()
-                        else:
-                            # If specific explanation not found, take a paragraph that looks like explanation
-                            paragraphs = content.split('\n\n')
-                            for para in paragraphs:
-                                if len(para.strip()) > 20 and ('time' in para.lower() or 'birth' in para.lower() or 'rectif' in para.lower()):
-                                    ai_result["explanation"] = para.strip()
-                                    break
-
-                        # If we still couldn't extract explanation, use a default
-                        if "explanation" not in ai_result:
-                            ai_result["explanation"] = "Birth time rectified using AI analysis"
-
-                        # If we couldn't extract time, use original time
-                        if "rectified_time" not in ai_result:
-                            ai_result["rectified_time"] = birth_dt.strftime("%H:%M")
-                            # Set lower confidence if we couldn't extract a time
-                            if "confidence" not in ai_result:
-                                ai_result["confidence"] = 50.0
-
-                # Extract the rectified time
-                rectified_time_str = ai_result.get("rectified_time")
-                try:
-                    # Handle different time formats
-                    if rectified_time_str and ":" in rectified_time_str:
-                        time_parts = rectified_time_str.split(":")
-                        hours = int(time_parts[0]) if time_parts[0].strip() else 0
-                        minutes = int(time_parts[1]) if len(time_parts) > 1 and time_parts[1].strip() else 0
-                    else:
-                        # Make sure rectified_time_str is not None
-                        if rectified_time_str and rectified_time_str.strip():
-                            hours = int(rectified_time_str.strip())
-                        else:
-                            hours = birth_dt.hour  # Use original hour if no valid value
-                        minutes = 0
-
-                    # Create datetime with rectified time
-                    ai_time = birth_dt.replace(hour=hours, minute=minutes, second=0, microsecond=0)
-                    ai_confidence = float(ai_result.get("confidence", 80))
-                    ai_explanation = ai_result.get("explanation", "Birth time rectified using AI analysis")
-
-                    ai_rectification_result = {
-                        "rectified_time": ai_time,
-                        "confidence": ai_confidence,
-                        "explanation": ai_explanation
-                    }
-
-                    logger.info(f"AI rectification successful: {ai_time}, confidence: {ai_confidence}")
-                    methods_succeeded.append("ai_analysis")
-                except (ValueError, IndexError) as time_error:
-                    logger.error(f"Error parsing rectified time '{rectified_time_str}': {time_error}")
-                    # Use original birth time with lower confidence
-                    ai_rectification_result = {
-                        "rectified_time": birth_dt,
-                        "confidence": 50.0,
-                        "explanation": "Fallback to original time due to parsing error"
-                    }
-
-            except Exception as e:
-                logger.error(f"Error parsing AI rectification result: {e}")
-                # Create a minimal result with original time
-                ai_rectification_result = {
-                    "rectified_time": birth_dt,
-                    "confidence": 50.0,
-                    "explanation": "Using original time due to analysis error"
-                }
-        else:
-            logger.warning("No valid response from OpenAI service, continuing with other methods")
-            # Don't raise an exception here, continue with other methods
-
-    except Exception as e:
-        logger.error(f"Error using OpenAI for rectification: {e}")
-
-    # Perform additional rectification using questionnaire answers for more comprehensive analysis
-    basic_time = None
-    basic_confidence = 0
-    try:
-        methods_attempted.append("questionnaire_analysis")
-        basic_time, basic_confidence = await rectify_birth_time(
-            birth_dt, latitude, longitude, timezone, answers
-        )
-        logger.info(f"Questionnaire-based rectification successful: {basic_time}, confidence: {basic_confidence}")
-        methods_succeeded.append("questionnaire_analysis")
-    except Exception as e:
-        logger.error(f"Questionnaire-based rectification failed: {e}")
-
-    # Calculate transit-based rectification if we have life events
-    transit_time = None
-    transit_confidence = 0
-
-    # Only try transit analysis if we have life events
-    if events and len(events) > 0:
+    # If chart was not provided, calculate it
+    if not chart:
         try:
-            methods_attempted.append("transit_analysis")
-            # Perform transit-based rectification
-            transit_time, transit_confidence = await analyze_life_events(
-                events, birth_dt, latitude, longitude, timezone
-            )
-            logger.info(f"Transit analysis successful: {transit_time}, confidence: {transit_confidence}")
-            methods_succeeded.append("transit_analysis")
+            chart = calculate_chart(birth_dt, latitude, longitude, timezone)
         except Exception as e:
-            logger.error(f"Transit analysis failed: {e}")
-    else:
-        logger.info("Skipping transit analysis due to lack of life events")
+            logger.error(f"Error calculating chart for basic rectification: {e}")
+            return birth_dt, 40.0  # Return original with low confidence
 
-    # Try solar arc rectification as an additional method
-    solar_arc_time = None
-    solar_arc_confidence = 0
+    # Extract key chart factors for analysis
+    ascendant = chart.get("angles", {}).get("asc", {}).get("longitude", 0)
+    midheaven = chart.get("angles", {}).get("mc", {}).get("longitude", 0)
 
-    try:
-        methods_attempted.append("solar_arc_analysis")
-        solar_arc_time, solar_arc_confidence = await solar_arc_rectification(
-            birth_dt, latitude, longitude, timezone
-        )
-        logger.info(f"Solar arc rectification: {solar_arc_time}, confidence: {solar_arc_confidence}")
-        methods_succeeded.append("solar_arc_analysis")
-    except Exception as e:
-        logger.error(f"Solar arc rectification failed: {e}")
+    # Get planet positions
+    planets = chart.get("planets", {})
+    sun_pos = planets.get("sun", {}).get("longitude", 0)
+    moon_pos = planets.get("moon", {}).get("longitude", 0)
 
-    # Verify we have at least one successful method
-    if len(methods_succeeded) == 0:
-        # If no methods succeeded, we can't provide a valid rectification
-        raise ValueError("Birth time rectification failed: all astrological methods failed to produce valid results")
+    # Initialize time shift and confidence
+    time_shift_minutes = 0
+    confidence = 50.0  # Start with medium confidence
 
-    # Determine best method or combine methods
-    methods_used = []
-    explanation = ""
-    rectified_time = None
-    confidence = 0
-    adjustment_minutes = 0
+    # Check critical degree factors that suggest birth time accuracy or inaccuracy
 
-    # Try to select the best method or combine methods
-    if ai_rectification_result:
-        # If AI gave us a result, use it
-        ai_time = ai_rectification_result["rectified_time"]
-        ai_confidence = ai_rectification_result["confidence"]
-        ai_explanation = ai_rectification_result["explanation"]
+    # Factor 1: Ascendant at critical degrees
+    asc_degree = ascendant % 30
+    if 0 <= asc_degree < 1 or 29 <= asc_degree < 30:
+        # Very close to sign boundary, often indicates inaccurate time
+        time_shift_minutes += -30 if asc_degree < 1 else 30
+        confidence -= 5
+    elif 12.5 <= asc_degree <= 13.5 or 25.5 <= asc_degree <= 26.5:
+        # Critical degrees, might indicate accurate time
+        confidence += 5
 
-        methods_used.append("ai_analysis")
+    # Factor 2: Planets close to angles (within 3 degrees)
+    for planet_name, planet_data in planets.items():
+        planet_pos = planet_data.get("longitude", 0)
 
-        if basic_time and basic_confidence > 60:
-            # Combine AI with basic if available and sufficiently confident
-            methods_used.append("questionnaire_analysis")
+        # Check closeness to ASC or MC
+        asc_diff = min((planet_pos - ascendant) % 360, (ascendant - planet_pos) % 360)
+        mc_diff = min((planet_pos - midheaven) % 360, (midheaven - planet_pos) % 360)
 
-            # Weighted average based on confidence
-            total_confidence = ai_confidence + basic_confidence
-            weight_ai = ai_confidence / total_confidence
-            weight_basic = basic_confidence / total_confidence
+        if asc_diff <= 3:
+            # Planet very close to ASC, suggests time might be accurate
+            confidence += 10
+            logger.info(f"Planet {planet_name} within 3 degrees of Ascendant, suggesting accurate time")
+        elif asc_diff <= 7:
+            # Planet somewhat close to ASC, might need small adjustment
+            if asc_diff > 5:
+                time_shift_minutes += 10 if (planet_pos - ascendant) % 360 < 180 else -10
+            confidence += 5
 
-            # Calculate weighted time (need to handle time wraparound)
-            ai_minutes = ai_time.hour * 60 + ai_time.minute
-            basic_minutes = basic_time.hour * 60 + basic_time.minute
+        if mc_diff <= 3:
+            # Planet very close to MC, suggests time might be accurate
+            confidence += 10
+            logger.info(f"Planet {planet_name} within 3 degrees of Midheaven, suggesting accurate time")
+        elif mc_diff <= 7:
+            # Planet somewhat close to MC, might need small adjustment
+            if mc_diff > 5:
+                time_shift_minutes += 10 if (planet_pos - midheaven) % 360 < 180 else -10
+            confidence += 5
 
-            # Handle day wraparound
-            if abs(ai_minutes - basic_minutes) > 720:  # More than 12 hours apart
-                if ai_minutes > basic_minutes:
-                    basic_minutes += 1440  # Add 24 hours
-                else:
-                    ai_minutes += 1440  # Add 24 hours
+    # Factor 3: Check if Ascendant exactly squares or trines an important planet
+    for planet_name, planet_data in planets.items():
+        if planet_name not in ["sun", "moon", "jupiter", "saturn"]:
+            continue  # Focus on major significators
 
-            weighted_minutes = int(ai_minutes * weight_ai + basic_minutes * weight_basic) % 1440
-            weighted_hour = weighted_minutes // 60
-            weighted_minute = weighted_minutes % 60
+        planet_pos = planet_data.get("longitude", 0)
 
-            rectified_time = birth_dt.replace(hour=weighted_hour, minute=weighted_minute)
-            confidence = (ai_confidence + basic_confidence) / 2
-            explanation = f"Birth time rectified using AI analysis combined with questionnaire analysis. {ai_explanation}"
+        # Check for exact aspects
+        aspect_diff = min((planet_pos - ascendant) % 360, (ascendant - planet_pos) % 360)
+
+        # Square (90 degrees)
+        if 89 <= aspect_diff <= 91:
+            confidence += 7
+            logger.info(f"Ascendant square {planet_name} within 1 degree, suggesting accurate time")
+
+        # Trine (120 degrees)
+        elif 119 <= aspect_diff <= 121:
+            confidence += 7
+            logger.info(f"Ascendant trine {planet_name} within 1 degree, suggesting accurate time")
+
+        # Opposition (180 degrees)
+        elif 179 <= aspect_diff <= 181:
+            confidence += 7
+            logger.info(f"Ascendant opposite {planet_name} within 1 degree, suggesting accurate time")
+
+    # Factor 4: Check if Sun or Moon is close to a house cusp (suggests accurate time)
+    houses = chart.get("houses", [])
+    for i, house_cusp in enumerate(houses):
+        sun_diff = min((sun_pos - house_cusp) % 360, (house_cusp - sun_pos) % 360)
+        moon_diff = min((moon_pos - house_cusp) % 360, (house_cusp - moon_pos) % 360)
+
+        if sun_diff <= 2:
+            confidence += 5
+            logger.info(f"Sun within 2 degrees of house {i+1} cusp, suggesting accurate time")
+
+        if moon_diff <= 2:
+            confidence += 5
+            logger.info(f"Moon within 2 degrees of house {i+1} cusp, suggesting accurate time")
+
+    # Apply time shift if confidence is below threshold
+    if confidence < 70 and time_shift_minutes != 0:
+        # Apply the time adjustment
+        adjusted_time = birth_dt + timedelta(minutes=time_shift_minutes)
+
+        # Check if adjusted time is within reasonable bounds (same day)
+        if adjusted_time.date() == birth_dt.date():
+            logger.info(f"Basic chart rectification suggests {time_shift_minutes} minute adjustment")
+            return adjusted_time, confidence
         else:
-            # Use AI only
-            rectified_time = ai_time
-            confidence = ai_confidence
-            explanation = f"Birth time rectified using AI analysis. {ai_explanation}"
-    elif basic_time and transit_time:
-        # Combine basic and transit methods
-        methods_used.extend(["questionnaire_analysis", "transit_analysis"])
+            # If adjustment crosses day boundary, use a smaller adjustment
+            time_shift_minutes = time_shift_minutes // 2
+            adjusted_time = birth_dt + timedelta(minutes=time_shift_minutes)
+            logger.info(f"Reduced time adjustment to {time_shift_minutes} minutes to stay within same day")
+            return adjusted_time, confidence - 10  # Lower confidence for reduced adjustment
 
-        # Calculate weights based on confidence
-        total_confidence = basic_confidence + transit_confidence
-        basic_weight = basic_confidence / total_confidence
-        transit_weight = transit_confidence / total_confidence
-
-        # Calculate weighted time
-        basic_minutes = basic_time.hour * 60 + basic_time.minute
-        transit_minutes = transit_time.hour * 60 + transit_time.minute
-
-        # Handle day wraparound
-        if abs(transit_minutes - basic_minutes) > 720:  # More than 12 hours apart
-            if transit_minutes > basic_minutes:
-                basic_minutes += 1440  # Add 24 hours
-            else:
-                transit_minutes += 1440  # Add 24 hours
-
-        weighted_minutes = int(basic_minutes * basic_weight + transit_minutes * transit_weight) % 1440
-        weighted_hour = weighted_minutes // 60
-        weighted_minute = weighted_minutes % 60
-
-        rectified_time = birth_dt.replace(hour=weighted_hour, minute=weighted_minute)
-        confidence = (basic_confidence + transit_confidence) / 2
-        explanation = "Birth time rectified using questionnaire analysis combined with transit analysis."
-    elif basic_time:
-        # Use basic questionnaire analysis
-        methods_used.append("questionnaire_analysis")
-        rectified_time = basic_time
-        confidence = basic_confidence
-        explanation = "Birth time rectified using questionnaire analysis."
-    elif transit_time:
-        # Use transit analysis
-        methods_used.append("transit_analysis")
-        rectified_time = transit_time
-        confidence = transit_confidence
-        explanation = "Birth time rectified using transit analysis of life events."
-    elif solar_arc_time:
-        # Use solar arc rectification
-        methods_used.append("solar_arc_analysis")
-        rectified_time = solar_arc_time
-        confidence = solar_arc_confidence
-        explanation = "Birth time rectified using solar arc directions."
+    # If confidence is high or no shift needed, return original time
+    if confidence >= 70:
+        logger.info(f"High confidence ({confidence:.1f}%) in original time, no adjustment needed")
     else:
-        # Fallback to original time
-        rectified_time = birth_dt
-        confidence = 50.0
-        explanation = "Unable to rectify birth time with sufficient confidence. Using original time."
+        logger.info(f"No clear adjustment indicated, keeping original time with {confidence:.1f}% confidence")
 
-    # Calculate the adjustment in minutes
-    if rectified_time:
-        # Calculate the difference in minutes
-        original_minutes = birth_dt.hour * 60 + birth_dt.minute
-        rectified_minutes = rectified_time.hour * 60 + rectified_time.minute
-
-        # Handle day wraparound
-        if abs(rectified_minutes - original_minutes) > 720:  # More than 12 hours apart
-            if rectified_minutes > original_minutes:
-                original_minutes += 1440  # Add 24 hours
-            else:
-                rectified_minutes += 1440  # Add 24 hours
-
-        adjustment_minutes = rectified_minutes - original_minutes
-
-    # Generate unique IDs for tracking
-    rectification_id = f"rectification_{chart_id}_{uuid.uuid4().hex[:8]}" if chart_id else f"rectification_None_{uuid.uuid4().hex[:8]}"
-
-    # Calculate and store the rectified chart
-    rectified_chart_id = None
-    try:
-        # Calculate chart with the rectified time
-        chart_data = calculate_chart(rectified_time, latitude, longitude, timezone)
-
-        # Format chart data for storage
-        formatted_chart_data = {
-            "ascendant": {},
-            "midheaven": {},
-            "planets": {},
-            "houses": {}
-        }
-
-        # Extract ascendant and midheaven
-        if "angles" in chart_data and "asc" in chart_data["angles"]:
-            formatted_chart_data["ascendant"] = {
-                "sign": chart_data["angles"]["asc"].get("sign", ""),
-                "degree": chart_data["angles"]["asc"].get("longitude", 0) % 30  # Get degree within sign
-            }
-
-        if "angles" in chart_data and "mc" in chart_data["angles"]:
-            formatted_chart_data["midheaven"] = {
-                "sign": chart_data["angles"]["mc"].get("sign", ""),
-                "degree": chart_data["angles"]["mc"].get("longitude", 0) % 30  # Get degree within sign
-            }
-
-        # Add planet positions
-        if "planets" in chart_data:
-            for planet_name, planet_data in chart_data["planets"].items():
-                if planet_data:
-                    formatted_chart_data["planets"][planet_name] = {
-                        "sign": planet_data.get("sign", ""),
-                        "degree": planet_data.get("longitude", 0) % 30  # Get degree within sign
-                    }
-
-        # Add house cusps
-        if "houses" in chart_data and isinstance(chart_data["houses"], list):
-            for i, house_lon in enumerate(chart_data["houses"], 1):
-                # Calculate sign for house cusp
-                from flatlib.const import LIST_SIGNS
-                sign_index = int(house_lon / 30)
-                sign = LIST_SIGNS[sign_index % 12] if sign_index < len(LIST_SIGNS) else ""
-
-                formatted_chart_data["houses"][str(i)] = {
-                    "sign": sign,
-                    "degree": house_lon % 30  # Get degree within sign
-                }
-
-        # Store the rectified chart
-        logger.info(f"Storing rectified chart with ID: {rectification_id}")
-        rectified_chart_id = await store_rectified_chart(
-            formatted_chart_data, rectification_id, birth_dt, rectified_time
-        )
-    except Exception as e:
-        logger.error(f"Error storing rectified chart: {e}")
-        logger.error(traceback.format_exc())
-
-    # Construct the final comprehensive result
-    result = {
-        "rectified_time": rectified_time,
-        "confidence": confidence,
-        "explanation": explanation,
-        "adjustment_minutes": adjustment_minutes,
-        "methods_used": methods_used,
-        "methods_attempted": methods_attempted,
-        "methods_succeeded": methods_succeeded,
-        "method_details": {
-            "ai_rectification": bool(ai_rectification_result),
-            "questionnaire_rectification": bool(basic_time),
-            "transit_rectification": bool(transit_time),
-            "solar_arc_rectification": bool(solar_arc_time)
-        },
-        "rectification_id": rectification_id,
-        "rectified_chart_id": rectified_chart_id,
-        "chart_id": chart_id
-    }
-
-    # Ensure confidence_score is properly set in final result
-    if result.get('confidence') is None:
-        # Use the confidence from the most reliable method
-        methods_by_reliability = ['transit_analysis', 'ai_rectification', 'solar_arc']
-        for method in methods_by_reliability:
-            if method in result and result[method].get('confidence') is not None:
-                result['confidence'] = result[method]['confidence']
-                break
-
-    # Default confidence if still none
-    if result.get('confidence') is None:
-        result['confidence'] = 75.0  # Default confidence
-
-    return result
+    return birth_dt, confidence

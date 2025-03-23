@@ -16,6 +16,9 @@ from datetime import datetime
 import io
 import base64
 import tempfile
+import traceback
+import uuid
+import random
 
 # Configure matplotlib with Agg backend before any other imports
 import matplotlib  # type: ignore
@@ -25,35 +28,41 @@ matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt  # type: ignore
 import matplotlib.patches as patches  # type: ignore
 from matplotlib.table import Table  # type: ignore
+from matplotlib.patches import Circle
+from matplotlib.lines import Line2D
+from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
 
-# Handle 3D plotting imports with fallbacks for compatibility
+# Import Axes from matplotlib.axes for proper typing
+from matplotlib.axes import Axes
+
+# Import 3D plotting tools correctly
 try:
     from mpl_toolkits.mplot3d import Axes3D  # type: ignore
-    from typing import Any
-
-    # Just define Axes3DType as Any to make type checking happy
-    # This is the simplest most reliable solution
-    Axes3DType = Any  # type: ignore
-
+    HAVE_3D = True
 except ImportError:
-    from typing import Any
-
-    # Create a stub type for when 3D plotting is unavailable
-    Axes3DType = Any  # type: ignore
+    HAVE_3D = False
 
 # Import PDF generation libraries
 import reportlab  # type: ignore
-from reportlab.lib.pagesizes import letter, A4  # type: ignore
+from reportlab.lib.pagesizes import letter, A4, LEGAL  # type: ignore
 from reportlab.lib import colors  # type: ignore
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # type: ignore
-from reportlab.platypus import SimpleDocTemplate, Table as RLTable, TableStyle, Paragraph, Spacer, Image  # type: ignore
+from reportlab.lib.units import inch  # type: ignore
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle  # type: ignore
 from reportlab.pdfgen import canvas  # type: ignore
 import matplotlib.font_manager as fm  # type: ignore
-from PIL import Image as PILImage  # type: ignore
+from PIL import Image as PILImage  # type: ignore # noqa
 
 from ai_service.core.chart_calculator import normalize_longitude
+# Import the planets list from constants
+from ai_service.core.rectification.constants import PLANETS_LIST
 
-# Configure logging
+from ai_service.utils.logger import get_logger
+from ai_service.utils.formatting import format_degree, format_longitude, format_time
+from ai_service.services.chart_service_visualization import render_chart_in_subplot
+
+# Set up logging
 logger = logging.getLogger(__name__)
 
 # Constants for chart visualization
@@ -115,128 +124,415 @@ PLANET_COLORS = {
 
 def render_vedic_square_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
     """
-    Render a North Indian (square) Vedic chart.
+    Render a Vedic square chart (North Indian style).
 
     Args:
-        chart_data: Dictionary containing chart data
-        output_path: Optional path to save the chart image
+        chart_data: Chart data dictionary
+        output_path: Path to save the output image
 
     Returns:
-        Base64 encoded image data or path to saved image
+        Path to the generated chart image
     """
-    try:
-        # Create figure and axis
-        fig, ax = plt.subplots(figsize=(10, 10))
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(10, 10))
 
-        # Draw the main square
-        ax.add_patch(patches.Rectangle((0, 0), 10, 10, fill=False, linewidth=2))
+    # Set up the chart as a square
+    ax.set_aspect('equal')
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-1.2, 1.2)
 
-        # Draw the inner square (for the center)
-        ax.add_patch(patches.Rectangle((3, 3), 4, 4, fill=False, linewidth=2))
+    # Draw the outer square
+    square = patches.Rectangle((-1, -1), 2, 2, fill=False, color='black')
+    ax.add_patch(square)
 
-        # Draw the diagonal lines
-        ax.plot([0, 10], [0, 10], 'k-', linewidth=2)
-        ax.plot([0, 10], [10, 0], 'k-', linewidth=2)
+    # Draw the inner grid (3x3 grid)
+    for i in range(-1, 2, 1):
+        # Vertical lines
+        ax.plot([i/3, i/3], [-1, 1], color='black', linestyle='-')
+        # Horizontal lines
+        ax.plot([-1, 1], [i/3, i/3], color='black', linestyle='-')
 
-        # Get house data
-        houses = chart_data.get("houses", [])
-        planets = chart_data.get("planets", {})
-        ascendant = chart_data.get("ascendant", {})
+    # Map houses to positions in the North Indian style
+    # The positions follow the traditional layout:
+    # 1 12 11
+    # 2  -  10
+    # 3  4  9
+    # 5  6  7
+    house_positions = {
+        1: (-2/3, 2/3),   # Top left
+        2: (-2/3, 0),     # Middle left
+        3: (-2/3, -2/3),  # Bottom left
+        4: (0, -2/3),     # Bottom middle
+        5: (2/3, -2/3),   # Bottom right
+        6: (2/3, 0),      # Middle right
+        7: (2/3, 2/3),    # Top right
+        8: (0, 2/3),      # Top middle
+        9: (0, 0),        # Center
+        10: (0, 2/3),     # Top middle
+        11: (2/3, 2/3),   # Top right
+        12: (-2/3, 2/3)   # Top left
+    }
 
-        # House positions in the chart (North Indian style)
-        house_positions = [
-            (3, 7),    # House 1 (top center)
-            (1, 7),    # House 2 (top left)
-            (1, 5),    # House 3 (middle left)
-            (1, 3),    # House 4 (bottom left)
-            (3, 1),    # House 5 (bottom center)
-            (5, 1),    # House 6 (bottom right)
-            (7, 3),    # House 7 (middle right)
-            (7, 5),    # House 8 (middle right)
-            (7, 7),    # House 9 (top right)
-            (5, 7),    # House 10 (top center)
-            (5, 5),    # House 11 (center right)
-            (3, 5)     # House 12 (center left)
-        ]
+    # Get houses from chart data
+    houses = chart_data.get("houses", [])
+    for house in houses:
+        house_num = house.get("house", 0)
+        sign = house.get("sign", "")
 
-        # Add house signs
-        for i, pos in enumerate(house_positions):
-            house_num = i + 1
+        # Skip if invalid house
+        if house_num not in house_positions:
+            continue
 
-            # Get the sign for this house
-            sign = "Unknown"
-            if i < len(houses):
-                sign = houses[i].get("sign", "Unknown")
+        # Get position for this house
+        x, y = house_positions[house_num]
 
-            # Add house number and sign
-            ax.text(pos[0], pos[1] + 0.5, f"{house_num}", fontsize=12, ha='center')
-            ax.text(pos[0], pos[1], f"{sign}", fontsize=10, ha='center')
+        # Label the house
+        ax.text(x, y, f"{house_num}\n{sign}", fontsize=8,
+                ha='center', va='center', color='blue')
 
-            # Add planets in this house
-            planets_in_house = []
-            for planet_name, planet_data in planets.items():
-                if planet_data.get("house") == house_num:
-                    planets_in_house.append(planet_name)
+    # Plot planets
+    planets_list = chart_data.get("planets", [])
+    if isinstance(planets_list, dict):
+        # Convert dict to list if needed
+        planets_list = [{"name": name, **data} for name, data in planets_list.items()]
 
-            # Display planets
-            for j, planet in enumerate(planets_in_house):
-                symbol = PLANET_SYMBOLS.get(planet, planet[:2])
-                color = PLANET_COLORS.get(planet, "#000000")
-                ax.text(pos[0], pos[1] - 0.3 - (j * 0.3), symbol, fontsize=10, ha='center', color=color)
+    planet_symbols = {
+        "sun": "☉", "moon": "☽", "mercury": "☿", "venus": "♀", "mars": "♂",
+        "jupiter": "♃", "saturn": "♄", "uranus": "♅", "neptune": "♆", "pluto": "♇",
+        "north_node": "☊", "south_node": "☋", "chiron": "⚷"
+    }
 
-        # Add ascendant marker
-        asc_sign = ascendant.get("sign", "Unknown")
-        asc_degree = ascendant.get("degree", 0)
-        ax.text(5, 5, f"Asc: {asc_sign} {asc_degree:.1f}°", fontsize=12, ha='center', weight='bold')
+    for planet in planets_list:
+        if isinstance(planet, dict):
+            planet_name = planet.get("name", "").lower()
+            house = planet.get("house", 0)
 
-        # Add chart info
-        if "birth_details" in chart_data:
-            birth = chart_data["birth_details"]
-            info_text = f"Name: {birth.get('name', 'Unknown')}\n"
-            info_text += f"Date: {birth.get('date', 'Unknown')}\n"
-            info_text += f"Time: {birth.get('time', 'Unknown')}\n"
-            info_text += f"Place: {birth.get('location', 'Unknown')}"
+            # Skip if invalid house
+            if house not in house_positions:
+                continue
 
-            ax.text(5, 10.5, info_text, fontsize=10, ha='center')
+            # Get position for this house
+            x, y = house_positions[house]
 
-        # Set axis limits and remove ticks
-        ax.set_xlim(-1, 11)
-        ax.set_ylim(-1, 11)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_title("North Indian Vedic Chart", fontsize=14)
+            # Add a small offset for multiple planets in same house
+            # This is a simplified approach; a more robust method would be needed
+            # for charts with many planets in the same house
+            x += random.uniform(-0.15, 0.15)
+            y += random.uniform(-0.15, 0.15)
 
-        # Save or return the chart
-        if output_path:
-            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            # Get the symbol for the planet
+            symbol = planet_symbols.get(planet_name, planet_name[0].upper())
+
+            # Plot the planet
+            ax.text(x, y, symbol, fontsize=12, ha='center', va='center',
+                   color='red', weight='bold')
+
+    # Remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+
+    # Add title with birth information if available
+    title = "Vedic Chart (North Indian Style)"
+    if "birth_details" in chart_data:
+        birth_details = chart_data["birth_details"]
+        date_str = birth_details.get("date", "")
+        time_str = birth_details.get("time", "")
+        if date_str and time_str:
+            title += f"\n{date_str} {time_str}"
+
+    plt.title(title)
+
+    # Save the chart if output path is provided
+    if output_path:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        return output_path
+    else:
+        # If no output path, return a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            plt.savefig(tmp.name, dpi=300, bbox_inches='tight')
             plt.close(fig)
-            return output_path
-        else:
-            # Return as base64 encoded image
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-            plt.close(fig)
-            buf.seek(0)
-            img_str = base64.b64encode(buf.read()).decode('utf-8')
-            return img_str
+            return tmp.name
 
-    except Exception as e:
-        logger.error(f"Error rendering Vedic chart: {e}")
-        raise
-
-def render_vedic_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
+def render_vedic_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None, style: str = "north_indian") -> str:
     """
-    Render a simplified Vedic chart.
+    Render a Vedic chart with enhanced options for different styles.
 
     Args:
-        chart_data: Dictionary containing chart data
-        output_path: Optional path to save the chart image
+        chart_data: Chart data dictionary
+        output_path: Path to save the output image
+        style: Chart style ('north_indian', 'south_indian', or 'east_indian')
 
     Returns:
-        Base64 encoded image data or path to saved image
+        Path to the generated chart image
     """
-    # For now, this is an alias to the square chart
-    return render_vedic_square_chart(chart_data, output_path)
+    if style == "north_indian":
+        return render_vedic_square_chart(chart_data, output_path)
+    elif style == "south_indian":
+        # Implement South Indian style chart (diamond layout)
+        return render_vedic_south_indian(chart_data, output_path)
+    elif style == "east_indian":
+        # Implement East Indian style chart (circular layout)
+        return render_vedic_east_indian(chart_data, output_path)
+    else:
+        logger.warning(f"Unknown Vedic chart style: {style}, defaulting to North Indian")
+        return render_vedic_square_chart(chart_data, output_path)
+
+def render_vedic_south_indian(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
+    """
+    Render a South Indian style Vedic chart (diamond layout).
+
+    Args:
+        chart_data: Chart data dictionary
+        output_path: Path to save the output image
+
+    Returns:
+        Path to the generated chart image
+    """
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Set up the chart as a diamond
+    ax.set_aspect('equal')
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+
+    # Draw the outer diamond
+    diamond = patches.Polygon(np.array([
+        (0, 1.2), (1.2, 0), (0, -1.2), (-1.2, 0)
+    ]), fill=False, color='black')
+    ax.add_patch(diamond)
+
+    # Draw the inner grid (3x3 grid in diamond shape)
+    # Draw lines connecting midpoints of outer diamond
+    ax.plot([0, 0], [-1.2, 1.2], color='black', linestyle='-')
+    ax.plot([-1.2, 1.2], [0, 0], color='black', linestyle='-')
+
+    # Draw inner diamond
+    inner_diamond = patches.Polygon(np.array([
+        (0, 0.4), (0.4, 0), (0, -0.4), (-0.4, 0)
+    ]), fill=False, color='black')
+    ax.add_patch(inner_diamond)
+
+    # Map houses to positions in the South Indian style
+    house_positions = {
+        1: (0, 0.8),     # Top
+        2: (0.4, 0.4),   # Top right
+        3: (0.8, 0),     # Right
+        4: (0.4, -0.4),  # Bottom right
+        5: (0, -0.8),    # Bottom
+        6: (-0.4, -0.4), # Bottom left
+        7: (-0.8, 0),    # Left
+        8: (-0.4, 0.4),  # Top left
+        9: (0, 0),       # Center
+        10: (0.8, 0),    # Right
+        11: (0.4, 0.4),  # Top right
+        12: (0, 0.8)     # Top
+    }
+
+    # Get houses from chart data
+    houses = chart_data.get("houses", [])
+    for house in houses:
+        house_num = house.get("house", 0)
+        sign = house.get("sign", "")
+
+        # Skip if invalid house
+        if house_num not in house_positions:
+            continue
+
+        # Get position for this house
+        x, y = house_positions[house_num]
+
+        # Label the house
+        ax.text(x, y, f"{house_num}\n{sign}", fontsize=8,
+                ha='center', va='center', color='blue')
+
+    # Plot planets - similar to North Indian style but with different positions
+    planets_list = chart_data.get("planets", [])
+    if isinstance(planets_list, dict):
+        planets_list = [{"name": name, **data} for name, data in planets_list.items()]
+
+    planet_symbols = {
+        "sun": "☉", "moon": "☽", "mercury": "☿", "venus": "♀", "mars": "♂",
+        "jupiter": "♃", "saturn": "♄", "uranus": "♅", "neptune": "♆", "pluto": "♇",
+        "north_node": "☊", "south_node": "☋", "chiron": "⚷"
+    }
+
+    for planet in planets_list:
+        if isinstance(planet, dict):
+            planet_name = planet.get("name", "").lower()
+            house = planet.get("house", 0)
+
+            # Skip if invalid house
+            if house not in house_positions:
+                continue
+
+            # Get position for this house
+            x, y = house_positions[house]
+
+            # Add a small offset for multiple planets in same house
+            x += random.uniform(-0.15, 0.15)
+            y += random.uniform(-0.15, 0.15)
+
+            # Get the symbol for the planet
+            symbol = planet_symbols.get(planet_name, planet_name[0].upper())
+
+            # Plot the planet
+            ax.text(x, y, symbol, fontsize=12, ha='center', va='center',
+                   color='red', weight='bold')
+
+    # Remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+
+    # Add title with birth information if available
+    title = "Vedic Chart (South Indian Style)"
+    if "birth_details" in chart_data:
+        birth_details = chart_data["birth_details"]
+        date_str = birth_details.get("date", "")
+        time_str = birth_details.get("time", "")
+        if date_str and time_str:
+            title += f"\n{date_str} {time_str}"
+
+    plt.title(title)
+
+    # Save the chart if output path is provided
+    if output_path:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        return output_path
+    else:
+        # If no output path, return a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            plt.savefig(tmp.name, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            return tmp.name
+
+def render_vedic_east_indian(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
+    """
+    Render an East Indian style Vedic chart (circular layout).
+
+    Args:
+        chart_data: Chart data dictionary
+        output_path: Path to save the output image
+
+    Returns:
+        Path to the generated chart image
+    """
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Set up the chart as a circle
+    ax.set_aspect('equal')
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-1.2, 1.2)
+
+    # Draw the outer circle
+    circle = patches.Circle((0, 0), 1, fill=False, color='black')
+    ax.add_patch(circle)
+
+    # Draw the inner circle
+    inner_circle = patches.Circle((0, 0), 0.5, fill=False, color='black')
+    ax.add_patch(inner_circle)
+
+    # Draw dividing lines for the 12 houses
+    for i in range(12):
+        angle = i * 30 * (math.pi / 180)  # Convert to radians
+        x = math.cos(angle)
+        y = math.sin(angle)
+        ax.plot([0, x], [0, y], color='black', linestyle='-')
+
+    # Map houses to positions in the circular layout
+    house_positions = {}
+    for i in range(1, 13):
+        angle = (i - 1) * 30 * (math.pi / 180)  # Convert to radians
+        x = 0.75 * math.cos(angle + (15 * math.pi / 180))  # Offset by 15 degrees to center in house
+        y = 0.75 * math.sin(angle + (15 * math.pi / 180))
+        house_positions[i] = (x, y)
+
+    # Get houses from chart data
+    houses = chart_data.get("houses", [])
+    for house in houses:
+        house_num = house.get("house", 0)
+        sign = house.get("sign", "")
+
+        # Skip if invalid house
+        if house_num not in house_positions:
+            continue
+
+        # Get position for this house
+        x, y = house_positions[house_num]
+
+        # Label the house
+        ax.text(x, y, f"{house_num}\n{sign}", fontsize=8,
+                ha='center', va='center', color='blue')
+
+    # Plot planets - similar to other styles but with circular positioning
+    planets_list = chart_data.get("planets", [])
+    if isinstance(planets_list, dict):
+        planets_list = [{"name": name, **data} for name, data in planets_list.items()]
+
+    planet_symbols = {
+        "sun": "☉", "moon": "☽", "mercury": "☿", "venus": "♀", "mars": "♂",
+        "jupiter": "♃", "saturn": "♄", "uranus": "♅", "neptune": "♆", "pluto": "♇",
+        "north_node": "☊", "south_node": "☋", "chiron": "⚷"
+    }
+
+    for planet in planets_list:
+        if isinstance(planet, dict):
+            planet_name = planet.get("name", "").lower()
+            house = planet.get("house", 0)
+
+            # Skip if invalid house
+            if house not in house_positions:
+                continue
+
+            # Get position for this house
+            x, y = house_positions[house]
+
+            # Add a small offset for multiple planets in same house
+            x += random.uniform(-0.1, 0.1)
+            y += random.uniform(-0.1, 0.1)
+
+            # Get the symbol for the planet
+            symbol = planet_symbols.get(planet_name, planet_name[0].upper())
+
+            # Plot the planet
+            ax.text(x, y, symbol, fontsize=12, ha='center', va='center',
+                   color='red', weight='bold')
+
+    # Remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.axis('off')
+
+    # Add title with birth information if available
+    title = "Vedic Chart (East Indian Style)"
+    if "birth_details" in chart_data:
+        birth_details = chart_data["birth_details"]
+        date_str = birth_details.get("date", "")
+        time_str = birth_details.get("time", "")
+        if date_str and time_str:
+            title += f"\n{date_str} {time_str}"
+
+    plt.title(title)
+
+    # Save the chart if output path is provided
+    if output_path:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        return output_path
+    else:
+        # If no output path, return a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            plt.savefig(tmp.name, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+            return tmp.name
 
 def generate_multiple_charts(chart_data: Dict[str, Any], output_dir: str) -> Dict[str, str]:
     """
@@ -263,913 +559,1559 @@ def generate_multiple_charts(chart_data: Dict[str, Any], output_dir: str) -> Dic
 
     return results
 
-def generate_comparison_chart(original_chart: Dict[str, Any], rectified_chart: Dict[str, Any], output_path: str) -> str:
+def generate_comparison_chart(original_chart: Dict[str, Any], rectified_chart: Dict[str, Any], output_path: Optional[str] = None) -> Union[str, Dict[str, Any]]:
     """
-    Generate a comparison visualization between two charts (original and rectified).
+    Generate a high-quality comparison visualization between two charts (original and rectified).
+
+    This function creates a professional side-by-side comparison of charts with proper styling,
+    highlighting key differences for visual analysis. Can return either a file path or
+    a structured dictionary with base64 encoded image for API responses.
 
     Args:
         original_chart: Original chart data
         rectified_chart: Rectified chart data
-        output_path: Path to save the generated image
+        output_path: Path to save the generated image (optional)
 
     Returns:
-        Path to the saved image file
+        If output_path is provided: Path to the saved image file
+        If output_path is None: Dictionary with base64 encoded image and metadata for API response
     """
-    # Set up the figure with two side-by-side charts
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
+    try:
+        # Create a temporary output path if none provided
+        temp_output = False
+        if output_path is None:
+            temp_output = True
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                output_path = tmp.name
 
-    # Extract birth details
-    original_details = original_chart.get("birth_details", {})
-    rectified_details = rectified_chart.get("birth_details", {})
+        # Ensure the output directory exists if path provided
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
-    original_time = original_details.get("birth_time", "")
-    rectified_time = rectified_details.get("birth_time", "")
+        # Extract birth details for titles
+        original_details = original_chart.get("birth_data", {})
+        rectified_details = rectified_chart.get("birth_data", {})
 
-    # Set titles for both charts
-    ax1.set_title(f"Original Chart\nBirth Time: {original_time}", fontsize=14)
-    ax2.set_title(f"Rectified Chart\nBirth Time: {rectified_time}", fontsize=14)
+        if not original_details and "birth_details" in original_chart:
+            original_details = original_chart["birth_details"]
 
-    # Draw chart circles
-    original_circle = patches.Circle((0, 0), 0.9, fill=False, color='black', linewidth=2)
-    rectified_circle = patches.Circle((0, 0), 0.9, fill=False, color='black', linewidth=2)
-    ax1.add_patch(original_circle)
-    ax2.add_patch(rectified_circle)
+        if not rectified_details and "birth_details" in rectified_chart:
+            rectified_details = rectified_chart["birth_details"]
 
-    # Draw ascendant lines
-    ax1.plot([0, -0.9], [0, 0], 'r-', linewidth=2)
-    ax2.plot([0, -0.9], [0, 0], 'r-', linewidth=2)
+        original_time = original_details.get("time", original_details.get("birth_time", ""))
+        rectified_time = rectified_details.get("time", rectified_details.get("birth_time", ""))
 
-    # Draw house cusps for original chart
-    draw_houses(ax1, original_chart.get("houses", []))
+        # Calculate time difference for the main title
+        time_diff = _calculate_time_difference(original_time, rectified_time)
+        time_direction = "later" if time_diff > 0 else "earlier"
+        abs_time_diff = abs(time_diff)
 
-    # Draw house cusps for rectified chart
-    draw_houses(ax2, rectified_chart.get("houses", []))
+        # Format time difference for display
+        hours, minutes = divmod(abs_time_diff, 60)
+        if hours > 0:
+            time_diff_str = f"{int(hours)}h {int(minutes)}m"
+        else:
+            time_diff_str = f"{int(minutes)}m"
 
-    # Draw planets for original chart
-    draw_planets(ax1, original_chart.get("planets", []), color='blue')
+        # Set up figure with higher DPI for better quality
+        fig = plt.figure(figsize=(16, 10), dpi=300)
 
-    # Draw planets for rectified chart
-    draw_planets(ax2, rectified_chart.get("planets", []), color='red')
+        # Add a title to the overall figure
+        fig.suptitle(
+            f"Birth Chart Comparison: Original vs. Rectified\n"
+            f"Time Difference: {time_diff_str} {time_direction}",
+            fontsize=18, y=0.98
+        )
 
-    # Set equal aspect ratios and remove axis ticks
-    ax1.set_aspect('equal')
-    ax1.set_xlim(-1.1, 1.1)
-    ax1.set_ylim(-1.1, 1.1)
-    ax1.axis('off')
+        # Create two subplots side by side with enough space
+        grid = GridSpec(1, 2, wspace=0.3, hspace=0)
+        ax1 = plt.subplot(grid[0, 0])
+        ax2 = plt.subplot(grid[0, 1])
 
-    ax2.set_aspect('equal')
-    ax2.set_xlim(-1.1, 1.1)
-    ax2.set_ylim(-1.1, 1.1)
-    ax2.axis('off')
+        # Give each subplot its own title
+        ax1.set_title(f"Original Chart: {original_time}", fontsize=14, pad=15)
+        ax2.set_title(f"Rectified Chart: {rectified_time}", fontsize=14, pad=15)
 
-    # Add a main title to the figure with comparison info
-    time_diff_mins = calculate_time_difference(original_time, rectified_time)
-    plt.suptitle(f"Chart Comparison\nTime Difference: {abs(time_diff_mins)} minutes {'later' if time_diff_mins > 0 else 'earlier'}",
-                fontsize=16)
+        # Generate Vedic charts in each subplot
+        _render_comparison_chart(ax1, original_chart, "Original")
+        _render_comparison_chart(ax2, rectified_chart, "Rectified")
 
-    # Save the comparison chart
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
+        # Add a section below for listing key differences
+        differences = _extract_key_differences(original_chart, rectified_chart)
+        if differences:
+            diff_text = "Key Differences:\n"
+            for i, diff in enumerate(differences, 1):
+                diff_text += f"• {diff}\n"
 
-    return output_path
+            plt.figtext(0.5, 0.05, diff_text, ha='center', fontsize=12,
+                       bbox=dict(facecolor='#f0f0f0', alpha=0.5, boxstyle='round,pad=0.5'))
 
-def draw_houses(ax, houses):
-    """Helper function to draw house cusps on a chart axis."""
-    for house in houses:
-        # Convert house positions to angles
-        house_num = house.get("number", 0)
-        sign = house.get("sign", "")
-        degree = house.get("degree", 0)
+        # Add generation timestamp
+        plt.figtext(0.98, 0.01, f"Generated: {datetime.now().strftime('%Y-%m-%d')}",
+                   ha='right', fontsize=8, fontstyle='italic', color='gray')
 
-        # Calculate sign index
-        sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
-                     "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
-                     "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
+        # Save the comparison chart with high quality
+        plt.tight_layout(rect=(0, 0.08, 1, 0.95))
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
-        # Calculate angle
-        angle = (sign_index * 30 + degree) * math.pi / 180
-
-        # Convert to cartesian coordinates
-        x = 0.9 * math.cos(angle - math.pi/2)
-        y = 0.9 * math.sin(angle - math.pi/2)
-
-        # Draw house cusp line
-        ax.plot([0, x], [0, y], 'k-', linewidth=1)
-
-        # Add house number
-        text_x = 1.0 * math.cos(angle - math.pi/2)
-        text_y = 1.0 * math.sin(angle - math.pi/2)
-        ax.text(text_x, text_y, str(house_num), fontsize=10)
-
-def draw_planets(ax, planets, color='blue'):
-    """Helper function to draw planets on a chart axis."""
-    # Handle both list and dict formats of planets
-    if isinstance(planets, dict):
-        planets_list = []
-        for name, data in planets.items():
-            if isinstance(data, dict):
-                planet_data = data.copy()
-                planet_data["name"] = name
-                planets_list.append(planet_data)
-        planets = planets_list
-
-    for planet in planets:
-        name = planet.get("name", "")
-        sign = planet.get("sign", "")
-        degree = planet.get("degree", 0)
-
-        # Calculate sign index
-        sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
-                     "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
-                     "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
-
-        # Calculate angle
-        angle = (sign_index * 30 + degree) * math.pi / 180
-
-        # Plot at 75% of radius for planets
-        x = 0.75 * math.cos(angle - math.pi/2)
-        y = 0.75 * math.sin(angle - math.pi/2)
-
-        # Plot planet
-        ax.plot(x, y, 'o', color=color, markersize=8)
-
-        # Add planet symbol or abbreviation
-        symbols = {
-            "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂",
-            "Jupiter": "♃", "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇"
+        # Create a dictionary with metadata for API response
+        comparison_result = {
+            "original_time": original_time,
+            "rectified_time": rectified_time,
+            "time_difference_minutes": time_diff,
+            "time_difference_formatted": time_diff_str,
+            "time_direction": time_direction,
+            "key_differences": differences,
+            "generated_at": datetime.now().isoformat()
         }
 
-        symbol = symbols.get(name, name[:2])
-        ax.text(x + 0.05, y + 0.05, symbol, fontsize=10, color=color)
+        # If temporary file or base64 encoding requested, read image and convert to base64
+        if temp_output:
+            # Read the saved file and encode as base64
+            with open(output_path, 'rb') as img_file:
+                img_data = base64.b64encode(img_file.read()).decode('utf-8')
 
-def calculate_time_difference(time1, time2):
-    """Calculate difference between two time strings in minutes."""
-    if not time1 or not time2:
-        return 0
+            # Add base64 data to result
+            comparison_result["image_data"] = f"data:image/png;base64,{img_data}"
+            comparison_result["encoding"] = "base64"
+            comparison_result["mime_type"] = "image/png"
 
+            # Delete the temporary file
+            os.unlink(output_path)
+
+            # Return the complete result dictionary for API response
+            return comparison_result
+        else:
+            # Verify file was created
+            if not os.path.exists(output_path):
+                raise FileNotFoundError(f"Failed to create comparison chart at {output_path}")
+
+            # Add file information to result
+            comparison_result["file_path"] = output_path
+            comparison_result["file_size"] = os.path.getsize(output_path)
+
+            # For file output, just return the path as before for compatibility
+            logger.info(f"Comparison chart saved to {output_path}")
+            return output_path
+
+    except Exception as e:
+        logger.error(f"Error generating comparison chart: {str(e)}")
+        logger.error(traceback.format_exc())
+
+        # Create a basic error image if generation fails
+        try:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, f"Error generating comparison chart:\n{str(e)}",
+                   ha='center', va='center', fontsize=12, color='red')
+            ax.axis('off')
+
+            # If output path is provided, save error image to file
+            if output_path and not temp_output:
+                plt.savefig(output_path, dpi=100, bbox_inches='tight')
+                plt.close(fig)
+                return output_path
+            else:
+                # Return error information in dictionary format for API
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                plt.close(fig)
+                buf.seek(0)
+                img_data = base64.b64encode(buf.read()).decode('utf-8')
+
+                return {
+                    "error": str(e),
+                    "generated_at": datetime.now().isoformat(),
+                    "image_data": f"data:image/png;base64,{img_data}",
+                    "encoding": "base64",
+                    "mime_type": "image/png"
+                }
+
+        except Exception as inner_e:
+            logger.error(f"Failed to create error chart: {inner_e}")
+            # If even the error image fails, return a dictionary with just the error
+            return {
+                "error": str(e),
+                "error_image_failed": str(inner_e),
+                "generated_at": datetime.now().isoformat()
+            }
+
+def _calculate_arc_difference(longitude1: float, longitude2: float) -> float:
+    """
+    Calculate the smallest arc difference between two zodiacal longitudes.
+
+    Args:
+        longitude1: First longitude in degrees
+        longitude2: Second longitude in degrees
+
+    Returns:
+        Smallest arc difference in degrees (0-180)
+    """
+    # Normalize longitudes to 0-360 range
+    lon1 = normalize_longitude(longitude1)
+    lon2 = normalize_longitude(longitude2)
+
+    # Calculate direct difference
+    diff = abs(lon1 - lon2)
+
+    # Return the smaller arc (direct or complement)
+    return min(diff, 360 - diff)
+
+
+def _render_comparison_chart(ax: Axes, chart_data: Dict[str, Any], chart_type: str = "Chart") -> None:
+    """
+    Render a Vedic chart for comparison purposes in the given axis.
+
+    Args:
+        ax: Matplotlib axis to render on
+        chart_data: Chart data to render
+        chart_type: Type of chart (Original or Rectified) for styling
+    """
+    # Set background color based on chart type
+    if chart_type.lower() == "original":
+        bg_color = '#f9f9f9'  # Light gray for original
+    else:
+        bg_color = '#f0f8ff'  # Light blue for rectified
+
+    ax.set_facecolor(bg_color)
+
+    # Draw the main square
+    ax.add_patch(patches.Rectangle((0, 0), 10, 10, fill=False, linewidth=2, edgecolor='#444444'))
+
+    # Draw the inner square (for the center)
+    ax.add_patch(patches.Rectangle((3, 3), 4, 4, fill=False, linewidth=2, edgecolor='#444444'))
+
+    # Draw the diagonal lines
+    ax.plot([0, 10], [0, 10], 'k-', linewidth=1.5, color='#444444')
+    ax.plot([0, 10], [10, 0], 'k-', linewidth=1.5, color='#444444')
+
+    # Get house data
+    houses = chart_data.get("houses", [])
+    planets = chart_data.get("planets", {})
+    ascendant = chart_data.get("ascendant", {})
+
+    # House positions in the chart (North Indian style)
+    house_positions = [
+        (3, 7),    # House 1 (top center)
+        (1, 7),    # House 2 (top left)
+        (1, 5),    # House 3 (middle left)
+        (1, 3),    # House 4 (bottom left)
+        (3, 1),    # House 5 (bottom center)
+        (5, 1),    # House 6 (bottom right)
+        (7, 3),    # House 7 (middle right)
+        (7, 5),    # House 8 (middle right)
+        (7, 7),    # House 9 (top right)
+        (5, 7),    # House 10 (top center)
+        (5, 5),    # House 11 (center right)
+        (3, 5)     # House 12 (center left)
+    ]
+
+    # Define rashi (sign) colors
+    rashi_colors = {
+        "Aries": "#FFE5E5",      # Light Red
+        "Taurus": "#E5FFE5",     # Light Green
+        "Gemini": "#E5E5FF",     # Light Blue
+        "Cancer": "#FFFFE5",     # Light Yellow
+        "Leo": "#FFE5D9",        # Light Orange
+        "Virgo": "#F2E5FF",      # Light Purple
+        "Libra": "#E5FFF2",      # Light Teal
+        "Scorpio": "#FFE5FF",    # Light Pink
+        "Sagittarius": "#E5F2FF", # Light Sky Blue
+        "Capricorn": "#F2F2F2",  # Light Gray
+        "Aquarius": "#E5FFFF",   # Light Cyan
+        "Pisces": "#FFF2E5"      # Light Peach
+    }
+
+    # Add house signs with background colors
+    for i, pos in enumerate(house_positions):
+        house_num = i + 1
+        x, y = pos
+
+        # Get the sign for this house
+        sign = "Unknown"
+        if isinstance(houses, list) and i < len(houses):
+            if isinstance(houses[i], dict):
+                sign = houses[i].get("sign", "Unknown")
+            elif "houses" in chart_data and isinstance(chart_data["houses"], dict):
+                sign = chart_data["houses"].get(str(house_num), {}).get("sign", "Unknown")
+
+        # Add house rectangle with sign-based color
+        rect_x, rect_y = x - 1, y - 1
+        rect = patches.Rectangle((rect_x, rect_y), 2, 2, fill=True, alpha=0.15, linewidth=0,
+                                facecolor=rashi_colors.get(sign, '#FFFFFF'))
+        ax.add_patch(rect)
+
+        # Add house number and sign
+        ax.text(x, y + 0.5, f"{house_num}", fontsize=14, ha='center', fontweight='bold', color='#333333')
+        ax.text(x, y, f"{sign}", fontsize=11, ha='center', color='#555555')
+
+        # Add zodiac symbol
+        symbol = ZODIAC_SYMBOLS.get(sign, "")
+        if symbol:
+            ax.text(x, y - 0.3, symbol, fontsize=14, ha='center', color='#333333')
+
+        # Find planets in this house
+        planets_in_house = []
+        for planet_name, planet_data in planets.items():
+            planet_house = None
+            if isinstance(planet_data, dict):
+                planet_house = planet_data.get("house")
+            elif hasattr(planet_data, "get"):
+                planet_house = planet_data.get("house")
+
+            if planet_house == house_num or planet_house == str(house_num):
+                planets_in_house.append(planet_name)
+
+        # Plot planets in this house
+        if planets_in_house:
+            # Calculate positions for planets
+            planet_count = len(planets_in_house)
+            planet_spacing = 0.25
+            start_y = y - 0.7
+
+            # If many planets, adjust spacing
+            if planet_count > 4:
+                planet_spacing = 0.2
+                start_y = y - 0.6
+
+            for p_idx, planet_name in enumerate(planets_in_house):
+                # Stagger planets if many in same house
+                planet_x = x + (p_idx % 2) * 0.3 - 0.15
+                planet_y = start_y - (p_idx // 2) * planet_spacing
+
+                # Draw planet symbol
+                symbol = PLANET_SYMBOLS.get(planet_name, planet_name[:3])
+                color = PLANET_COLORS.get(planet_name, "#000000")
+
+                # For rectified chart, make planets appear more prominent
+                if chart_type.lower() == "rectified":
+                    # Draw a small circle behind the symbol with more emphasis
+                    circle = patches.Circle((planet_x, planet_y), radius=0.14,
+                                          facecolor='white', edgecolor=color,
+                                          alpha=0.8, zorder=2, linewidth=1.5)
+                else:
+                    # Normal styling for original chart
+                    circle = patches.Circle((planet_x, planet_y), radius=0.12,
+                                          facecolor='white', edgecolor=color,
+                                          alpha=0.7, zorder=2)
+                ax.add_patch(circle)
+
+                # Add the planet symbol
+                ax.text(planet_x, planet_y, symbol, fontsize=10, ha='center', va='center',
+                       color=color, weight='bold', zorder=3)
+
+    # Set axis limits and turn off axis
+    ax.set_xlim(-0.5, 10.5)
+    ax.set_ylim(-0.5, 10.5)
+    ax.axis('off')
+
+
+def _extract_key_differences(original_chart: Dict[str, Any], rectified_chart: Dict[str, Any]) -> List[str]:
+    """
+    Extract key astrological differences between original and rectified charts.
+
+    Args:
+        original_chart: Original chart data
+        rectified_chart: Rectified chart data
+
+    Returns:
+        List of strings describing key differences
+    """
+    differences = []
+
+    # Check ascendant changes
+    original_asc = original_chart.get("ascendant", {})
+    rectified_asc = rectified_chart.get("ascendant", {})
+
+    if isinstance(original_asc, dict) and isinstance(rectified_asc, dict):
+        original_asc_sign = original_asc.get("sign", "")
+        rectified_asc_sign = rectified_asc.get("sign", "")
+
+        if original_asc_sign != rectified_asc_sign:
+            differences.append(f"Ascendant changed from {original_asc_sign} to {rectified_asc_sign}")
+        else:
+            original_asc_degree = original_asc.get("degree", 0)
+            rectified_asc_degree = rectified_asc.get("degree", 0)
+            degree_diff = abs(original_asc_degree - rectified_asc_degree)
+            if degree_diff > 0.5:  # Only note significant degree changes
+                differences.append(f"Ascendant moved from {original_asc_degree:.2f}° to {rectified_asc_degree:.2f}° in {original_asc_sign}")
+
+    # Check planet house changes
+    original_planets = original_chart.get("planets", {})
+    rectified_planets = rectified_chart.get("planets", {})
+
+    for planet_name in set(original_planets.keys()) & set(rectified_planets.keys()):
+        original_planet = original_planets.get(planet_name, {})
+        rectified_planet = rectified_planets.get(planet_name, {})
+
+        if isinstance(original_planet, dict) and isinstance(rectified_planet, dict):
+            # Check house changes
+            original_house = original_planet.get("house", "")
+            rectified_house = rectified_planet.get("house", "")
+
+            if original_house != rectified_house:
+                differences.append(f"{planet_name} moved from house {original_house} to house {rectified_house}")
+
+            # Check sign changes
+            original_sign = original_planet.get("sign", "")
+            rectified_sign = rectified_planet.get("sign", "")
+
+            if original_sign != rectified_sign:
+                differences.append(f"{planet_name} moved from {original_sign} to {rectified_sign}")
+
+            # Check retrograde status changes
+            original_retro = original_planet.get("retrograde", False)
+            rectified_retro = rectified_planet.get("retrograde", False)
+
+            if original_retro != rectified_retro:
+                if rectified_retro:
+                    differences.append(f"{planet_name} became retrograde")
+                else:
+                    differences.append(f"{planet_name} is no longer retrograde")
+
+    # Check for major aspect changes (if available)
+    original_aspects = original_chart.get("aspects", [])
+    rectified_aspects = rectified_chart.get("aspects", [])
+
+    if original_aspects and rectified_aspects:
+        # Count the number of major aspects that have changed
+        original_aspect_pairs = set()
+        for aspect in original_aspects:
+            if isinstance(aspect, dict):
+                planet1 = aspect.get("planet1", "")
+                planet2 = aspect.get("planet2", "")
+                aspect_type = aspect.get("type", "")
+                if planet1 and planet2 and aspect_type:
+                    # Normalize to ensure consistent ordering
+                    planets = sorted([planet1, planet2])
+                    original_aspect_pairs.add((planets[0], planets[1], aspect_type))
+
+        rectified_aspect_pairs = set()
+        for aspect in rectified_aspects:
+            if isinstance(aspect, dict):
+                planet1 = aspect.get("planet1", "")
+                planet2 = aspect.get("planet2", "")
+                aspect_type = aspect.get("type", "")
+                if planet1 and planet2 and aspect_type:
+                    # Normalize to ensure consistent ordering
+                    planets = sorted([planet1, planet2])
+                    rectified_aspect_pairs.add((planets[0], planets[1], aspect_type))
+
+        # Find aspects in rectified that weren't in original
+        new_aspects = rectified_aspect_pairs - original_aspect_pairs
+        lost_aspects = original_aspect_pairs - rectified_aspect_pairs
+
+        if new_aspects:
+            for planet1, planet2, aspect_type in list(new_aspects)[:3]:  # Limit to 3 to avoid overwhelming
+                differences.append(f"New {aspect_type} aspect between {planet1} and {planet2}")
+
+        if lost_aspects:
+            for planet1, planet2, aspect_type in list(lost_aspects)[:3]:  # Limit to 3 to avoid overwhelming
+                differences.append(f"Lost {aspect_type} aspect between {planet1} and {planet2}")
+
+    return differences
+
+
+def _calculate_time_difference(time1: str, time2: str) -> int:
+    """
+    Calculate the difference between two time strings in minutes.
+
+    Args:
+        time1: First time string (HH:MM or HH:MM:SS format)
+        time2: Second time string (HH:MM or HH:MM:SS format)
+
+    Returns:
+        Difference in minutes (time2 - time1)
+    """
     try:
-        # Parse time strings (format: HH:MM or HH:MM:SS)
-        t1_parts = time1.split(":")
-        t2_parts = time2.split(":")
+        # Extract hours and minutes from strings
+        if not time1 or not time2:
+            return 0
 
-        # Extract hours and minutes
+        # Parse first time
+        t1_parts = time1.split(":")
         hours1 = int(t1_parts[0])
         minutes1 = int(t1_parts[1])
+        total_minutes1 = hours1 * 60 + minutes1
 
+        # Parse second time
+        t2_parts = time2.split(":")
         hours2 = int(t2_parts[0])
         minutes2 = int(t2_parts[1])
-
-        # Calculate total minutes
-        total_minutes1 = hours1 * 60 + minutes1
         total_minutes2 = hours2 * 60 + minutes2
 
-        # Return difference
+        # Calculate difference
         return total_minutes2 - total_minutes1
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Error calculating time difference: {e}")
         return 0
 
 def generate_3d_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
     """
-    Generate a 3D visualization of the astrological chart.
+    Generate a 3D visualization of an astrological chart.
 
     Args:
-        chart_data: The chart data containing planets and houses.
-        output_path: Optional path to save the chart image.
+        chart_data: Dictionary containing chart data
+        output_path: Optional path to save the chart image
 
     Returns:
-        Path to the saved image or base64 encoded image data.
+        Base64 encoded image data or path to saved image
     """
     try:
-        # Extract planet data from chart
+        # Set up a robust matplotlib 3D environment
+        plt.close('all')  # Close any existing figures to avoid memory issues
+
+        # Create a new figure and 3D axes
+        fig = plt.figure(figsize=(12, 10), dpi=100)
+        # Use projection='3d' for proper 3D plotting
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Get birth data for labels
+        birth_data = chart_data.get("birth_details", {})
+        if not birth_data and "date" in chart_data:
+            # Try to extract from top level
+            birth_data = {
+                "date": chart_data.get("date", ""),
+                "time": chart_data.get("time", ""),
+                "location": chart_data.get("location", "")
+            }
+
+        # Calculate celestial sphere parameters
+        sphere_radius = 10
+
+        # Draw transparent celestial sphere
+        u, v = np.mgrid[0:2*np.pi:50j, 0:np.pi:30j]
+        x = sphere_radius * np.cos(u) * np.sin(v)
+        y = sphere_radius * np.sin(u) * np.sin(v)
+        z = sphere_radius * np.cos(v)
+
+        # Create semi-transparent celestial sphere (blue for aesthetic appeal)
+        # Use cast to Axes3D to help type checking understand we're using 3D axes
+        ax_3d = cast(Axes3D, ax)
+        ax_3d.plot_surface(x, y, z, color='skyblue', alpha=0.1, linewidth=0)
+
+        # Draw ecliptic plane - this is the plane of Earth's orbit around the Sun
+        # Create a disk representing the ecliptic plane
+        r = np.linspace(0, sphere_radius, 100)
+        theta = np.linspace(0, 2*np.pi, 100)
+        r_grid, theta_grid = np.meshgrid(r, theta)
+
+        x_ecliptic = r_grid * np.cos(theta_grid)
+        y_ecliptic = r_grid * np.sin(theta_grid)
+        z_ecliptic = np.zeros_like(x_ecliptic)
+
+        # Add the ecliptic plane semi-transparent
+        ax_3d.plot_surface(x_ecliptic, y_ecliptic, z_ecliptic, color='gold', alpha=0.2)
+
+        # Add zodiac signs markers on the ecliptic plane
+        sign_colors = {
+            'Aries': 'firebrick', 'Taurus': 'darkgreen', 'Gemini': 'goldenrod',
+            'Cancer': 'silver', 'Leo': 'orangered', 'Virgo': 'darkkhaki',
+            'Libra': 'mediumpurple', 'Scorpio': 'darkred', 'Sagittarius': 'chocolate',
+            'Capricorn': 'dimgray', 'Aquarius': 'steelblue', 'Pisces': 'mediumaquamarine'
+        }
+
+        # Draw zodiac sign names on the ecliptic rim
+        for i, sign in enumerate(['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
+                             'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces']):
+            angle = i * 30 * np.pi / 180
+            sign_x = (sphere_radius + 0.5) * np.cos(angle)
+            sign_y = (sphere_radius + 0.5) * np.sin(angle)
+
+            # Add a colored dot at each sign's position
+            ax.scatter(sign_x, sign_y, 0, color=sign_colors.get(sign, 'black'), marker='o', alpha=0.7, s=50)
+
+            # Add text label with proper parameter ordering
+            # Third parameter should be the text content
+            ax.text(sign_x * 1.05, sign_y * 1.05, sign,
+                    fontsize=8, ha='center', va='center',
+                    color=sign_colors.get(sign, 'black'))
+
+        # Draw house divisions on the ecliptic plane
+        houses = chart_data.get("houses", [])
+
+        # If houses are provided, draw house boundaries
+        if houses and len(houses) > 0:
+            # Draw house boundaries as lines from the center to the rim
+            for i, house in enumerate(houses):
+                # Extract house longitude (either from dict or direct value)
+                if isinstance(house, dict):
+                    # If houses are dictionaries with detailed information
+                    house_longitude = house.get("longitude", i * 30)
+                else:
+                    # If houses are just longitudes
+                    house_longitude = house
+
+                angle = house_longitude * np.pi / 180
+
+                # Draw a line from center to the rim
+                ax.plot([0, sphere_radius * np.cos(angle)],
+                        [0, sphere_radius * np.sin(angle)],
+                        [0, 0], color='gray', linestyle='--', alpha=0.5)
+
+                # Add house number midway
+                midpoint_x = 0.7 * sphere_radius * np.cos(angle)
+                midpoint_y = 0.7 * sphere_radius * np.sin(angle)
+                # Use str(i+1) as the text content (third parameter)
+                ax.text(midpoint_x, midpoint_y, str(i+1),
+                        fontsize=7, ha='center', va='center',
+                        color='white', bbox=dict(facecolor='gray', alpha=0.5, boxstyle='round,pad=0.1'))
+
+        # Define planet markers and colors
+        planet_symbols = {
+            "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂",
+            "Jupiter": "♃", "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇",
+            "NNode": "☊", "SNode": "☋", "Chiron": "⚷", "Ceres": "⚳"
+        }
+
+        planet_colors = {
+            "Sun": "gold", "Moon": "silver", "Mercury": "darkorange", "Venus": "green",
+            "Mars": "red", "Jupiter": "purple", "Saturn": "dimgray", "Uranus": "darkturquoise",
+            "Neptune": "blue", "Pluto": "indigo", "NNode": "darkgreen", "SNode": "darkred",
+            "Chiron": "magenta", "Ceres": "darkkhaki"
+        }
+
+        # Plot each planet as a sphere at its 3D position
+        planet_legend_entries = []
+        planet_positions = {}
+
+        # Get the planets data from chart_data
         planets = chart_data.get("planets", {})
 
-        # Create figure and 3D axis
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        # Cast to proper 3D axes type for type checking
-        ax3d = cast(Any, ax)
-
-        # Create zodiac wheel (circle in 3D space)
-        theta = np.linspace(0, 2 * np.pi, 100)
-        x = 5 * np.cos(theta)
-        y = 5 * np.sin(theta)
-        z = np.zeros_like(theta)
-        ax3d.plot(x, y, z, 'k-', linewidth=1)  # type: ignore
-
-        # Add zodiac divisions (spokes)
-        for i in range(12):
-            angle = i * 30 * np.pi / 180
-            ax3d.plot([0, 5 * np.cos(angle)], [0, 5 * np.sin(angle)], [0, 0], 'k-', linewidth=0.5)  # type: ignore
-
-        # Add zodiac sign markers
-        for i, sign in enumerate(ZODIAC_SIGNS):
-            angle = i * 30 * np.pi / 180
-            x_pos = 5.5 * np.cos(angle)
-            y_pos = 5.5 * np.sin(angle)
-            symbol = ZODIAC_SYMBOLS.get(sign, sign[:3])
-            ax3d.text(x_pos, y_pos, 0, symbol, fontsize=12, ha='center', va='center')  # type: ignore
-
-        # Plot planets
         for planet_name, planet_data in planets.items():
-            # Get planet longitude and convert to radians
+            # Get planet data
+            sign = planet_data.get("sign", "")
+            sign_num = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                       "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"].index(sign) if sign else 0
+
+            # Get planet longitude and calculate position on ecliptic
             longitude = planet_data.get("longitude", 0)
-            angle = (90 - longitude) * np.pi / 180  # Adjust to start from top
 
-            # Calculate position
-            x_pos = 4 * np.cos(angle)
-            y_pos = 4 * np.sin(angle)
-            z_pos = 0.5  # Slightly above the zodiac wheel
+            # Convert longitude to radians
+            angle = longitude * np.pi / 180
 
-            # Plot planet
-            symbol = PLANET_SYMBOLS.get(planet_name, planet_name[:2])
-            color = PLANET_COLORS.get(planet_name, "#000000")
+            # Basic position on the ecliptic plane
+            x = sphere_radius * 0.85 * np.cos(angle)
+            y = sphere_radius * 0.85 * np.sin(angle)
+            z = 0
 
-            # Fix the scatter method call with proper zs parameter type
-            ax3d.scatter(xs=x_pos, ys=y_pos, zs=int(z_pos), c=color, s=100)  # type: ignore
-            ax3d.text(x_pos, y_pos, z_pos + 0.3, symbol, fontsize=10, ha='center', color=color)  # type: ignore
+            # Store for connecting aspects later
+            planet_positions[planet_name] = (x, y, z)
 
-        # Add ascendant
-        ascendant = chart_data.get("ascendant", {})
-        asc_longitude = ascendant.get("longitude", 0)
-        asc_angle = (90 - asc_longitude) * np.pi / 180
+            # Calculate size based on planet's importance
+            planet_importance = {
+                "Sun": 120, "Moon": 100, "Mercury": 60, "Venus": 80,
+                "Mars": 70, "Jupiter": 90, "Saturn": 85, "Uranus": 60,
+                "Neptune": 60, "Pluto": 50, "NNode": 45, "SNode": 45,
+                "Chiron": 40, "Ceres": 40
+            }
+            planet_size = planet_importance.get(planet_name, 50)
 
-        # Draw ascendant line
-        ax3d.plot([0, 6 * np.cos(asc_angle)], [0, 6 * np.sin(asc_angle)], [0, 0], 'r-', linewidth=2)  # type: ignore
+            # Get planet color
+            color = planet_colors.get(planet_name, "blue")
 
-        # Set labels and title
-        ax3d.set_xlabel('X')  # type: ignore
-        ax3d.set_ylabel('Y')  # type: ignore
-        ax3d.set_zlabel('Z')  # type: ignore
-        ax3d.set_title("3D Chart Visualization", fontsize=14)  # type: ignore
+            # Draw the planet as a 3D sphere with alpha transparency
+            planet_sphere = ax.scatter(x, y, z, color=color, s=planet_size, marker='o', alpha=0.8,
+                                    edgecolors='white', linewidths=1)
 
-        # Set equal aspect ratio
-        # Use a float value for set_box_aspect if available (newer matplotlib versions)
-        if hasattr(ax3d, 'set_box_aspect'):
-            ax3d.set_box_aspect((1, 1, 0.5))  # This works in newer matplotlib  # type: ignore
+            # Add label with planet name
+            ax.text(x, y, z + 0.5, str(planet_name), fontsize=8, ha='center', va='center',
+                   color=color, fontweight='bold')
 
-        # Remove grid and background
-        ax3d.grid(False)  # type: ignore
+            # Create a custom legend entry
+            planet_legend_entries.append((planet_name, color))
 
-        # Handle pane properties if available (depends on matplotlib version)
-        # Wrap each property access in its own try/except to handle different matplotlib versions
-        for axis_name in ['xaxis', 'yaxis', 'zaxis']:
-            if hasattr(ax3d, axis_name):
-                axis = getattr(ax3d, axis_name)
-                try:
-                    if hasattr(axis, 'pane'):
-                        axis.pane.fill = False
-                except (AttributeError, TypeError):
-                    # Just ignore if these properties aren't available
-                    pass
+        # Connect planets with aspects
+        aspects = chart_data.get("aspects", [])
 
-        # Save or return the chart
+        # Define aspect colors and styles
+        aspect_colors = {
+            "conjunction": "gold",
+            "opposition": "red",
+            "trine": "green",
+            "square": "firebrick",
+            "sextile": "blue",
+            "quincunx": "purple",
+            "semisextile": "darkturquoise",
+            "semisquare": "orangered",
+            "sesquiquadrate": "darkred"
+        }
+
+        aspect_styles = {
+            "conjunction": "-",
+            "opposition": "--",
+            "trine": "-",
+            "square": "--",
+            "sextile": "-",
+            "quincunx": ":",
+            "semisextile": ":",
+            "semisquare": ":",
+            "sesquiquadrate": ":"
+        }
+
+        aspect_widths = {
+            "conjunction": 2.0,
+            "opposition": 1.5,
+            "trine": 1.5,
+            "square": 1.5,
+            "sextile": 1.0,
+            "quincunx": 0.8,
+            "semisextile": 0.8,
+            "semisquare": 0.8,
+            "sesquiquadrate": 0.8
+        }
+
+        # Only draw the major aspects to avoid clutter
+        major_aspects = ["conjunction", "opposition", "trine", "square", "sextile"]
+
+        for aspect in aspects:
+            aspect_type = aspect.get("aspect_type", "")
+            if aspect_type not in major_aspects:
+                continue
+
+            planet1 = aspect.get("planet1", "")
+            planet2 = aspect.get("planet2", "")
+
+            # Only draw if we have both planets
+            if planet1 in planet_positions and planet2 in planet_positions:
+                p1_pos = planet_positions[planet1]
+                p2_pos = planet_positions[planet2]
+
+                # Get aspect properties
+                color = aspect_colors.get(aspect_type, "gray")
+                style = aspect_styles.get(aspect_type, "-")
+                width = aspect_widths.get(aspect_type, 1.0)
+
+                # Draw the aspect line with alpha transparency proportional to orb precision
+                orb = aspect.get("orb", 5)
+                alpha = max(0.3, 1 - (orb / 10))  # Higher alpha for tighter orbs
+
+                # Draw arc connecting planets
+                ax.plot([p1_pos[0], p2_pos[0]], [p1_pos[1], p2_pos[1]], [p1_pos[2], p2_pos[2]],
+                       color=color, linestyle=style, linewidth=width, alpha=alpha)
+
+                # Calculate midpoint for aspect label
+                mid_x = (p1_pos[0] + p2_pos[0]) / 2
+                mid_y = (p1_pos[1] + p2_pos[1]) / 2
+                mid_z = (p1_pos[2] + p2_pos[2]) / 2
+
+                # Add small aspect symbol at midpoint
+                aspect_symbols = {
+                    "conjunction": "☌", "opposition": "☍", "trine": "△",
+                    "square": "□", "sextile": "⚹"
+                }
+                symbol = aspect_symbols.get(aspect_type, "")
+                if symbol:
+                    ax.text(mid_x, mid_y, mid_z, symbol, fontsize=10, ha='center', va='center',
+                           color=color, alpha=alpha, fontweight='bold')
+
+        # Set equal aspect ratio for the 3D plot
+        ax.set_box_aspect([1, 1, 0.4])  # Slightly flatten in z axis for better viewing
+
+        # Set tight layout and remove axis
+        plt.tight_layout()
+        ax.set_axis_off()
+
+        # Set viewing angle to look at ecliptic plane at a slight angle
+        # Cast to Axes3D for 3D-specific methods
+        ax_3d = cast(Axes3D, ax)
+        ax_3d.view_init(elev=20, azim=30)  # Elevation 20 degrees, Azimuth 30 degrees
+
+        # Chart title
+        birth_date = birth_data.get("date", chart_data.get("date", ""))
+        birth_time = birth_data.get("time", birth_data.get("birth_time", ""))
+        location = birth_data.get("location", chart_data.get("location", ""))
+
+        # Get chart type from chart data
+        chart_type = chart_data.get("chart_type", "Tropical")
+
+        title = f"3D {chart_type} Chart"
+        if birth_date:
+            title += f" - {birth_date}"
+            if birth_time:
+                title += f" {birth_time}"
+        if location:
+            title += f" - {location}"
+
+        plt.title(title, fontsize=14, y=0.95)
+
+        # Add legend for planet colors at the bottom of the figure
+        legend_handles = []
+        legend_labels = []
+
+        # Create legend entries for major planets
+        for planet, color in planet_legend_entries:
+            if planet in ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"]:
+                legend_handles.append(Line2D([0], [0], marker='o', color='w', markerfacecolor=color,
+                                               markersize=8, markeredgecolor='white', markeredgewidth=0.5))
+                legend_labels.append(planet)
+
+        # Add the legend outside the main plot area
+        if legend_handles:
+            legend = ax.legend(legend_handles, legend_labels, loc='upper center',
+                          bbox_to_anchor=(0.5, -0.05), ncol=5, fancybox=True, shadow=True)
+
+        # Add aspect legend
+        aspect_legend_handles = []
+        aspect_legend_labels = []
+
+        for aspect_type in major_aspects:
+            color = aspect_colors.get(aspect_type, "gray")
+            style = aspect_styles.get(aspect_type, "-")
+            width = aspect_widths.get(aspect_type, 1.0)
+
+            aspect_legend_handles.append(Line2D([0], [0], color=color, linestyle=style, linewidth=width))
+            aspect_legend_labels.append(aspect_type.capitalize())
+
+        # Add second legend for aspects below the first legend
+        if aspect_legend_handles:
+            aspect_legend = fig.legend(aspect_legend_handles, aspect_legend_labels,
+                                     loc='lower center', bbox_to_anchor=(0.5, 0.02),
+                                     ncol=5, fancybox=True, shadow=True)
+
+        # Save figure if output path is provided
         if output_path:
-            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
             plt.close(fig)
             return output_path
         else:
-            # Return as base64 encoded image
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            # Convert to base64 string if no output path
+            from io import BytesIO
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
             plt.close(fig)
             buf.seek(0)
-            img_str = base64.b64encode(buf.read()).decode('utf-8')
-            return img_str
+            import base64
+            data_uri = base64.b64encode(buf.read()).decode('ascii')
+            return f"data:image/png;base64,{data_uri}"
 
     except Exception as e:
-        logger.error(f"Error rendering 3D chart: {e}")
-        raise
+        logger.error(f"Error generating 3D chart: {e}")
+        logger.error(traceback.format_exc())
+
+        # Create a basic error image
+        try:
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.text(0.5, 0.5, f"Error generating 3D chart:\n{str(e)}",
+                   ha='center', va='center', fontsize=12)
+            ax.axis('off')
+
+            if output_path:
+                plt.savefig(output_path, dpi=100)
+                plt.close(fig)
+                return output_path
+            else:
+                # Return a base64 encoded error image
+                from io import BytesIO
+                buf = BytesIO()
+                plt.savefig(buf, format='png')
+                plt.close(fig)
+                buf.seek(0)
+                import base64
+                data_uri = base64.b64encode(buf.read()).decode('ascii')
+                return f"data:image/png;base64,{data_uri}"
+        except Exception:
+            # If all else fails, return empty string
+            if output_path:
+                return output_path
+            return ""
+
+def _render_3d_chart_in_subplot(ax: Any, chart_data: Dict[str, Any], title: Optional[str] = None) -> None:
+    """
+    Render a 3D astrological chart in a matplotlib subplot.
+
+    Args:
+        ax: Matplotlib 3D axis
+        chart_data: Dictionary containing chart data
+        title: Optional title for the subplot
+    """
+    import numpy as np
+
+    # Set title if provided
+    if title:
+        ax.set_title(title)
+
+    # Create celestial sphere
+    u = np.linspace(0, 2 * np.pi, 100)
+    v = np.linspace(0, np.pi, 100)
+
+    radius = 10
+    x = radius * np.outer(np.cos(u), np.sin(v))
+    y = radius * np.outer(np.sin(u), np.sin(v))
+    z = radius * np.outer(np.ones(np.size(u)), np.cos(v))
+
+    # Draw celestial sphere with slight transparency
+    ax.plot_surface(x, y, z, color='skyblue', alpha=0.2)
+
+    # Draw zodiac belt
+    zodiac_belt_radius = radius * 1.05
+    belt_width = 3  # Width of the zodiac belt in degrees
+
+    # Generate zodiac belt
+    for i in range(12):
+        start_angle = i * 30  # 30 degrees per sign
+        mid_angle_rad = np.radians(start_angle + 15)
+
+        # Draw sign marker
+        zodiac_signs = ["♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓"]
+        sign_x = zodiac_belt_radius * 1.1 * np.cos(mid_angle_rad)
+        sign_y = zodiac_belt_radius * 1.1 * np.sin(mid_angle_rad)
+        sign_z = 0
+
+        ax.text(sign_x, sign_y, sign_z, zodiac_signs[i], fontsize=12, ha='center', va='center')
+
+        # Draw degree markers at 10-degree intervals
+        for degree in range(0, 30, 10):
+            angle_rad = np.radians(start_angle + degree)
+            marker_x = zodiac_belt_radius * np.cos(angle_rad)
+            marker_y = zodiac_belt_radius * np.sin(angle_rad)
+            ax.scatter(marker_x, marker_y, 0, s=15, color='gray', alpha=0.7)
+
+    # Plot planets
+    planets_data = chart_data.get("planets", {})
+
+    # Color mapping for planets
+    planet_colors = {
+        "Sun": "gold",
+        "Moon": "silver",
+        "Mercury": "slategray",
+        "Venus": "forestgreen",
+        "Mars": "firebrick",
+        "Jupiter": "orange",
+        "Saturn": "darkslategray",
+        "Uranus": "skyblue",
+        "Neptune": "royalblue",
+        "Pluto": "purple",
+        "North Node": "darkgreen",
+        "South Node": "darkred",
+        "Chiron": "magenta"
+    }
+
+    planet_markers = {}
+
+    # Plot each planet
+    for planet_name, planet_data in planets_data.items():
+        if isinstance(planet_data, dict):
+            # Get longitude and convert to radians
+            longitude = planet_data.get("longitude", 0)
+            longitude_rad = np.radians(longitude)
+
+            # Calculate 3D position - planets are at the sphere equator (z=0)
+            planet_x = radius * np.cos(longitude_rad)
+            planet_y = radius * np.sin(longitude_rad)
+            planet_z = 0
+
+            # Adjust z slightly for visual clarity - place planets at different depths
+            # based on their traditional orbital distances
+            z_offset = {
+                "Moon": -0.5,
+                "Mercury": -0.3,
+                "Venus": -0.2,
+                "Sun": 0,
+                "Mars": 0.2,
+                "Jupiter": 0.4,
+                "Saturn": 0.6,
+                "Uranus": 0.8,
+                "Neptune": 1.0,
+                "Pluto": 1.2,
+                "North Node": -0.7,
+                "South Node": -0.7,
+                "Chiron": 0.3
+            }.get(planet_name, 0)
+
+            planet_z += z_offset
+
+            # Get planet color
+            color = planet_colors.get(planet_name, "blue")
+
+            # Plot planet
+            marker = ax.scatter(planet_x, planet_y, planet_z, color=color, s=100,
+                            label=planet_name, alpha=0.8, edgecolors='white')
+            planet_markers[planet_name] = (planet_x, planet_y, planet_z)
+
+            # Add planet symbol or abbreviated name
+            planet_symbols = {
+                "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂",
+                "Jupiter": "♃", "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇",
+                "North Node": "☊", "South Node": "☋", "Chiron": "⚷"
+            }
+
+            symbol = planet_symbols.get(planet_name, planet_name[:2])
+            ax.text(planet_x * 1.1, planet_y * 1.1, planet_z, symbol, color=color,
+                   fontsize=10, ha='center', va='center', fontweight='bold')
+
+    # Plot major aspects if available
+    aspects_data = chart_data.get("aspects", [])
+
+    # Plot only major aspects to avoid cluttering
+    major_aspects = ["conjunction", "opposition", "trine", "square", "sextile"]
+    aspect_colors = {
+        "conjunction": "purple",
+        "opposition": "red",
+        "trine": "green",
+        "square": "orange",
+        "sextile": "blue"
+    }
+
+    for aspect in aspects_data:
+        if isinstance(aspect, dict):
+            aspect_type = aspect.get("type", "").lower()
+            planet1 = aspect.get("planet1", "")
+            planet2 = aspect.get("planet2", "")
+
+            if (aspect_type in major_aspects and
+                planet1 in planet_markers and
+                planet2 in planet_markers):
+
+                p1 = planet_markers[planet1]
+                p2 = planet_markers[planet2]
+
+                # Draw line between planets
+                line_color = aspect_colors.get(aspect_type, "gray")
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
+                       color=line_color, linewidth=1, alpha=0.6, linestyle=':')
+
+    # Set equal aspect ratio and remove axes ticks
+    ax.set_box_aspect([1, 1, 1])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
+    ax.set_xlim(-radius * 1.2, radius * 1.2)
+    ax.set_ylim(-radius * 1.2, radius * 1.2)
+    ax.set_zlim(-radius * 1.2, radius * 1.2)
+
+    # Add subtle grid
+    ax.grid(True, alpha=0.1)
+
+    # Add ascendant marker
+    ascendant = chart_data.get("angles", {}).get("ascendant", {})
+    if ascendant:
+        asc_longitude = ascendant.get("longitude", 0)
+        asc_longitude_rad = np.radians(asc_longitude)
+
+        asc_x = radius * np.cos(asc_longitude_rad)
+        asc_y = radius * np.sin(asc_longitude_rad)
+
+        # Draw a larger marker for the ascendant
+        ax.scatter(asc_x, asc_y, 0, color='red', s=150, marker='*', alpha=0.8)
+        ax.text(asc_x * 1.15, asc_y * 1.15, 0, "ASC", color='red', fontsize=10, fontweight='bold')
+
+    # Add midheaven marker
+    midheaven = chart_data.get("angles", {}).get("midheaven", {})
+    if midheaven:
+        mc_longitude = midheaven.get("longitude", 0)
+        mc_longitude_rad = np.radians(mc_longitude)
+
+        mc_x = radius * np.cos(mc_longitude_rad)
+        mc_y = radius * np.sin(mc_longitude_rad)
+
+        # Draw a larger marker for the midheaven
+        ax.scatter(mc_x, mc_y, 0, color='blue', s=150, marker='*', alpha=0.8)
+        ax.text(mc_x * 1.15, mc_y * 1.15, 0, "MC", color='blue', fontsize=10, fontweight='bold')
 
 def generate_planet_table(chart_data: Dict[str, Any], output_path: str) -> str:
     """
-    Generate a table visualization of planetary positions.
+    Generate a table image showing planetary positions.
 
     Args:
-        chart_data: Dictionary containing chart data
-        output_path: Path to save the generated image
+        chart_data: Chart data dictionary
+        output_path: Path to save the table image
 
     Returns:
-        Path to the saved image file
+        Path to the generated image file
     """
-    # Get planets data
-    planets = chart_data.get("planets", [])
+    try:
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.axis('off')
 
-    # Handle both list and dict formats of planets
-    if isinstance(planets, dict):
-        planets_list = []
-        for name, data in planets.items():
-            if isinstance(data, dict):
-                planet_data = data.copy()
-                planet_data["name"] = name
-                planets_list.append(planet_data)
-        planets = planets_list
+        # Add title
+        ax.text(0.5, 0.95, "Planetary Positions",
+                ha='center', fontsize=14, fontweight='bold')
 
-    # Sort planets in traditional order
-    planet_order = {"Sun": 1, "Moon": 2, "Mercury": 3, "Venus": 4, "Mars": 5,
-                   "Jupiter": 6, "Saturn": 7, "Uranus": 8, "Neptune": 9, "Pluto": 10}
+        # Extract planet data
+        planets = chart_data.get("planets", {})
 
-    sorted_planets = sorted(planets, key=lambda p: planet_order.get(p.get("name", ""), 99))
+        # Create table data
+        table_data = [["Planet", "Sign", "Degree", "House", "Retrograde"]]
 
-    # Create figure and axis for the table
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Hide axes
-    ax.axis('off')
-    ax.axis('tight')
-
-    # Create table data
-    table_data = []
-
-    # Header row
-    table_data.append(["Planet", "Sign", "Degree", "House", "Retrograde"])
-
-    # Add planet data
-    for planet in sorted_planets:
-        name = planet.get("name", "")
-        sign = planet.get("sign", "")
-        degree = planet.get("degree", 0)
-        house = planet.get("house", "")
-        retrograde = "R" if planet.get("retrograde", False) else ""
-
-        # Format the degree with minutes
-        degree_int = int(degree)
-        minutes = int((degree - degree_int) * 60)
-        degree_str = f"{degree_int}° {minutes}'"
-
-        # Add row to table
-        table_data.append([name, sign, degree_str, str(house), retrograde])
-
-    # Create the table
-    table = ax.table(
-        cellText=table_data,
-        cellLoc='center',
-        loc='center',
-        colWidths=[0.2, 0.25, 0.25, 0.15, 0.15]
-    )
-
-    # Style the table
-    table.auto_set_font_size(False)
-    table.set_fontsize(12)
-
-    # Style header row
-    for (i, j), cell in table.get_celld().items():
-        if i == 0:  # Header row
-            cell.set_text_props(fontproperties=fm.FontProperties(weight='bold'))
-            cell.set_facecolor('#E0E0E0')  # Light gray background
-
-        # Add borders
-        cell.set_edgecolor('black')
-
-        # Adjust cell height
-        cell.set_height(0.06)
-
-    # Add chart title
-    birth_details = chart_data.get("birth_details", {})
-    birth_date = birth_details.get("birth_date", "")
-    birth_time = birth_details.get("birth_time", "")
-    title = f"Planetary Positions\n{birth_date} {birth_time}"
-    plt.title(title, fontsize=16, pad=20)
-
-    # Adjust layout and save
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-
-    return output_path
-
-def get_house_occupants(planets_data: Union[Dict[str, Any], List[Dict[str, Any]]], houses_data: List[Dict[str, Any]]) -> Dict[int, List[str]]:
-    """
-    Determine which planets occupy which houses.
-
-    Args:
-        planets_data: Planet data (either list of dictionaries or dictionary of planet data)
-        houses_data: List of house data dictionaries
-
-    Returns:
-        Dictionary mapping house numbers to lists of planet abbreviations
-    """
-    house_occupants = {i: [] for i in range(1, 13)}
-
-    # Convert planets dictionary to list if needed
-    planets = []
-    if planets_data and isinstance(planets_data, dict):
-        # Handle dictionary format (where keys are planet names)
-        for planet_key, planet_data in planets_data.items():
-            # Create a planet entry with name from the key
+        # Add planet rows
+        for planet_name, planet_data in planets.items():
             if isinstance(planet_data, dict):
-                planet_entry = dict(planet_data)
-                if "name" not in planet_entry:
-                    planet_entry["name"] = planet_key.capitalize()
-                planets.append(planet_entry)
-    else:
-        # Handle list format (or empty data)
-        planets = planets_data if planets_data else []
+                sign = planet_data.get("sign", "")
+                degree = f"{planet_data.get('degree', 0):.2f}°"
+                house = str(planet_data.get("house", ""))
+                retrograde = "Yes" if planet_data.get("retrograde", False) else "No"
 
-    # Handle case where planets is a list of strings
-    if planets and all(isinstance(p, str) for p in planets):
-        # In this case, we can't determine house occupants
-        # Just return empty dictionary
-        return house_occupants
+                table_data.append([planet_name, sign, degree, house, retrograde])
 
-    # Create mapping of house cusps
-    house_cusps = {}
-    for house in houses_data:
-        house_num = house.get("house_number")
-        if house_num:
-            house_cusps[house_num] = normalize_longitude(house.get("longitude", 0))
+        # Create the table
+        table = ax.table(
+            cellText=table_data,
+            loc='center',
+            cellLoc='center',
+            colWidths=[0.2, 0.2, 0.2, 0.2, 0.2]
+        )
 
-    # For each planet, find which house it's in
-    for planet in planets:
-        # Skip if planet is not a dictionary
-        if not isinstance(planet, dict):
-            continue
+        # Style the table
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 1.5)
 
-        planet_name = planet.get("name")
-        if not planet_name:
-            continue
+        # Style header
+        for i in range(len(table_data[0])):
+            table[(0, i)].set_facecolor('#e6e6e6')
+            table[(0, i)].set_text_props(fontweight='bold')
 
-        abbr = PLANET_SYMBOLS.get(planet_name, planet_name[:2])
-        longitude = normalize_longitude(planet.get("longitude", 0))
+        # Save the image
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
 
-        # Find which house contains this longitude
-        for house_num in range(1, 13):
-            next_house = house_num + 1 if house_num < 12 else 1
-            start_long = house_cusps.get(house_num, 0)
-            end_long = house_cusps.get(next_house, 0)
+        return output_path
+    except Exception as e:
+        logger.error(f"Error generating planet table: {e}")
+        logger.error(traceback.format_exc())
 
-            # Handle case where house spans 0°
-            if end_long < start_long:
-                if longitude >= start_long or longitude < end_long:
-                    house_occupants[house_num].append(abbr)
-                    break
-            else:
-                if start_long <= longitude < end_long:
-                    house_occupants[house_num].append(abbr)
-                    break
-        else:
-            # If we can't determine the house, put it in house 1
-            house_occupants[1].append(abbr)
+        # Create fallback simple image
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5, f"Planet table generation failed: {str(e)}",
+                ha='center', va='center', fontsize=12)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis('off')
 
-    return house_occupants
+        plt.savefig(output_path, dpi=100, bbox_inches='tight')
+        plt.close(fig)
 
-def modify_chart_for_harmonic(chart_data: Dict[str, Any], harmonic_number: int) -> Dict[str, Any]:
+        return output_path
+
+def generate_3d_comparison(chart1: Dict[str, Any], chart2: Dict[str, Any], output_path: str) -> str:
     """
-    Modify chart data for harmonic analysis (e.g., Navamsa or D4).
+    Generate a 3D visualization comparing two charts.
 
     Args:
-        chart_data: Chart data from the API
-        harmonic_number: Harmonic number to apply (e.g., 9 for Navamsa)
+        chart1: First chart data dictionary
+        chart2: Second chart data dictionary
+        output_path: Path to save the comparison image
 
     Returns:
-        Modified chart data
+        Path to the generated image file
     """
-    # Create a deep copy of the chart data
-    modified_data = json.loads(json.dumps(chart_data))
+    try:
+        # Create figure and 3D axis
+        fig = plt.figure(figsize=(12, 8))
 
-    # Handle different planet data formats
-    planets_data = modified_data.get("planets", [])
+        # Add two 3D subplots side by side
+        ax1 = fig.add_subplot(121, projection='3d')
+        ax2 = fig.add_subplot(122, projection='3d')
 
-    if isinstance(planets_data, dict):
-        # Dictionary format (keys are planet names)
-        for planet_name, planet_data in planets_data.items():
-            if isinstance(planet_data, dict) and "longitude" in planet_data:
-                longitude = planet_data.get("longitude", 0)
-                # Harmonic calculation: multiply by harmonic and take modulo 360
-                harmonic_longitude = (longitude * harmonic_number) % 360
-                planets_data[planet_name]["longitude"] = harmonic_longitude
+        # Get chart names or IDs
+        chart1_name = chart1.get("birth_data", {}).get("name", "Chart 1")
+        chart2_name = chart2.get("birth_data", {}).get("name", "Chart 2")
 
-                # Update sign and degree if present
-                if "sign" in planet_data or "degree" in planet_data:
-                    sign_num = int(harmonic_longitude / 30)
-                    degree = harmonic_longitude % 30
-                    if "sign" in planet_data and sign_num < len(ZODIAC_SIGNS):
-                        planets_data[planet_name]["sign"] = ZODIAC_SIGNS[sign_num]
-                    if "degree" in planet_data:
-                        planets_data[planet_name]["degree"] = degree
-    else:
-        # List format (each item is a planet object)
-        for i, planet in enumerate(planets_data):
-            if isinstance(planet, dict):
-                longitude = planet.get("longitude", 0)
-                # Harmonic calculation: multiply by harmonic and take modulo 360
-                harmonic_longitude = (longitude * harmonic_number) % 360
-                planets_data[i]["longitude"] = harmonic_longitude
+        # Set titles
+        ax1.set_title(chart1_name)
+        ax2.set_title(chart2_name)
 
-                # Update sign and degree if present
-                if "sign" in planet or "degree" in planet:
-                    sign_num = int(harmonic_longitude / 30)
-                    degree = harmonic_longitude % 30
-                    if "sign" in planet and sign_num < len(ZODIAC_SIGNS):
-                        planets_data[i]["sign"] = ZODIAC_SIGNS[sign_num]
-                    if "degree" in planet:
-                        planets_data[i]["degree"] = degree
+        # Render each chart in 3D
+        _render_3d_chart_in_subplot(ax1, chart1)
+        _render_3d_chart_in_subplot(ax2, chart2)
 
-    # Update planets in modified data
-    modified_data["planets"] = planets_data
+        # Add main title
+        plt.suptitle("Chart Comparison", fontsize=16)
 
-    return modified_data
+        # Add a text explanation of significant differences
+        # Calculate changes between charts
+        differences = []
 
-def generate_chart_image(chart_data: Dict[str, Any], output_path: str) -> str:
+        # Compare ascendants
+        asc1 = chart1.get("angles", {}).get("ascendant", {}).get("longitude", 0)
+        asc2 = chart2.get("angles", {}).get("ascendant", {}).get("longitude", 0)
+        asc_diff = _calculate_arc_difference(asc1, asc2)
+        if asc_diff > 0.5:
+            differences.append(f"Ascendant shift: {asc_diff:.2f}°")
+
+        # Compare planets
+        planet_diffs = []
+        planets1 = chart1.get("planets", {})
+        planets2 = chart2.get("planets", {})
+
+        for name in set(planets1.keys()).intersection(planets2.keys()):
+            if isinstance(planets1[name], dict) and isinstance(planets2[name], dict):
+                p1_lon = planets1[name].get("longitude", 0)
+                p2_lon = planets2[name].get("longitude", 0)
+                diff = _calculate_arc_difference(p1_lon, p2_lon)
+
+                if diff > 0.5:
+                    planet_diffs.append(f"{name}: {diff:.2f}°")
+
+        if planet_diffs:
+            differences.extend(planet_diffs[:5])  # Show top 5 differences
+
+        # Add text box with differences
+        if differences:
+            # Add text annotation for significant differences
+            fig.text(0.5, 0.02, "\n".join(["Key Differences:"] + differences),
+                    ha='center', va='bottom', fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.5", fc="lightyellow", ec="orange", alpha=0.8))
+
+        # Save the comparison
+        plt.tight_layout(rect=(0, 0.05, 1, 0.95))  # Adjust for suptitle and bottom text
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+        return output_path
+    except Exception as e:
+        logger.error(f"Error generating 3D comparison: {e}")
+        logger.error(traceback.format_exc())
+
+        # Create fallback simple image
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5, f"3D comparison generation failed: {str(e)}",
+                ha='center', va='center', fontsize=12)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis('off')
+
+        plt.savefig(output_path, dpi=100, bbox_inches='tight')
+        plt.close(fig)
+
+        return output_path
+
+def save_chart_as_pdf(chart_data: Dict[str, Any], output_path: str,
+                     include_interpretation: bool = True,
+                     paper_size: str = "letter") -> str:
     """
-    Generate visualization of an astrological chart.
+    Generate a professionally formatted PDF with the chart visualization.
 
     Args:
         chart_data: Dictionary containing chart data
-        output_path: Path to save the generated image
-
-    Returns:
-        Path to the saved image file
-    """
-    # Set up the figure
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    # Draw the chart circle
-    chart_circle = patches.Circle((0, 0), 0.9, fill=False, color='black', linewidth=2)
-    ax.add_patch(chart_circle)
-
-    # Draw the ascendant line (usually at 9 o'clock position)
-    ax.plot([0, -0.9], [0, 0], 'r-', linewidth=2)
-
-    # Calculate house cusps
-    houses = chart_data.get("houses", [])
-    house_angles = []
-
-    # Check if houses is an array of floats or an array of objects
-    if houses and isinstance(houses[0], (int, float)):
-        # Convert array of float longitudes to house objects
-        house_objects = []
-        for i, longitude in enumerate(houses):
-            # Calculate sign and degree from longitude
-            sign_index = int(longitude / 30) % 12
-            degree = longitude % 30
-
-            # Map sign index to sign name
-            sign_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-                         "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-            sign = sign_names[sign_index]
-
-            # Create house object
-            house_objects.append({
-                "number": i + 1,
-                "sign": sign,
-                "degree": degree
-            })
-        houses = house_objects
-
-    for house in houses:
-        # Convert house positions to angles (0 = Aries, 30 = Taurus, etc.)
-        house_num = house.get("number", 0)
-        sign = house.get("sign", "")
-        degree = house.get("degree", 0)
-
-        # Calculate sign index (0 = Aries, 1 = Taurus, etc.)
-        sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
-                     "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
-                     "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
-
-        # Calculate total angle (0 = Aries at 0°, 360 = Pisces at 30°)
-        angle = (sign_index * 30 + degree) * math.pi / 180
-
-        # Convert to cartesian coordinates (rotate 90° counter-clockwise for traditional chart layout)
-        x = 0.9 * math.cos(angle - math.pi/2)
-        y = 0.9 * math.sin(angle - math.pi/2)
-
-        # Store house cusp information
-        house_angles.append((house_num, angle, x, y))
-
-        # Draw house cusps
-        ax.plot([0, x], [0, y], 'k-', linewidth=1)
-
-        # Add house numbers
-        text_x = 1.0 * math.cos(angle - math.pi/2)
-        text_y = 1.0 * math.sin(angle - math.pi/2)
-        ax.text(text_x, text_y, str(house_num), fontsize=12)
-
-    # Plot planets
-    planets = chart_data.get("planets", [])
-
-    # Handle both list and dict formats of planets
-    if isinstance(planets, dict):
-        planets_list = []
-        for name, data in planets.items():
-            if isinstance(data, dict):
-                planet_data = data.copy()
-                planet_data["name"] = name
-                planets_list.append(planet_data)
-        planets = planets_list
-
-    for planet in planets:
-        name = planet.get("name", "")
-        sign = planet.get("sign", "")
-        degree = planet.get("degree", 0)
-
-        # Calculate sign index (0 = Aries, 1 = Taurus, etc.)
-        sign_index = {"Aries": 0, "Taurus": 1, "Gemini": 2, "Cancer": 3,
-                     "Leo": 4, "Virgo": 5, "Libra": 6, "Scorpio": 7,
-                     "Sagittarius": 8, "Capricorn": 9, "Aquarius": 10, "Pisces": 11}.get(sign, 0)
-
-        # Calculate total angle
-        angle = (sign_index * 30 + degree) * math.pi / 180
-
-        # Plot at 75% of radius for planets
-        x = 0.75 * math.cos(angle - math.pi/2)
-        y = 0.75 * math.sin(angle - math.pi/2)
-
-        # Plot planet
-        ax.plot(x, y, 'bo', markersize=8)
-
-        # Add planet symbol or abbreviation
-        symbols = {
-            "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂",
-            "Jupiter": "♃", "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇"
-        }
-
-        symbol = symbols.get(name, name[:2])
-        ax.text(x + 0.05, y + 0.05, symbol, fontsize=12)
-
-    # Add chart title
-    birth_details = chart_data.get("birth_details", {})
-    birth_date = birth_details.get("birth_date", "")
-    birth_time = birth_details.get("birth_time", "")
-    location = birth_details.get("location", "")
-
-    plt.title(f"Birth Chart\n{birth_date} {birth_time}\n{location}")
-
-    # Set equal aspect ratio and remove axis ticks
-    ax.set_aspect('equal')
-    ax.set_xlim(-1.1, 1.1)
-    ax.set_ylim(-1.1, 1.1)
-    plt.axis('off')
-
-    # Save the chart
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-
-    return output_path
-
-def save_chart_as_pdf(chart_data: Dict[str, Any], output_path: str) -> str:
-    """
-    Generate a professional PDF report of an astrological chart.
-
-    Args:
-        chart_data: Dictionary containing chart data
-        output_path: Path to save the PDF file
+        output_path: Path to save the PDF
+        include_interpretation: Whether to include astrological interpretation
+        paper_size: PDF paper size (letter, a4, legal)
 
     Returns:
         Path to the saved PDF file
     """
-    # Create temporary directory for images
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Generate chart image first
-        chart_img_path = os.path.join(temp_dir, "chart_image.png")
-        chart_img_path = generate_chart_image(chart_data, chart_img_path)
+    try:
+        from ai_service.utils.pdf_generator import PDFGenerator
+        import shutil
 
-        # Generate a table of planetary positions
-        planet_table_path = os.path.join(temp_dir, "planet_table.png")
-        generate_planet_table(chart_data, planet_table_path)
+        # Create temporary directory to work in
+        temp_dir = tempfile.mkdtemp(prefix="chart_pdf_")
+        temp_output = os.path.join(temp_dir, os.path.basename(output_path))
 
-        # Create PDF document
-        doc = SimpleDocTemplate(
-            output_path,
-            pagesize=letter,
-            rightMargin=72,
-            leftMargin=72,
-            topMargin=72,
-            bottomMargin=72
+        # Create PDF generator instance
+        pdf_generator = PDFGenerator()
+
+        # Make sure the output directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+        # Generate the PDF with proper integration of all chart types
+        result_path = pdf_generator.generate_full_report(
+            chart_data=chart_data,
+            interpretation=chart_data.get("interpretation") if include_interpretation else None,
+            include_divisional=True,
+            include_3d=True,
+            output_path=temp_output,
+            paper_size=paper_size
         )
 
-        # Get styles
-        styles = getSampleStyleSheet()
-        title_style = styles["Title"]
-        heading_style = styles["Heading2"]
-        normal_style = styles["Normal"]
+        # Verify the file was created successfully
+        if not os.path.exists(result_path):
+            raise FileNotFoundError(f"Failed to generate PDF at {result_path}")
 
-        # Add custom style for astrological interpretations
-        astro_style = ParagraphStyle(
-            'AstroStyle',
-            parent=styles['Normal'],
-            fontName='Helvetica',
-            fontSize=10,
-            leading=14,
-            leftIndent=10,
-            rightIndent=10,
-            firstLineIndent=0,
-            spaceBefore=5,
-            spaceAfter=5
-        )
+        # Verify file is not empty
+        if os.path.getsize(result_path) == 0:
+            raise ValueError(f"Generated PDF is empty: {result_path}")
 
-        # Create content elements
-        elements = []
+        # Test if PDF is valid by opening it
+        try:
+            import PyPDF2
+            with open(result_path, 'rb') as test_file:
+                pdf_reader = PyPDF2.PdfReader(test_file)
+                page_count = len(pdf_reader.pages)
+                logger.info(f"Generated PDF with {page_count} pages")
+        except ImportError:
+            # If PyPDF2 is not available, just verify the file size
+            file_size = os.path.getsize(result_path)
+            logger.info(f"Generated PDF with size {file_size} bytes")
+            if file_size < 1024:
+                logger.warning(f"Generated PDF is suspiciously small: {file_size} bytes")
+        except Exception as pdf_error:
+            logger.warning(f"PDF validation warning: {pdf_error}")
 
-        # Add title
-        birth_details = chart_data.get("birth_details", {})
-        name = birth_details.get("name", "")
-        title_text = f"Astrological Chart Analysis" + (f" for {name}" if name else "")
-        elements.append(Paragraph(title_text, title_style))
-        elements.append(Spacer(1, 12))
+        # Copy the file to the final destination
+        shutil.copy2(result_path, output_path)
 
-        # Add birth details
-        birth_date = birth_details.get("birth_date", "")
-        birth_time = birth_details.get("birth_time", "")
-        location = birth_details.get("location", "")
+        # Verify the final file exists and is readable
+        if not os.path.exists(output_path):
+            raise FileNotFoundError(f"Failed to copy PDF to final destination: {output_path}")
 
-        details_text = f"<b>Date:</b> {birth_date}<br/><b>Time:</b> {birth_time}<br/><b>Location:</b> {location}"
-        elements.append(Paragraph("Birth Details", heading_style))
-        elements.append(Paragraph(details_text, normal_style))
-        elements.append(Spacer(1, 12))
+        if os.path.getsize(output_path) == 0:
+            raise ValueError(f"Final PDF is empty: {output_path}")
 
-        # Add chart image
-        if os.path.exists(chart_img_path):
-            elements.append(Paragraph("Birth Chart", heading_style))
-            img_width = 400
-            img = Image(chart_img_path, width=img_width, height=img_width)
-            elements.append(img)
-            elements.append(Spacer(1, 12))
+        # Test if we can read the file
+        try:
+            with open(output_path, 'rb') as test_file:
+                test_file.read(10)
+        except Exception as io_error:
+            raise IOError(f"Cannot read the generated PDF file: {io_error}")
 
-        # Add planetary positions table
-        elements.append(Paragraph("Planetary Positions", heading_style))
-
-        # Create table directly in ReportLab instead of using an image
-        table_data = [["Planet", "Sign", "Degree", "House", "Retrograde"]]
-
-        # Get planets data
-        planets = chart_data.get("planets", [])
-
-        # Handle both list and dict formats of planets
-        if isinstance(planets, dict):
-            planets_list = []
-            for name, data in planets.items():
-                if isinstance(data, dict):
-                    planet_data = data.copy()
-                    planet_data["name"] = name
-                    planets_list.append(planet_data)
-            planets = planets_list
-
-        # Sort planets in traditional order
-        planet_order = {"Sun": 1, "Moon": 2, "Mercury": 3, "Venus": 4, "Mars": 5,
-                       "Jupiter": 6, "Saturn": 7, "Uranus": 8, "Neptune": 9, "Pluto": 10}
-
-        sorted_planets = sorted(planets, key=lambda p: planet_order.get(p.get("name", ""), 99))
-
-        for planet in sorted_planets:
-            name = planet.get("name", "")
-            sign = planet.get("sign", "")
-            degree = planet.get("degree", 0)
-            house = planet.get("house", "")
-            retrograde = "R" if planet.get("retrograde", False) else ""
-
-            # Format the degree with minutes
-            degree_int = int(degree)
-            minutes = int((degree - degree_int) * 60)
-            degree_str = f"{degree_int}° {minutes}'"
-
-            # Add row to table
-            table_data.append([name, sign, degree_str, str(house), retrograde])
-
-        # Create the table
-        planet_table = RLTable(table_data, colWidths=[80, 80, 80, 60, 60])
-
-        # Add table style
-        table_style = TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ])
-
-        planet_table.setStyle(table_style)
-        elements.append(planet_table)
-        elements.append(Spacer(1, 20))
-
-        # Add house information
-        elements.append(Paragraph("House Cusps", heading_style))
-
-        # Create house cusps table
-        house_table_data = [["House", "Sign", "Degree"]]
-
-        houses = chart_data.get("houses", [])
-
-        # Check if houses is an array of floats or an array of objects
-        if houses and isinstance(houses[0], (int, float)):
-            # Convert array of float longitudes to house objects
-            house_objects = []
-            for i, longitude in enumerate(houses):
-                # Calculate sign and degree from longitude
-                sign_index = int(longitude / 30) % 12
-                degree = longitude % 30
-
-                # Map sign index to sign name
-                sign_names = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-                             "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-                sign = sign_names[sign_index]
-
-                # Create house object
-                house_objects.append({
-                    "number": i + 1,
-                    "sign": sign,
-                    "degree": degree
-                })
-            houses = house_objects
-
-        for house in houses:
-            house_num = house.get("number", "")
-            sign = house.get("sign", "")
-            degree = house.get("degree", 0)
-
-            # Format the degree with minutes
-            degree_int = int(degree)
-            minutes = int((degree - degree_int) * 60)
-            degree_str = f"{degree_int}° {minutes}'"
-
-            # Add row to table
-            house_table_data.append([str(house_num), sign, degree_str])
-
-        # Create the table
-        house_table = RLTable(house_table_data, colWidths=[60, 100, 100])
-
-        # Add table style (same as planet table)
-        house_table.setStyle(table_style)
-        elements.append(house_table)
-        elements.append(Spacer(1, 20))
-
-        # Add aspects section
-        elements.append(Paragraph("Planetary Aspects", heading_style))
-
-        aspects = chart_data.get("aspects", [])
-        if aspects:
-            aspects_text = ""
-            for aspect in aspects[:15]:  # Limit to first 15 aspects to avoid overwhelming
-                planet1 = aspect.get("planet1", "")
-                planet2 = aspect.get("planet2", "")
-                aspect_type = aspect.get("type", "")
-                orb = aspect.get("orb", 0)
-
-                aspects_text += f"<b>{planet1} {aspect_type} {planet2}</b> (Orb: {orb:.1f}°)<br/>"
-
-            elements.append(Paragraph(aspects_text, astro_style))
-        else:
-            elements.append(Paragraph("No significant aspects found in the chart data.", normal_style))
-
-        elements.append(Spacer(1, 12))
-
-        # Add interpretation if available
-        if "interpretation" in chart_data:
-            elements.append(Paragraph("Chart Interpretation", heading_style))
-
-            interpretation = chart_data.get("interpretation", {})
-            if isinstance(interpretation, dict):
-                # Handle structured interpretation
-
-                # Overall summary
-                if "overall_summary" in interpretation:
-                    elements.append(Paragraph("<b>Overall Summary</b>", astro_style))
-                    elements.append(Paragraph(interpretation["overall_summary"], normal_style))
-                    elements.append(Spacer(1, 8))
-
-                # Ascendant interpretation
-                if "ascendant" in interpretation:
-                    elements.append(Paragraph("<b>Ascendant</b>", astro_style))
-                    elements.append(Paragraph(interpretation["ascendant"], normal_style))
-                    elements.append(Spacer(1, 8))
-
-                # Planet interpretations
-                if "planets" in interpretation and isinstance(interpretation["planets"], dict):
-                    elements.append(Paragraph("<b>Planetary Positions</b>", astro_style))
-
-                    for planet, text in interpretation["planets"].items():
-                        elements.append(Paragraph(f"<b>{planet}</b>: {text}", normal_style))
-                        elements.append(Spacer(1, 4))
-
-                # Aspect interpretations
-                if "aspects" in interpretation:
-                    elements.append(Paragraph("<b>Aspects</b>", astro_style))
-                    elements.append(Paragraph(interpretation["aspects"], normal_style))
-            else:
-                # Handle plain text interpretation
-                elements.append(Paragraph(str(interpretation), normal_style))
-
-        # Add validation information if available
-        if "verification" in chart_data:
-            verification = chart_data.get("verification", {})
-            verification_message = verification.get("message", "")
-
-            if verification_message:
-                elements.append(Spacer(1, 20))
-                elements.append(Paragraph("Verification", heading_style))
-                elements.append(Paragraph(verification_message, normal_style))
-
-        # Add footer
-        footer_text = f"Generated on {datetime.now().strftime('%Y-%m-%d at %H:%M')}"
-        elements.append(Spacer(1, 30))
-        elements.append(Paragraph(footer_text, normal_style))
-
-        # Build the PDF
-        doc.build(elements)
+        # Clean up temporary directory
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as cleanup_error:
+            logger.warning(f"Failed to clean up temporary directory: {cleanup_error}")
 
         return output_path
+    except Exception as e:
+        logger.error(f"Error generating PDF: {e}")
+        logger.error(traceback.format_exc())
+
+        # Create a fallback PDF with error information
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter, A4, legal
+
+            # Map paper size
+            page_size = {
+                "letter": letter,
+                "a4": A4,
+                "legal": legal
+            }.get(paper_size.lower(), letter)
+
+            # Create a PDF with error information
+            c = canvas.Canvas(output_path, pagesize=page_size)
+            c.setFont("Helvetica", 14)
+            c.drawString(72, page_size[1] - 108, "Error Generating Astrological Chart PDF")
+            c.setFont("Helvetica", 10)
+            c.drawString(72, page_size[1] - 144, f"Error: {str(e)}")
+            c.drawString(72, page_size[1] - 160, "Please try again or contact support.")
+
+            # Add basic chart info if available
+            if isinstance(chart_data, dict):
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(72, page_size[1] - 200, "Chart Information:")
+
+                y_pos = page_size[1] - 220
+                c.setFont("Helvetica", 10)
+
+                # Add birth details if available
+                birth_details = chart_data.get("birth_details", {})
+                if birth_details:
+                    birth_date = birth_details.get("birth_date", "Unknown")
+                    birth_time = birth_details.get("birth_time", "Unknown")
+                    c.drawString(72, y_pos, f"Birth Date: {birth_date}")
+                    y_pos -= 16
+                    c.drawString(72, y_pos, f"Birth Time: {birth_time}")
+                    y_pos -= 16
+
+                # Add chart ID if available
+                chart_id = chart_data.get("chart_id", "Unknown")
+                c.drawString(72, y_pos, f"Chart ID: {chart_id}")
+
+            c.save()
+
+            # Verify the fallback file was created
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                logger.info(f"Created fallback PDF with error information at {output_path}")
+                return output_path
+        except Exception as fallback_error:
+            logger.error(f"Failed to create fallback PDF: {fallback_error}")
+
+        # If all else fails, re-raise the original error
+        raise
+
+def generate_chart_image(chart_data: Dict[str, Any], output_path: str, include_3d: bool = False,
+                       include_traditional: bool = True, chart_style: str = "north_indian") -> str:
+    """
+    Generate comprehensive chart images including 2D, 3D and traditional chart visualizations.
+
+    Args:
+        chart_data: Chart data dictionary
+        output_path: Path to save the output image
+        include_3d: Whether to include 3D visualization
+        include_traditional: Whether to include traditional Vedic chart
+        chart_style: Style for Vedic chart rendering ('north_indian', 'south_indian', 'east_indian')
+
+    Returns:
+        Path to the generated chart image
+    """
+    try:
+        chart_type = chart_data.get("calculation_details", {}).get("chart_type", "vedic").lower()
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+        # For multi-chart output, create a larger figure
+        if include_3d or include_traditional:
+            num_charts = 1 + (1 if include_3d else 0) + (1 if include_traditional else 0)
+            fig_width = 8 * min(num_charts, 2)
+            fig_height = 8 * ((num_charts + 1) // 2)
+
+            fig, axes = plt.subplots(
+                (num_charts + 1) // 2,
+                min(num_charts, 2),
+                figsize=(fig_width, fig_height)
+            )
+
+            # Convert to list if there's only one subplot
+            if num_charts == 1:
+                axes = [axes]
+            elif num_charts <= 2:
+                axes = axes.flatten()
+
+            # Render main chart (Western/Tropical or circular Vedic)
+            if chart_type == "vedic":
+                title = "Vedic/Sidereal Chart"
+            else:
+                title = "Western/Tropical Chart"
+
+            current_ax = 0
+            render_chart_in_subplot(axes[current_ax], chart_data)
+            axes[current_ax].set_title(title)
+            current_ax += 1
+
+            # Render 3D chart if requested
+            if include_3d and current_ax < len(axes):
+                try:
+                    _render_3d_chart_in_subplot(axes[current_ax], chart_data)
+                    axes[current_ax].set_title("3D Planetary Positions")
+                    current_ax += 1
+                except Exception as e:
+                    logger.warning(f"Failed to render 3D chart: {e}")
+                    # Add error message to the plot
+                    axes[current_ax].text(0.5, 0.5, f"3D chart rendering failed: {str(e)}",
+                                  ha='center', va='center', fontsize=10, wrap=True)
+                    axes[current_ax].set_title("3D Planetary Positions (Error)")
+                    current_ax += 1
+
+            # Render traditional Vedic chart if requested
+            if include_traditional and current_ax < len(axes) and chart_type == "vedic":
+                try:
+                    # Use a temporary file for the Vedic chart
+                    temp_vedic_file = render_vedic_chart(chart_data, None, style=chart_style)
+
+                    # Verify temp file exists and is valid
+                    if not os.path.exists(temp_vedic_file) or os.path.getsize(temp_vedic_file) == 0:
+                        raise FileNotFoundError(f"Vedic chart temporary file not created or empty: {temp_vedic_file}")
+
+                    # Load the image into the subplot
+                    vedic_img = plt.imread(temp_vedic_file)
+                    axes[current_ax].imshow(vedic_img)
+                    axes[current_ax].set_title(f"Traditional Vedic Chart ({chart_style.replace('_', ' ').title()})")
+                    axes[current_ax].axis('off')
+
+                    # Remove the temporary file
+                    if os.path.exists(temp_vedic_file):
+                        os.unlink(temp_vedic_file)
+
+                    current_ax += 1
+                except Exception as e:
+                    logger.warning(f"Failed to render traditional Vedic chart: {e}")
+                    # Add error message to the plot
+                    axes[current_ax].text(0.5, 0.5, f"Traditional Vedic chart rendering failed: {str(e)}",
+                                  ha='center', va='center', fontsize=10, wrap=True)
+                    axes[current_ax].set_title("Traditional Vedic Chart (Error)")
+                    current_ax += 1
+
+            # Add birth details as a shared title
+            birth_details = chart_data.get("birth_details", {})
+            if birth_details:
+                birth_date = birth_details.get("birth_date", "")
+                birth_time = birth_details.get("birth_time", "")
+                title = f"Astrological Chart for {birth_date} {birth_time}"
+                fig.suptitle(title, fontsize=16)
+
+            # Save the chart image
+            plt.tight_layout(rect=(0, 0.03, 1, 0.95))  # Adjust for suptitle
+
+            # Use higher DPI for better quality
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            plt.close(fig)
+        else:
+            # Single chart output - just the main chart
+            plt.figure(figsize=(10, 10))
+            render_chart_in_subplot(plt.gca(), chart_data)
+
+            # Add birth details as title
+            birth_details = chart_data.get("birth_details", {})
+            if birth_details:
+                birth_date = birth_details.get("birth_date", "")
+                birth_time = birth_details.get("birth_time", "")
+                title = f"Astrological Chart for {birth_date} {birth_time}"
+                plt.suptitle(title, fontsize=16)
+
+            plt.tight_layout(rect=(0, 0, 1, 0.95))  # Adjust for title
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # Verify the file was created
+        if not os.path.exists(output_path):
+            raise FileNotFoundError(f"Chart image was not created at {output_path}")
+
+        # Verify file is not empty
+        if os.path.getsize(output_path) == 0:
+            raise ValueError(f"Generated chart image is empty: {output_path}")
+
+        # Test if image is valid by opening it
+        try:
+            from PIL import Image
+            with Image.open(output_path) as img:
+                width, height = img.size
+                logger.info(f"Generated chart image with dimensions {width}x{height}")
+                if width < 100 or height < 100:
+                    logger.warning(f"Chart image dimensions are suspiciously small: {width}x{height}")
+        except ImportError:
+            # If PIL is not available, just verify the file size
+            file_size = os.path.getsize(output_path)
+            logger.info(f"Generated chart image with size {file_size} bytes")
+            if file_size < 10240:  # 10KB
+                logger.warning(f"Chart image is suspiciously small: {file_size} bytes")
+        except Exception as img_error:
+            logger.warning(f"Image validation warning: {img_error}")
+
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Error generating chart image: {e}")
+        logger.error(traceback.format_exc())
+
+        # Create fallback image with error information
+        try:
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.text(0.5, 0.6, "Error Generating Astrological Chart",
+                   ha='center', va='center', fontsize=16)
+            ax.text(0.5, 0.5, f"Error: {str(e)}",
+                   ha='center', va='center', fontsize=12)
+
+            # Add basic chart info if available
+            if isinstance(chart_data, dict):
+                birth_details = chart_data.get("birth_details", {})
+                if birth_details:
+                    birth_date = birth_details.get("birth_date", "Unknown")
+                    birth_time = birth_details.get("birth_time", "Unknown")
+                    chart_info = f"Birth Date: {birth_date}\nBirth Time: {birth_time}"
+                    ax.text(0.5, 0.4, chart_info,
+                           ha='center', va='center', fontsize=10)
+
+            ax.text(0.5, 0.3, "Please try again or contact support.",
+                   ha='center', va='center', fontsize=10)
+
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+
+            plt.savefig(output_path, dpi=100)
+            plt.close(fig)
+
+            # Verify the fallback file was created
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                logger.info(f"Created fallback chart image with error information at {output_path}")
+                return output_path
+        except Exception as fallback_error:
+            logger.error(f"Failed to create fallback chart image: {fallback_error}")
+
+        # If all else fails, re-raise the original error
+        raise

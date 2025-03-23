@@ -1,0 +1,79 @@
+/* Responsive styles for Birth Time Rectifier application */
+
+/* Small screens (mobile) */
+@media screen and (max-width: 640px) {
+  .chart-container {
+    grid-template-columns: 1fr;
+  }
+
+  .questionnaire-container {
+    max-width: 100%;
+    margin-left: 0;
+    margin-top: 1.5rem;
+  }
+
+  .planetary-visualization {
+    height: 250px;
+  }
+
+  .comparison-container {
+    flex-direction: column;
+  }
+
+  .chart-comparison-panel {
+    width: 100%;
+    max-width: 100%;
+    margin-bottom: 1.5rem;
+  }
+}
+
+/* Medium screens (tablets and small laptops) */
+@media screen and (min-width: 641px) and (max-width: 1024px) {
+  /* Fix for chart and questionnaire layout */
+  .chart-container {
+    grid-template-columns: 1fr;
+  }
+
+  /* Force single column layout for medium size screens */
+  @media screen and (min-width: 768px) and (max-width: 1024px) {
+    .main-content {
+      flex-direction: column;
+    }
+
+    .sidebar {
+      width: 100%;
+      max-width: 100%;
+      margin-bottom: 1.5rem;
+    }
+
+    .planetary-visualization {
+      height: 350px;
+    }
+  }
+}
+
+/* Large screens (desktops) */
+@media screen and (min-width: 1025px) {
+  .chart-container {
+    grid-template-columns: 2fr 1fr;
+    grid-gap: 2rem;
+  }
+
+  .planetary-visualization {
+    height: 500px;
+  }
+
+  .comparison-container {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .chart-comparison-panel {
+    width: 48%;
+  }
+}
+
+/* Fix for Saturn icon vertical alignment in 3D view */
+.planet-saturn {
+  transform: translateY(-0.15em);
+}

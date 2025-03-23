@@ -1,940 +1,1468 @@
-Overview of the Solution
-A shell script to process JSON files from the test_sequence_flow_real.py
-A Python module to render Vedic charts in the North Indian square format
-Support for visualizing both original and rectified charts for comparison
-Multiple output formats (ASCII, PNG image, and HTML)
-Let's implement these components:
-1. Shell Script for Running the Visualization
-```bash
-#!/bin/bash
+# Birth Time Rectifier Testing Approach
 
-# Script to visualize Vedic charts from test JSON files
-# Usage: ./visualize_charts.sh [options]
-# Options:
-#   --input-json FILE    Path to input JSON file (default: tests/test_data_source/test_charts_data.json)
-#   --output-dir DIR     Directory to save output files (default: test_chart_visualisation/output)
-#   --format FORMAT      Output format: ascii, png, html, all (default: all)
-#   --show-planets       Show planet symbols in chart (default: true)
-#   --help               Show this help message
+## 1. Introduction and Testing Philosophy
 
-# Default values
-INPUT_JSON="tests/test_data_source/test_charts_data.json"
-OUTPUT_DIR="test_chart_visualisation/output"
-FORMAT="all"
-SHOW_PLANETS="true"
+This document outlines the comprehensive testing strategy for the Birth Time Rectifier application. Our testing approach focuses on validating the end-to-end functionality of the application according to the sequence diagram in `docs/architecture/sequence_diagram.md` while ensuring all requirements detailed in the user testing instructions are met.
 
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-    key="$1"
-    case $key in
-        --input-json)
-            INPUT_JSON="$2"
-            shift
-            shift
-            ;;
-        --output-dir)
-            OUTPUT_DIR="$2"
-            shift
-            shift
-            ;;
-        --format)
-            FORMAT="$2"
-            shift
-            shift
-            ;;
-        --show-planets)
-            SHOW_PLANETS="$2"
-            shift
-            shift
-            ;;
-        --help)
-            echo "Usage: ./visualize_charts.sh [options]"
-            echo "Options:"
-            echo "  --input-json FILE    Path to input JSON file (default: tests/test_data_source/test_charts_data.json)"
-            echo "  --output-dir DIR     Directory to save output files (default: test_chart_visualisation/output)"
-            echo "  --format FORMAT      Output format: ascii, png, html, all (default: all)"
-            echo "  --show-planets       Show planet symbols in chart (default: true)"
-            echo "  --help               Show this help message"
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Use --help for usage information"
-            exit 1
-            ;;
-    esac
-done
+The core testing philosophy is built on these principles:
 
-# Create output directory if it doesn't exist
-mkdir -p "$OUTPUT_DIR"
+- **Real Implementation Only**: All tests use actual implementations - no mocks, simulated fallbacks, or error masking
+- **Complete Sequence Flow**: Tests follow the exact application sequence diagram
+- **Docker Containerization**: Tests run in isolated, reproducible environments
+- **End-to-End Validation**: All API endpoints, calculations, and connections use real implementations
 
-# Check if input file exists
-if [ ! -f "$INPUT_JSON" ]; then
-    echo "Error: Input file '$INPUT_JSON' not found!"
-    exit 1
-fi
+## 2. Docker Container Testing Environment
 
-# Run the Python script to generate visualizations
-echo "Generating Vedic chart visualizations from $INPUT_JSON"
-python test_chart_visualisation/vedic_chart_visualizer.py \
-    --input-json "$INPUT_JSON" \
-    --output-dir "$OUTPUT_DIR" \
-    --format "$FORMAT" \
-    --show-planets "$SHOW_PLANETS"
+### 2.1 Container Structure
 
-echo "Visualization complete. Output files saved to $OUTPUT_DIR"
+We use Docker Compose to create a complete testing environment that mirrors the production setup:
+
+```
+┌─────────────────────────────────────────────────────┐
+│                Docker Compose Network                │
+├─────────────┬───────────────┬──────────────────────┤
+│ Frontend    │ API Gateway   │ Backend Services     │
+│ Container   │ Container     │ Container            │
+│ (Next.js)   │ (Node.js)     │ (Python/FastAPI)     │
+├─────────────┼───────────────┼──────────────────────┤
+│ Test Runner │ Redis         │ PostgreSQL           │
+│ Container   │ Container     │ Container            │
+│ (Pytest)    │ (Session DB)  │ (Chart/User Data)    │
+└─────────────┴───────────────┴──────────────────────┘
 ```
 
-2. Python Visualization Module
+### 2.2 Docker Compose Configuration
+
+```yaml
+# docker-compose.test.yml
+version: '3.8'
+
+services:
+  # Python Backend Service
+  ai-service:
+    build:
+      context: .
+      dockerfile: ai_service.Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - POSTGRES_CONNECTION=postgresql://postgres:postgres@postgres:5432/birth_rectifier
+      - DISABLE_FALLBACKS=true
+      - FORCE_REAL_API=true
+      - STRICT_VALIDATION=true
+    volumes:
+      - ./ephemeris:/app/ephemeris
+      - ./tests/test_data_source:/app/tests/test_data_source
+    depends_on:
+      - redis
+      - postgres
+
+  # API Gateway Service
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api_gateway.Dockerfile
+    environment:
+      - AI_SERVICE_URL=http://ai-service:8000
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "3001:3001"
+    depends_on:
+      - ai-service
+      - redis
+
+  # Redis for Session Management
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # PostgreSQL for Data Storage
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=birth_rectifier
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Test Runner Container
+  test-runner:
+    build:
+      context: .
+      dockerfile: test_runner.Dockerfile
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:3001
+      - AI_SERVICE_URL=http://ai-service:8000
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_CONNECTION=postgresql://postgres:postgres@postgres:5432/birth_rectifier
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DISABLE_FALLBACKS=true
+      - FORCE_REAL_API=true
+      - STRICT_VALIDATION=true
+    volumes:
+      - ./tests:/app/tests
+      - ./ephemeris:/app/ephemeris
+      - ./test-output:/app/test-output
+    depends_on:
+      - ai-service
+      - api-gateway
+      - redis
+      - postgres
+
+volumes:
+  postgres_data:
+```
+
+## 3. Leveraging the Existing Integration Test
+
+The existing `tests/integration/test_sequence_flow_real.py` test serves as the foundation for our testing approach. This integration test:
+
+1. Follows the complete sequence diagram flow of the application
+2. Uses real API calls and actual astrological calculations at every step
+3. Contains built-in validation to ensure no fallbacks or mock implementations are used
+4. Generates test output files for visualization and verification
+
+### 3.1 Key Features of the Sequence Flow Test
+
+- **Session Initialization**: Tests real session creation with Redis integration
+- **Location Geocoding**: Uses actual geocoding service to resolve birth locations
+- **Chart Validation**: Validates birth details with real astrological rules
+- **Chart Generation**: Uses the actual OpenAI service for chart verification
+- **Questionnaire Flow**: Tests the dynamic question generation with real AI responses
+- **Birth Time Rectification**: Uses comprehensive rectification with real calculations
+- **Chart Comparison**: Compares original and rectified charts with real implementations
+- **Chart Export**: Tests actual PDF/image generation
+
+### 3.2 Running Multiple Test Cases
+
+To thoroughly test the application, we run the sequence flow test with multiple input datasets:
+
+```bash
+# Run tests with multiple birth data inputs
+for test_case in input_birth_data_*.json; do
+  cp "tests/test_data_source/$test_case" "tests/test_data_source/input_birth_data.json"
+  python -m pytest tests/integration/test_sequence_flow_real.py -v
+
+  # Save and visualize results for this test case
+  test_case_name=$(basename "$test_case" .json)
+  mkdir -p "test-output/$test_case_name"
+  cp tests/test_data_source/test_charts_data.json "test-output/$test_case_name/"
+
+  # Generate visualizations using the existing visualization code
+  python test_chart_visualisation/vedic_chart_visualizer.py \
+    --input-json "test-output/$test_case_name/test_charts_data.json" \
+    --output-dir "test-output/$test_case_name"
+done
+```
+
+### 3.3 Test Dataset Variations
+
+We test with the following birth data variations:
+
+1. **Standard Case**: Precise birth time and location
+2. **Uncertain Birth Time**: Birth time with 1-2 hour uncertainty
+3. **Unknown Birth Time**: Only birth date is known, time completely uncertain
+4. **Edge Cases**: Birth times near midnight, timezone boundaries, etc.
+5. **Southern Hemisphere**: Testing different geographical scenarios
+
+## 4. Full End-to-End Application Testing
+
+To thoroughly test the application according to the "Original Sequence Diagram - Full Implementation," we implement a comprehensive testing strategy that validates each interaction in the sequence.
+
+### 4.1 Sequence-Based End-to-End Tests
+
+Each test verifies a specific part of the application flow as defined in the sequence diagram:
+
+#### 4.1.1 User Session and Initial Setup Test
+
 ```python
-#!/usr/bin/env python3
-"""
-Vedic Chart Visualizer
+@pytest.mark.end_to_end
+async def test_session_initialization():
+    """Test the initial session setup flow."""
+    # 1. Initialize session
+    session_response = await client.get("/api/session/init")
+    assert session_response.status_code == 200
+    session_data = session_response.json()
+    assert "session_token" in session_data
 
-This script visualizes Vedic birth charts in the traditional North Indian Kundali style
-from JSON data produced by the birth time rectification tests.
-"""
+    # Store session token for subsequent requests
+    session_token = session_data["session_token"]
+    headers = {"Authorization": f"Bearer {session_token}"}
 
-import os
-import json
-import argparse
-import math
-from typing import Dict, Any, List, Tuple, Optional
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, PathPatch, Circle, Wedge
-from matplotlib.path import Path
-import matplotlib.colors as mcolors
-import numpy as np
-import base64
-from io import BytesIO
-import sys
+    # 2. Verify session persistence
+    verify_response = await client.get("/api/session/verify", headers=headers)
+    assert verify_response.status_code == 200
 
-# Add project root to path to ensure imports work
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    # Track session creation in DB
+    db_session = await get_session_from_db(session_token)
+    assert db_session is not None
+```
 
-# Planet symbols and abbreviations
-PLANET_SYMBOLS = {
-    "sun": "Su",
-    "moon": "Mo",
-    "mars": "Ma",
-    "mercury": "Me",
-    "jupiter": "Ju",
-    "venus": "Ve",
-    "saturn": "Sa",
-    "rahu": "Ra",
-    "ketu": "Ke",
-    "ascendant": "As",
-    "midheaven": "MC"
-}
+#### 4.1.2 Geocoding and Birth Detail Test
 
-# Zodiac sign symbols and abbreviations
-ZODIAC_SIGNS = [
-    "Aries", "Taurus", "Gemini", "Cancer",
-    "Leo", "Virgo", "Libra", "Scorpio",
-    "Sagittarius", "Capricorn", "Aquarius", "Pisces"
-]
+```python
+@pytest.mark.end_to_end
+async def test_geocoding_and_birth_details():
+    """Test location geocoding and birth detail validation."""
+    # Setup session first
+    session_token = await setup_test_session()
+    headers = {"Authorization": f"Bearer {session_token}"}
 
-ZODIAC_ABBR = {
-    "Aries": "Ar",
-    "Taurus": "Ta",
-    "Gemini": "Ge",
-    "Cancer": "Ca",
-    "Leo": "Le",
-    "Virgo": "Vi",
-    "Libra": "Li",
-    "Scorpio": "Sc",
-    "Sagittarius": "Sg",
-    "Capricorn": "Cp",
-    "Aquarius": "Aq",
-    "Pisces": "Pi"
-}
+    # 1. Test geocoding
+    geocode_data = {"query": "New York, NY, USA"}
+    geocode_response = await client.post("/api/geocode", json=geocode_data, headers=headers)
+    assert geocode_response.status_code == 200
+    location_data = geocode_response.json()
+    assert "latitude" in location_data
+    assert "longitude" in location_data
+    assert "timezone" in location_data
 
-# House positions for North Indian style chart - each tuple is (house_number, x_position, y_position)
-# House positions counterclockwise starting from Ascendant (house 1)
-NORTH_INDIAN_HOUSE_POSITIONS = [
-    (1, 0.5, 0.9),   # House 1 (Lagna / Ascendant)
-    (2, 0.25, 0.75), # House 2
-    (3, 0.1, 0.5),   # House 3
-    (4, 0.25, 0.25), # House 4
-    (5, 0.5, 0.1),   # House 5
-    (6, 0.75, 0.25), # House 6
-    (7, 0.9, 0.5),   # House 7
-    (8, 0.75, 0.75), # House 8
-    (9, 0.5, 0.75),  # House 9
-    (10, 0.5, 0.5),  # House 10
-    (11, 0.75, 0.5), # House 11
-    (12, 0.5, 0.25)  # House 12
-]
+    # 2. Test birth details validation
+    birth_data = {
+        "birth_date": "1990-01-01",
+        "birth_time": "12:00:00",
+        "latitude": location_data["latitude"],
+        "longitude": location_data["longitude"],
+        "timezone": location_data["timezone"]
+    }
+    validation_response = await client.post("/api/chart/validate", json=birth_data, headers=headers)
+    assert validation_response.status_code == 200
+    validation_result = validation_response.json()
+    assert validation_result["valid"] is True
+```
 
-# Colors for planets
-PLANET_COLORS = {
-    "sun": "#FFD700",      # Gold
-    "moon": "#FFFAFA",     # Snow white
-    "mercury": "#9ACD32",  # Yellow-green
-    "venus": "#FF69B4",    # Pink
-    "mars": "#FF4500",     # Red
-    "jupiter": "#FFB6C1",  # Light pink
-    "saturn": "#4682B4",   # Steel blue
-    "rahu": "#800080",     # Purple
-    "ketu": "#FFA500",     # Orange
-    "ascendant": "#000000" # Black
-}
+#### 4.1.3 Chart Generation and OpenAI Verification Test
 
-def load_chart_data(json_file: str) -> Dict[str, Any]:
-    """Load chart data from JSON file."""
-    try:
-        with open(json_file, 'r') as f:
-            data = json.load(f)
-        return data
-    except Exception as e:
-        print(f"Error loading JSON data: {e}")
-        sys.exit(1)
+```python
+@pytest.mark.end_to_end
+async def test_chart_generation_with_openai_verification():
+    """Test chart generation with OpenAI verification."""
+    # Setup session and birth details
+    session_data = await setup_birth_details()
+    headers = {"Authorization": f"Bearer {session_data['session_token']}"}
 
-def normalize_chart_data(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalize chart data for consistent processing regardless of JSON structure.
-    Returns a standardized dictionary with planets, houses, and angles.
-    """
-    normalized = {
-        "planets": {},
-        "houses": {},
-        "angles": {},
+    # 1. Generate chart with OpenAI verification
+    chart_request = {
+        "birth_date": session_data["birth_date"],
+        "birth_time": session_data["birth_time"],
+        "latitude": session_data["latitude"],
+        "longitude": session_data["longitude"],
+        "timezone": session_data["timezone"],
+        "verify_with_openai": True
     }
 
-    # Check if we're dealing with original or rectified chart
-    if "chart_data" in chart_data:
-        # This is likely the rectified chart format
-        planets_data = chart_data.get("chart_data", {}).get("planets", {})
-        houses_data = chart_data.get("chart_data", {}).get("houses", {})
-        angles_data = {
-            "ascendant": chart_data.get("chart_data", {}).get("ascendant", {}),
-            "midheaven": chart_data.get("chart_data", {}).get("midheaven", {})
-        }
-    else:
-        # This is likely the original chart format
-        planets_data = chart_data.get("planets", {})
-        houses_data = chart_data.get("houses", [])
-        angles_data = chart_data.get("angles", {})
+    # Record start time to measure performance
+    start_time = time.time()
 
-    # Process planets
-    for planet_name, planet_data in planets_data.items():
-        if isinstance(planet_data, dict):
-            normalized["planets"][planet_name] = {
-                "sign": planet_data.get("sign", "Unknown"),
-                "degree": float(planet_data.get("degree", 0)),
-                "house": planet_data.get("house", 0)
+    chart_response = await client.post("/api/chart/generate", json=chart_request, headers=headers)
+    assert chart_response.status_code == 200
+    chart_data = chart_response.json()
+
+    # 2. Verify OpenAI integration
+    assert "chart_id" in chart_data
+    assert "verification" in chart_data
+    assert "confidence" in chart_data["verification"]
+    assert chart_data["verification"]["verified"] is True
+
+    # 3. Verify performance requirement (should be fast, <3 seconds as per specs)
+    end_time = time.time()
+    generation_time = end_time - start_time
+    assert generation_time < 5  # Allow slightly more time in test environment
+
+    # 4. Retrieve chart by ID
+    chart_id = chart_data["chart_id"]
+    get_chart_response = await client.get(f"/api/chart/{chart_id}", headers=headers)
+    assert get_chart_response.status_code == 200
+    retrieved_chart = get_chart_response.json()
+
+    # 5. Verify chart data meets Vedic requirements
+    verify_vedic_chart_standards(retrieved_chart)
+```
+
+#### 4.1.4 Vedic Chart Standards Verification Function
+
+```python
+def verify_vedic_chart_standards(chart_data):
+    """Verify that a chart meets the Vedic requirements."""
+    # 1. Verify required components exist
+    assert "planets" in chart_data
+    assert "houses" in chart_data
+    assert "ascendant" in chart_data
+
+    # 2. Verify planet data is complete
+    required_planets = ["sun", "moon", "mars", "mercury", "jupiter", "venus", "saturn", "rahu", "ketu"]
+    planets = chart_data["planets"]
+    for planet in required_planets:
+        assert planet in planets
+        assert "sign" in planets[planet]
+        assert "degree" in planets[planet]
+        assert "house" in planets[planet]
+
+        # Check degrees are within valid range (0-30)
+        assert 0 <= float(planets[planet]["degree"]) < 30
+
+    # 3. Verify houses
+    assert len(chart_data["houses"]) == 12
+
+    # 4. Verify ascendant data
+    assert "sign" in chart_data["ascendant"]
+    assert "degree" in chart_data["ascendant"]
+
+    # 5. Check for retrograde markings if applicable
+    for planet in ["mercury", "venus", "mars", "jupiter", "saturn"]:
+        if "retrograde" in planets[planet]:
+            assert isinstance(planets[planet]["retrograde"], bool)
+```
+
+#### 4.1.5 Questionnaire and Answer Processing Test
+
+```python
+@pytest.mark.end_to_end
+async def test_questionnaire_flow():
+    """Test the dynamic questionnaire flow."""
+    # Setup session and generate chart
+    chart_data = await setup_chart()
+    headers = {"Authorization": f"Bearer {chart_data['session_token']}"}
+    chart_id = chart_data["chart_id"]
+
+    # 1. Initialize questionnaire
+    quest_init_response = await client.get(f"/api/questionnaire?chart_id={chart_id}", headers=headers)
+    assert quest_init_response.status_code == 200
+    quest_data = quest_init_response.json()
+    assert "questions" in quest_data
+
+    # 2. Answer multiple questions
+    answers = []
+    for i in range(5):  # Test with at least 5 questions
+        if i < len(quest_data["questions"]):
+            question = quest_data["questions"][i]
+            answer_data = {
+                "question_id": question["id"],
+                "answer": f"Test answer for question {i+1}",
+                "chart_id": chart_id
             }
+            answer_response = await client.post("/api/questionnaire/answer", json=answer_data, headers=headers)
+            assert answer_response.status_code == 200
+            answers.append(answer_data)
 
-    # Process houses
-    if isinstance(houses_data, dict):
-        for house_num, house_data in houses_data.items():
-            if house_num.isdigit() and int(house_num) <= 12:
-                normalized["houses"][int(house_num)] = {
-                    "sign": house_data.get("sign", "Unknown"),
-                    "degree": float(house_data.get("degree", 0))
-                }
-    elif isinstance(houses_data, list) and len(houses_data) >= 12:
-        # Handle house positions as a list format
-        for i in range(12):
-            normalized["houses"][i+1] = {
-                "longitude": houses_data[i],
-                "sign": ZODIAC_SIGNS[int(houses_data[i] / 30) % 12],
-                "degree": houses_data[i] % 30
-            }
+            # Check for adaptive behavior - next question should depend on answers
+            if i > 0:
+                # Get the next question
+                next_q_response = await client.get(f"/api/questionnaire/next?chart_id={chart_id}", headers=headers)
+                next_question = next_q_response.json()["question"]
 
-    # Process angles
-    for angle_name, angle_data in angles_data.items():
-        if isinstance(angle_data, dict):
-            normalized["angles"][angle_name] = {
-                "sign": angle_data.get("sign", "Unknown"),
-                "degree": float(angle_data.get("degree", 0))
-            }
+                # Verify it's not a duplicate
+                for prev_answer in answers[:-1]:
+                    prev_q_id = prev_answer["question_id"]
+                    assert next_question["id"] != prev_q_id
 
-    return normalized
+    # 3. Complete questionnaire
+    complete_response = await client.post("/api/questionnaire/complete",
+                                         json={"chart_id": chart_id},
+                                         headers=headers)
+    assert complete_response.status_code == 200
+    completion_data = complete_response.json()
+    assert "status" in completion_data
+    assert completion_data["status"] == "processing"
 
-def get_house_occupants(chart_data: Dict[str, Any]) -> Dict[int, List[str]]:
-    """
-    Determine which planets are in which houses.
-    Returns a dictionary mapping house numbers to lists of planet symbols.
-    """
-    house_occupants = {i: [] for i in range(1, 13)}
+    # 4. Verify confidence score
+    assert "confidence" in completion_data
+    assert completion_data["confidence"] >= 60  # Should be reasonably confident with 5 answers
+```
 
-    normalized = normalize_chart_data(chart_data)
+#### 4.1.6 Birth Time Rectification Test
 
-    # Assign planets to houses
-    for planet_name, planet_data in normalized["planets"].items():
-        house = planet_data.get("house")
+```python
+@pytest.mark.end_to_end
+async def test_birth_time_rectification():
+    """Test the birth time rectification process."""
+    # Setup session, chart, and complete questionnaire
+    quest_data = await setup_completed_questionnaire()
+    headers = {"Authorization": f"Bearer {quest_data['session_token']}"}
+    chart_id = quest_data["chart_id"]
 
-        # If house is provided, use it
-        if house and 1 <= house <= 12:
-            house_num = house
+    # 1. Request rectification
+    rectify_response = await client.post("/api/chart/rectify",
+                                        json={"chart_id": chart_id},
+                                        headers=headers)
+    assert rectify_response.status_code == 200
+    rectify_data = rectify_response.json()
+    assert "status" in rectify_data
+
+    # 2. Check rectification results (may need to poll for completion)
+    attempts = 0
+    max_attempts = 10
+    is_complete = False
+
+    while attempts < max_attempts and not is_complete:
+        status_response = await client.get(f"/api/chart/rectify/status?chart_id={chart_id}", headers=headers)
+        status_data = status_response.json()
+
+        if status_data["status"] == "completed":
+            is_complete = True
+            # 3. Verify rectification results
+            assert "rectified_time" in status_data
+            assert "confidence" in status_data
+            assert "rectified_chart_id" in status_data
+
+            # Time should be different from original
+            assert status_data["rectified_time"] != quest_data["birth_time"]
+            assert status_data["confidence"] >= 70  # Reasonable confidence after analysis
+
+            # 4. Verify AI analysis was used (as required by sequence diagram)
+            assert "analysis_method" in status_data
+            assert "ai" in status_data["analysis_method"].lower()
         else:
-            # Otherwise derive it from the sign - this is a simplification
-            # as proper house determination requires the ascendant
-            sign = planet_data.get("sign")
-            if sign in ZODIAC_SIGNS:
-                sign_index = ZODIAC_SIGNS.index(sign)
-
-                # Get ascendant sign if available
-                asc_sign = normalized["angles"].get("ascendant", {}).get("sign")
-                if asc_sign in ZODIAC_SIGNS:
-                    asc_index = ZODIAC_SIGNS.index(asc_sign)
-                    house_num = ((sign_index - asc_index) % 12) + 1
-                else:
-                    # Fallback if no ascendant
-                    house_num = sign_index + 1
-            else:
-                # Skip if no valid sign
-                continue
-
-        symbol = PLANET_SYMBOLS.get(planet_name.lower(), planet_name[:2])
-        house_occupants[house_num].append(symbol)
-
-    return house_occupants
-
-def render_vedic_chart_ascii(chart_data: Dict[str, Any], title: str = "Vedic Birth Chart") -> str:
-    """
-    Render a Vedic chart in ASCII format.
-    """
-    house_occupants = get_house_occupants(chart_data)
-
-    # Create the chart grid
-    chart = []
-
-    # Top row header
-    chart.append(f"\n*** {title} ***\n")
-    chart.append("┌─────────┬─────────┬─────────┐")
-
-    # House 12, 1, 2
-    occupants_12 = " ".join(house_occupants.get(12, []))
-    occupants_1 = " ".join(house_occupants.get(1, []))
-    occupants_2 = " ".join(house_occupants.get(2, []))
-    chart.append(f"│    {occupants_12:<5} │    {occupants_1:<5} │    {occupants_2:<5} │")
-    chart.append(f"│   12    │    1    │    2    │")
-
-    # Middle rows top
-    chart.append("├─────────┼─────────┼─────────┤")
-
-    # House 11 and 3 content
-    occupants_11 = " ".join(house_occupants.get(11, []))
-    occupants_3 = " ".join(house_occupants.get(3, []))
-    chart.append(f"│    {occupants_11:<5} │         │    {occupants_3:<5} │")
-    chart.append(f"│   11    │         │    3    │")
-
-    # Middle rows middle
-    chart.append("├─────────┤         ├─────────┤")
-
-    # House 10 content
-    occupants_10 = " ".join(house_occupants.get(10, []))
-    occupants_4 = " ".join(house_occupants.get(4, []))
-    chart.append(f"│    {occupants_10:<5} │         │    {occupants_4:<5} │")
-    chart.append(f"│   10    │         │    4    │")
-
-    # Middle rows bottom
-    chart.append("├─────────┤         ├─────────┤")
-
-    # House 9 content
-    occupants_9 = " ".join(house_occupants.get(9, []))
-    occupants_5 = " ".join(house_occupants.get(5, []))
-    chart.append(f"│    {occupants_9:<5} │         │    {occupants_5:<5} │")
-    chart.append(f"│    9    │         │    5    │")
-
-    # Bottom rows
-    chart.append("├─────────┼─────────┼─────────┤")
-
-    # House 8, 7, 6 content
-    occupants_8 = " ".join(house_occupants.get(8, []))
-    occupants_7 = " ".join(house_occupants.get(7, []))
-    occupants_6 = " ".join(house_occupants.get(6, []))
-    chart.append(f"│    {occupants_8:<5} │    {occupants_7:<5} │    {occupants_6:<5} │")
-    chart.append(f"│    8    │    7    │    6    │")
-
-    # Final line
-    chart.append("└─────────┴─────────┴─────────┘")
-
-    return "\n".join(chart)
-
-def render_vedic_chart_matplotlib(chart_data: Dict[str, Any],
-                                 title: str = "Vedic Birth Chart",
-                                 show_planets: bool = True) -> plt.Figure:
-    """
-    Render a Vedic chart using Matplotlib.
-    Returns a matplotlib Figure object.
-    """
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    # Get house occupants
-    house_occupants = get_house_occupants(chart_data)
-
-    # Configure plot
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.axis('off')
-
-    # Draw the outer square
-    ax.add_patch(Rectangle((0, 0), 1, 1, fill=False, linewidth=2, color='black'))
-
-    # Draw the central square (center of the chart)
-    ax.add_patch(Rectangle((0.3, 0.3), 0.4, 0.4, fill=False, linewidth=2, color='black'))
-
-    # Draw diagonal lines
-    ax.plot([0, 1], [0, 1], 'k-', linewidth=2)
-    ax.plot([0, 1], [1, 0], 'k-', linewidth=2)
-
-    # Add house numbers and content - Using North Indian style positions
-    for house_num, x, y in NORTH_INDIAN_HOUSE_POSITIONS:
-        # Add house number
-        ax.text(x, y, str(house_num), fontsize=14, ha='center', va='center',
-                 bbox=dict(facecolor='white', alpha=0.5, edgecolor='none'))
-
-        # Add planets in house if any
-        if show_planets and house_num in house_occupants and house_occupants[house_num]:
-            planet_text = " ".join(house_occupants[house_num])
-            # Position planet text slightly offset from house number
-            if house_num in [1, 5, 7, 9]:  # Top and bottom houses
-                ax.text(x, y - 0.08, planet_text, fontsize=12, ha='center', va='center',
-                       bbox=dict(facecolor='lightyellow', alpha=0.8, edgecolor='none'))
-            elif house_num in [3, 11]:  # Left and right houses
-                ax.text(x, y + 0.08, planet_text, fontsize=12, ha='center', va='center',
-                       bbox=dict(facecolor='lightyellow', alpha=0.8, edgecolor='none'))
-            else:  # Corner houses
-                ax.text(x + 0.05, y - 0.05, planet_text, fontsize=12, ha='center', va='center',
-                       bbox=dict(facecolor='lightyellow', alpha=0.8, edgecolor='none'))
-
-    # Add title
-    plt.suptitle(title, fontsize=16, y=0.95)
-
-    # Add a note about ascendant position
-    normalized = normalize_chart_data(chart_data)
-    asc_info = normalized["angles"].get("ascendant", {})
-    if asc_info and "sign" in asc_info:
-        asc_text = f"Ascendant: {asc_info['sign']} {asc_info.get('degree', 0):.1f}°"
-        plt.figtext(0.5, 0.02, asc_text, ha="center", fontsize=12,
-                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
-
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    return fig
-
-def render_vedic_chart_html(chart_data: Dict[str, Any],
-                           title: str = "Vedic Birth Chart",
-                           output_dir: str = "output",
-                           show_planets: bool = True) -> str:
-    """
-    Render a Vedic chart as HTML.
-    Returns the path to the HTML file.
-    """
-    # Create the matplotlib chart
-    fig = render_vedic_chart_matplotlib(chart_data, title, show_planets)
-
-    # Save the figure to a BytesIO object
-    buf = BytesIO()
-    fig.savefig(buf, format='png', dpi=100)
-    plt.close(fig)
-    buf.seek(0)
-
-    # Encode the image as base64
-    img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-    # Create HTML content
-    normalized = normalize_chart_data(chart_data)
-
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>{title}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
-        .container {{ max-width: 1000px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        h1 {{ color: #333; text-align: center; }}
-        .chart-container {{ text-align: center; margin: 20px 0; }}
-        .planet-info {{ margin-top: 20px; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-        th, td {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
-        th {{ background-color: #f2f2f2; }}
-        tr:hover {{ background-color: #f5f5f5; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>{title}</h1>
-
-        <div class="chart-container">
-            <img src="data:image/png;base64,{img_base64}" alt="Vedic Birth Chart" style="max-width:100%;">
-        </div>
-
-        <div class="planet-info">
-            <h2>Planetary Positions</h2>
-            <table>
-                <tr>
-                    <th>Planet</th>
-                    <th>Sign</th>
-                    <th>Degree</th>
-                    <th>House</th>
-                </tr>
-    """
-
-    # Add planetary positions table
-    for planet_name, planet_data in normalized["planets"].items():
-        html_content += f"""
-                <tr>
-                    <td>{planet_name.capitalize()}</td>
-                    <td>{planet_data.get('sign', 'Unknown')}</td>
-                    <td>{planet_data.get('degree', 0):.2f}°</td>
-                    <td>{planet_data.get('house', '-')}</td>
-                </tr>"""
-
-    # Add ascendant and midheaven info if available
-    for angle_name, angle_data in normalized["angles"].items():
-        html_content += f"""
-                <tr>
-                    <td>{angle_name.capitalize()}</td>
-                    <td>{angle_data.get('sign', 'Unknown')}</td>
-                    <td>{angle_data.get('degree', 0):.2f}°</td>
-                    <td>-</td>
-                </tr>"""
-
-    html_content += """
-            </table>
-        </div>
-    </div>
-</body>
-</html>
-    """
-
-    # Save HTML to file
-    output_file = os.path.join(output_dir, f"{title.replace(' ', '_').lower()}.html")
-    with open(output_file, 'w') as f:
-        f.write(html_content)
-
-    return output_file
-
-def process_charts(input_json: str, output_dir: str, format_choice: str, show_planets: bool) -> None:
-    """
-    Process and visualize charts from the JSON data.
-    """
-    # Load the chart data
-    data = load_chart_data(input_json)
-
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Process original chart
-    original_chart = data.get("original_chart", {})
-    if original_chart:
-        print("Generating visualization for original chart...")
-
-        if format_choice in ["ascii", "all"]:
-            ascii_chart = render_vedic_chart_ascii(original_chart, "Original Vedic Birth Chart")
-            ascii_file = os.path.join(output_dir, "original_chart_ascii.txt")
-            with open(ascii_file, 'w') as f:
-                f.write(ascii_chart)
-            print(f"ASCII chart saved to {ascii_file}")
-
-            # Also print to console
-            print("\nOriginal Chart (ASCII):")
-            print(ascii_chart)
-
-        if format_choice in ["png", "all"]:
-            fig = render_vedic_chart_matplotlib(original_chart, "Original Vedic Birth Chart", show_planets)
-            png_file = os.path.join(output_dir, "original_chart.png")
-            fig.savefig(png_file, dpi=150)
-            plt.close(fig)
-            print(f"PNG chart saved to {png_file}")
-
-        if format_choice in ["html", "all"]:
-            html_file = render_vedic_chart_html(original_chart, "Original Vedic Birth Chart", output_dir, show_planets)
-            print(f"HTML chart saved to {html_file}")
-
-    # Process rectified chart
-    rectified_chart = data.get("rectified_chart", {})
-    if rectified_chart:
-        print("\nGenerating visualization for rectified chart...")
-
-        if format_choice in ["ascii", "all"]:
-            ascii_chart = render_vedic_chart_ascii(rectified_chart, "Rectified Vedic Birth Chart")
-            ascii_file = os.path.join(output_dir, "rectified_chart_ascii.txt")
-            with open(ascii_file, 'w') as f:
-                f.write(ascii_chart)
-            print(f"ASCII chart saved to {ascii_file}")
-
-            # Also print to console
-            print("\nRectified Chart (ASCII):")
-            print(ascii_chart)
-
-        if format_choice in ["png", "all"]:
-            fig = render_vedic_chart_matplotlib(rectified_chart, "Rectified Vedic Birth Chart", show_planets)
-            png_file = os.path.join(output_dir, "rectified_chart.png")
-            fig.savefig(png_file, dpi=150)
-            plt.close(fig)
-            print(f"PNG chart saved to {png_file}")
-
-        if format_choice in ["html", "all"]:
-            html_file = render_vedic_chart_html(rectified_chart, "Rectified Vedic Birth Chart", output_dir, show_planets)
-            print(f"HTML chart saved to {html_file}")
-
-    # Generate side-by-side comparison if both charts exist
-    if original_chart and rectified_chart and format_choice in ["png", "html", "all"]:
-        print("\nGenerating side-by-side comparison...")
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-
-        # Configure plot 1 (original)
-        ax1.set_xlim(0, 1)
-        ax1.set_ylim(0, 1)
-        ax1.axis('off')
-        ax1.set_title("Original Chart", fontsize=16)
-
-        # Configure plot 2 (rectified)
-        ax2.set_xlim(0, 1)
-        ax2.set_ylim(0, 1)
-        ax2.axis('off')
-        ax2.set_title("Rectified Chart", fontsize=16)
-
-        # Draw original chart in first subplot
-        house_occupants1 = get_house_occupants(original_chart)
-
-        # Draw the outer square
-        ax1.add_patch(Rectangle((0, 0), 1, 1, fill=False, linewidth=2, color='black'))
-        ax1.add_patch(Rectangle((0.3, 0.3), 0.4, 0.4, fill=False, linewidth=2, color='black'))
-        ax1.plot([0, 1], [0, 1], 'k-', linewidth=2)
-        ax1.plot([0, 1], [1, 0], 'k-', linewidth=2)
-
-        # Draw rectified chart in second subplot
-        house_occupants2 = get_house_occupants(rectified_chart)
-
-        # Draw the outer square
-        ax2.add_patch(Rectangle((0, 0), 1, 1, fill=False, linewidth=2, color='black'))
-        ax2.add_patch(Rectangle((0.3, 0.3), 0.4, 0.4, fill=False, linewidth=2, color='black'))
-        ax2.plot([0, 1], [0, 1], 'k-', linewidth=2)
-        ax2.plot([0, 1], [1, 0], 'k-', linewidth=2)
-
-        # Add house numbers and content for both charts
-        for house_num, x, y in NORTH_INDIAN_HOUSE_POSITIONS:
-            # Add to original chart
-            ax1.text(x, y, str(house_num), fontsize=14, ha='center', va='center',
-                   bbox=dict(facecolor='white', alpha=0.5, edgecolor='none'))
-
-            # Add to rectified chart
-            ax2.text(x, y, str(house_num), fontsize=14, ha='center', va='center',
-                   bbox=dict(facecolor='white', alpha=0.5, edgecolor='none'))
-
-            # Add planets if showing
-            if show_planets:
-                # Original chart planets
-                if house_num in house_occupants1 and house_occupants1[house_num]:
-                    planet_text = " ".join(house_occupants1[house_num])
-                    ax1.text(x, y - 0.08, planet_text, fontsize=12, ha='center', va='center',
-                           bbox=dict(facecolor='lightyellow', alpha=0.8, edgecolor='none'))
-
-                # Rectified chart planets
-                if house_num in house_occupants2 and house_occupants2[house_num]:
-                    planet_text = " ".join(house_occupants2[house_num])
-                    ax2.text(x, y - 0.08, planet_text, fontsize=12, ha='center', va='center',
-                           bbox=dict(facecolor='lightyellow', alpha=0.8, edgecolor='none'))
-
-        # Add birth time info
-        orig_time = data.get("original_birth_details", {}).get("birth_time", "Unknown")
-        rect_time = data.get("rectified_birth_details", {}).get("birth_time", "Unknown")
-
-        # Add a subtitle with time information
-        if isinstance(rect_time, str) and "T" in rect_time:
-            # Handle ISO format
-            rect_time = rect_time.split("T")[1]
-
-        plt.figtext(0.5, 0.02,
-                   f"Original Birth Time: {orig_time}   →   Rectified Birth Time: {rect_time}",
-                   ha="center", fontsize=14,
-                   bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
-
-        plt.suptitle("Vedic Birth Chart Comparison", fontsize=18, y=0.98)
-        plt.tight_layout(rect=[0, 0.05, 1, 0.95])
-
-        # Save the comparison chart
-        comparison_file = os.path.join(output_dir, "chart_comparison.png")
-        plt.savefig(comparison_file, dpi=150)
-        plt.close(fig)
-        print(f"Comparison chart saved to {comparison_file}")
-
-        # Create HTML comparison view
-        if format_choice in ["html", "all"]:
-            # Get base64 of comparison image
-            with open(comparison_file, 'rb') as f:
-                comparison_img_base64 = base64.b64encode(f.read()).decode('utf-8')
-
-            # Create HTML content for comparison
-            html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Vedic Birth Chart Comparison</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
-        .container {{ max-width: 1200px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        h1, h2 {{ color: #333; text-align: center; }}
-        .chart-container {{ text-align: center; margin: 20px 0; }}
-        .comparison-info {{ margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 5px; }}
-        .time-diff {{ font-weight: bold; color: #d9534f; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-        th, td {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
-        th {{ background-color: #f2f2f2; }}
-        tr:hover {{ background-color: #f5f5f5; }}
-        .changed {{ background-color: #fff4e5; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Vedic Birth Chart Comparison</h1>
-
-        <div class="comparison-info">
-            <p><strong>Original Birth Time:</strong> {orig_time}</p>
-            <p><strong>Rectified Birth Time:</strong> {rect_time}</p>
-            <p class="time-diff">Time Difference: {data.get("rectification_details", {}).get("time_adjustment", "Unknown")}</p>
-            <p><strong>Explanation:</strong> {data.get("rectification_details", {}).get("explanation", "No explanation provided.")}</p>
-        </div>
-
-        <div class="chart-container">
-            <img src="data:image/png;base64,{comparison_img_base64}" alt="Chart Comparison" style="max-width:100%;">
-        </div>
-
-        <h2>Planetary Positions Comparison</h2>
-        <table>
-            <tr>
-                <th>Planet</th>
-                <th>Original Sign</th>
-                <th>Original Degree</th>
-                <th>Rectified Sign</th>
-                <th>Rectified Degree</th>
-                <th>Changed?</th>
-            </tr>
-            """
-
-            # Normalize both charts
-            orig_normalized = normalize_chart_data(original_chart)
-            rect_normalized = normalize_chart_data(rectified_chart)
-
-            # Add planetary positions comparison
-            for planet_name in sorted(set(list(orig_normalized["planets"].keys()) + list(rect_normalized["planets"].keys()))):
-                orig_planet = orig_normalized["planets"].get(planet_name, {})
-                rect_planet = rect_normalized["planets"].get(planet_name, {})
-
-                orig_sign = orig_planet.get("sign", "Unknown")
-                orig_degree = orig_planet.get("degree", 0)
-                rect_sign = rect_planet.get("sign", "Unknown")
-                rect_degree = rect_planet.get("degree", 0)
-
-                changed = orig_sign != rect_sign or abs(orig_degree - rect_degree) > 0.5
-                row_class = "changed" if changed else ""
-
-                html_content += f"""
-                <tr class="{row_class}">
-                    <td>{planet_name.capitalize()}</td>
-                    <td>{orig_sign}</td>
-                    <td>{orig_degree:.2f}°</td>
-                    <td>{rect_sign}</td>
-                    <td>{rect_degree:.2f}°</td>
-                    <td>{"Yes" if changed else "No"}</td>
-                </tr>"""
-
-            # Add ascendant comparison
-            orig_asc = orig_normalized["angles"].get("ascendant", {})
-            rect_asc = rect_normalized["angles"].get("ascendant", {})
-
-            orig_asc_sign = orig_asc.get("sign", "Unknown")
-            orig_asc_degree = orig_asc.get("degree", 0)
-            rect_asc_sign = rect_asc.get("sign", "Unknown")
-            rect_asc_degree = rect_asc.get("degree", 0)
-
-            asc_changed = orig_asc_sign != rect_asc_sign or abs(orig_asc_degree - rect_asc_degree) > 0.5
-            asc_row_class = "changed" if asc_changed else ""
-
-            html_content += f"""
-                <tr class="{asc_row_class}">
-                    <td>Ascendant</td>
-                    <td>{orig_asc_sign}</td>
-                    <td>{orig_asc_degree:.2f}°</td>
-                    <td>{rect_asc_sign}</td>
-                    <td>{rect_asc_degree:.2f}°</td>
-                    <td>{"Yes" if asc_changed else "No"}</td>
-                </tr>"""
-
-            html_content += """
-            </table>
-        </div>
-    </div>
-</body>
-</html>
-            """
-
-            # Save HTML comparison to file
-            comparison_html_file = os.path.join(output_dir, "chart_comparison.html")
-            with open(comparison_html_file, 'w') as f:
-                f.write(html_content)
-            print(f"HTML comparison saved to {comparison_html_file}")
-
-def main():
-    """Main function to process arguments and run the visualization."""
-    parser = argparse.ArgumentParser(description='Visualize Vedic charts from JSON data')
-    parser.add_argument('--input-json', required=True, help='Path to input JSON file')
-    parser.add_argument('--output-dir', required=True, help='Directory to save output files')
-    parser.add_argument('--format', choices=['ascii', 'png', 'html', 'all'], default='all',
-                      help='Output format (default: all)')
-    parser.add_argument('--show-planets', type=str, choices=['true', 'false'], default='true',
-                      help='Show planet symbols in chart (default: true)')
-
-    args = parser.parse_args()
-
-    show_planets = args.show_planets.lower() == 'true'
-
-    process_charts(args.input_json, args.output_dir, args.format, show_planets)
-
-if __name__ == "__main__":
-    main()
+            # Wait before polling again
+            await asyncio.sleep(2)
+            attempts += 1
+
+    assert is_complete, "Rectification did not complete in expected time"
 ```
-3. HTML Template for Interactive Visualization
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Vedic Birth Chart Visualization</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1, h2 {
-            color: #333;
-            text-align: center;
-        }
-        .chart-container {
-            display: flex;
-            justify-content: space-around;
-            flex-wrap: wrap;
-            margin: 20px 0;
-        }
-        .chart {
-            position: relative;
-            width: 500px;
-            height: 500px;
-            margin: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-        .square {
-            position: absolute;
-            box-sizing: border-box;
-        }
-        .outer-square {
-            width: 100%;
-            height: 100%;
-            border: 2px solid black;
-        }
-        .inner-square {
-            width: 40%;
-            height: 40%;
-            top: 30%;
-            left: 30%;
-            border: 2px solid black;
-        }
-        .diagonal1 {
-            position: absolute;
-            width: 140%;
-            height: 2px;
-            background-color: black;
-            top: 50%;
-            left: -20%;
-            transform: rotate(45deg);
-            transform-origin: center;
-        }
-        .diagonal2 {
-            position: absolute;
-            width: 140%;
-            height: 2px;
-            background-color: black;
-            top: 50%;
-            left: -20%;
-            transform: rotate(-45deg);
-            transform-origin: center;
-        }
-        .house-label {
-            position: absolute;
-            font-weight: bold;
-            font-size: 18px;
-        }
-        .planets {
-            position: absolute;
-            font-size: 14px;
-            background-color: rgba(255, 255, 240, 0.8);
-            padding: 3px 6px;
-            border-radius: 3px;
-        }
-        .chart-title {
-            text-align: center;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .comparison-info {
-            margin: 20px 0;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border-radius: 5px;
-        }
-        .table-container {
-            margin-top: 30px;
-            overflow-x: auto;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            padding: 8px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-        .changed {
-            background-color: #fff4e5;
-        }
-        .buttons {
-            display: flex;
-            justify-content: center;
-            margin: 20px 0;
-        }
-        button {
-            padding: 10px 15px;
-            margin: 0 10px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        .tab-container {
-            display: flex;
-            border-bottom: 1px solid #ddd;
-            margin-bottom: 20px;
-        }
-        .tab {
-            padding: 10px 15px;
-            cursor: pointer;
-            background-
--- incomplete code <complete the code>
+
+#### 4.1.7 Chart Comparison Test
+
+```python
+@pytest.mark.end_to_end
+async def test_chart_comparison():
+    """Test chart comparison functionality."""
+    # Setup session with rectified chart
+    rectify_data = await setup_rectified_chart()
+    headers = {"Authorization": f"Bearer {rectify_data['session_token']}"}
+    original_chart_id = rectify_data["original_chart_id"]
+    rectified_chart_id = rectify_data["rectified_chart_id"]
+
+    # 1. Compare charts
+    compare_response = await client.get(
+        f"/api/chart/compare?chart1={original_chart_id}&chart2={rectified_chart_id}",
+        headers=headers
+    )
+    assert compare_response.status_code == 200
+    comparison_data = compare_response.json()
+
+    # 2. Verify comparison data
+    assert "differences" in comparison_data
+    assert len(comparison_data["differences"]) > 0  # Should have some differences
+
+    # 3. Check for specific difference types required by expected outcomes
+    difference_types = [diff["type"] for diff in comparison_data["differences"]]
+
+    # Should at least include ascendant changes if time changed
+    assert any("ascendant" in diff_type.lower() for diff_type in difference_types)
+
+    # 4. Verify house position changes
+    assert any("house" in diff.lower() for diff in str(comparison_data["differences"]))
 ```
+
+#### 4.1.8 Chart Export and PDF Generation Test
+
+```python
+@pytest.mark.end_to_end
+async def test_chart_export():
+    """Test chart export functionality."""
+    # Setup session with rectified chart
+    rectify_data = await setup_rectified_chart()
+    headers = {"Authorization": f"Bearer {rectify_data['session_token']}"}
+    chart_id = rectify_data["rectified_chart_id"]
+
+    # 1. Export chart as PDF
+    export_response = await client.post(
+        "/api/chart/export",
+        json={"chart_id": chart_id, "format": "pdf"},
+        headers=headers
+    )
+    assert export_response.status_code == 200
+    export_data = export_response.json()
+
+    # 2. Verify export data
+    assert "export_id" in export_data
+    assert "download_url" in export_data
+
+    # 3. Download exported file
+    download_response = await client.get(export_data["download_url"], headers=headers)
+    assert download_response.status_code == 200
+    assert download_response.headers["Content-Type"] == "application/pdf"
+
+    # 4. Verify content length is reasonable for a PDF
+    content = download_response.content
+    assert len(content) > 1000  # PDF should have reasonable size
+
+    # 5. Verify PDF starts with correct header
+    assert content.startswith(b"%PDF-")
+```
+
+### 4.2 WebSocket-Based Real-Time Progress Testing
+
+```python
+@pytest.mark.end_to_end
+async def test_websocket_progress_updates():
+    """Test real-time progress updates via WebSockets."""
+    # Setup session and complete questionnaire
+    quest_data = await setup_completed_questionnaire()
+    session_token = quest_data["session_token"]
+    chart_id = quest_data["chart_id"]
+
+    # 1. Connect to WebSocket
+    async with websockets.connect(f"ws://api-gateway:3001/api/ws?token={session_token}") as ws:
+        # 2. Send authentication message
+        await ws.send(json.dumps({"type": "authenticate", "token": session_token}))
+        auth_response = json.loads(await ws.recv())
+        assert auth_response["type"] == "authentication_result"
+        assert auth_response["success"] is True
+
+        # 3. Subscribe to rectification updates
+        await ws.send(json.dumps({
+            "type": "subscribe",
+            "channel": f"rectification:{chart_id}"
+        }))
+
+        # 4. Trigger rectification via API
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "http://api-gateway:3001/api/chart/rectify",
+                json={"chart_id": chart_id},
+                headers={"Authorization": f"Bearer {session_token}"}
+            ) as response:
+                assert response.status == 200
+
+        # 5. Collect progress updates
+        updates = []
+        try:
+            while True:
+                message = await asyncio.wait_for(ws.recv(), timeout=30)
+                data = json.loads(message)
+                updates.append(data)
+
+                # Break when rectification is complete
+                if data.get("type") == "rectification_complete":
+                    break
+        except asyncio.TimeoutError:
+            # Fail if we don't get completion in reasonable time
+            assert False, "Timed out waiting for rectification completion event"
+
+        # 6. Verify all required event types were received
+        event_types = [update.get("type") for update in updates]
+        assert "rectification_started" in event_types
+        assert "rectification_progress" in event_types
+        assert "rectification_complete" in event_types
+
+        # 7. Verify progress percentage increases
+        progress_updates = [u for u in updates if u.get("type") == "rectification_progress"]
+        if len(progress_updates) >= 2:
+            first_progress = progress_updates[0].get("percentage", 0)
+            last_progress = progress_updates[-1].get("percentage", 0)
+            assert last_progress > first_progress
+```
+
+### 4.3 3D Visualization Testing
+
+```python
+@pytest.mark.end_to_end
+def test_3d_visualization_rendering():
+    """Test 3D visualization rendering using browser automation."""
+    # This test uses Playwright to check 3D visualization
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+
+        # 1. Setup test session and navigate to chart page
+        test_url = setup_test_chart_page()
+        page.goto(test_url)
+
+        # 2. Wait for 3D visualization to load
+        page.wait_for_selector(".planet-visualization-container canvas")
+
+        # 3. Check for WebGL content (should have canvas with planets)
+        canvas = page.query_selector(".planet-visualization-container canvas")
+        assert canvas is not None
+
+        # 4. Take screenshot of 3D view for verification
+        canvas.screenshot(path="3d_visualization_test.png")
+
+        # 5. Test interaction - rotation should work
+        # Simulate dragging on canvas to rotate
+        canvas.click(position={"x": 100, "y": 100})
+        canvas.mouse.down()
+        canvas.mouse.move(200, 100)
+        canvas.mouse.up()
+
+        # Wait for rendering update
+        page.wait_for_timeout(500)
+
+        # 6. Verify tooltips on hover
+        canvas.hover(position={"x": 150, "y": 150})
+        tooltip = page.query_selector(".planet-tooltip")
+        assert tooltip is not None
+
+        # 7. Check planet positions match chart data
+        # This would require evaluating JavaScript to get planet positions from the scene
+        # and comparing with the expected positions
+        planet_positions = page.evaluate("""() => {
+            const scene = window.planetVisualization.scene;
+            return Object.fromEntries(
+                Array.from(scene.children)
+                    .filter(obj => obj.userData && obj.userData.isPlanet)
+                    .map(planet => [planet.name, {
+                        x: planet.position.x,
+                        y: planet.position.y,
+                        z: planet.position.z
+                    }])
+            );
+        }""")
+
+        # Verify we have all required planets
+        required_planets = ["sun", "moon", "mars", "mercury", "jupiter", "venus", "saturn"]
+        for planet in required_planets:
+            assert planet in planet_positions
+
+        browser.close()
+```
+
+## 5. Real-World User Testing Scenarios
+
+In addition to automated tests, we implement structured real-world user testing scenarios to identify usability issues and validate the application against typical use cases.
+
+### 5.1 First-Time User Test Scenarios
+
+#### 5.1.1 Complete First-Time User Journey
+
+This test guides a new user through the entire application flow, recording their experience:
+
+```
+# First-Time User Test Script
+
+## Participant Profile
+- No prior knowledge of astrology or birth chart applications
+- Limited technical background
+
+## Test Setup
+1. Provide user with a clean browser and the application URL
+2. Set up screen and interaction recording
+3. Provide birth details to use for testing:
+   - Date: [Provide test date]
+   - Time: [Provide test time with some uncertainty]
+   - Location: [Provide test location]
+
+## Testing Script
+1. Introduction (2 min)
+   - Brief explanation: "This is a birth time rectification application."
+   - Instruction: "Please try to use this application to get a more accurate birth time."
+   - No further guidance on how to use the application
+
+2. Task Observation (15-20 min)
+   - Observer records and timestamps:
+     * Navigation patterns
+     * Hesitation points
+     * Errors encountered
+     * Questions asked
+     * Comments made
+
+3. Key Points to Record
+   - How easily does user find and use the birth details form?
+   - Do they understand the geocoding autocomplete?
+   - Do they understand the chart after it's generated?
+   - Can they navigate to the questionnaire?
+   - Do they understand the questions being asked?
+   - Do they comprehend the rectification process?
+   - Can they understand the comparison between original and rectified charts?
+   - Do they attempt to export/share results?
+
+4. Post-Task Interview (10 min)
+   - What was the most confusing part of the application?
+   - What was most intuitive or easiest to use?
+   - Did you understand what the application was doing at each step?
+   - Would you use this application again? Why or why not?
+   - How confident are you in the results provided?
+```
+
+#### 5.1.2 Uncertain Birth Time User Scenario
+
+This scenario tests users who have significant uncertainty about their birth time:
+
+```
+# Uncertain Birth Time Test Script
+
+## Participant Profile
+- Basic understanding of astrology
+- Knows birth date but has 2-3 hour uncertainty about birth time
+
+## Test Setup
+1. Provide user with birth details that have a wide time range:
+   - Date: [Provide specific date]
+   - Time Range: "Sometime between 2:00 PM and 5:00 PM"
+   - Location: [Specific location]
+
+## Testing Script
+1. Specific Task Instructions
+   - Ask user to enter their uncertain birth time and indicate uncertainty
+   - Guide them to complete the questionnaire with detailed, thoughtful answers
+   - Have them evaluate the rectified time result against their limited knowledge
+
+2. Key Points to Record
+   - Does the user understand how to indicate time uncertainty?
+   - How does the questionnaire adapt to uncertain time input?
+   - Does the confidence score reflect the uncertainty appropriately?
+   - Does the rectification narrow down the time within the provided range?
+   - How satisfied is the user with the explanation of the rectified time?
+
+3. Specific Evaluation Questions
+   - "How confident are you in the rectified time?"
+   - "Did the application ask relevant questions about your life and personality?"
+   - "Do you feel the rectified chart better represents you than the uncertain original?"
+```
+
+#### 5.1.3 Unknown Birth Time User Scenario
+
+This scenario tests users who have no idea of their birth time:
+
+```
+# Unknown Birth Time Test Script
+
+## Participant Profile
+- Person with no known birth time (only date)
+- Interested in obtaining potential birth time
+
+## Test Setup
+1. Provide user with only birth date and location:
+   - Date: [Specific date]
+   - Time: "Unknown"
+   - Location: [Specific location]
+
+## Testing Script
+1. Specific Task Instructions
+   - Ask user to indicate completely unknown birth time
+   - Guide them to provide very detailed answers in questionnaire
+   - Have them evaluate if the rectified time seems plausible
+
+2. Key Points to Record
+   - Does the application appropriately handle completely unknown time?
+   - How extensive is the questionnaire when time is unknown?
+   - What confidence level does the system provide?
+   - Does the rectification provide reasonable explanation with low confidence?
+
+3. Specific Evaluation Questions
+   - "Did the application make clear that unknown birth times have lower confidence?"
+   - "Were you provided enough questions to compensate for the missing time?"
+   - "Do you feel the rectification process gathered enough information to make a reasonable estimate?"
+```
+
+### 5.2 Issue Documentation Process
+
+For each issue discovered during user testing, we document using this standardized format:
+
+```
+# Issue Documentation Template
+
+## Issue Information
+ID: [UUID]
+Discovered By: [Tester ID]
+Discovery Date: [YYYY-MM-DD]
+Severity: [Critical/Major/Minor/Cosmetic]
+Type: [Functionality/Usability/Performance/UI]
+
+## Issue Description
+Brief: [Short 1-line summary]
+Detailed: [Complete description of the issue]
+
+## Steps to Reproduce
+1. [First step]
+2. [Second step]
+3. [nth step]
+
+## Expected vs. Actual Behavior
+Expected: [What should have happened]
+Actual: [What actually happened]
+
+## Environment Details
+Device: [Desktop/Mobile/Tablet]
+Browser: [Chrome/Firefox/Safari + version]
+Screen Resolution: [e.g., 1920x1080]
+Network Conditions: [Good/Poor/Simulated slow]
+
+## Evidence
+Screenshots: [Links to screenshots]
+Video: [Link to screen recording timestamp]
+Console Logs: [Any relevant error messages]
+
+## User Feedback
+[Direct quotes from the user about this issue]
+
+## Impact Assessment
+Task Completion: [Blocked/Difficult/Minor hindrance/No impact]
+User Sentiment: [Frustrated/Confused/Neutral/Pleased]
+```
+
+## 6. Docker-Based Integration Testing with test_sequence_flow_real.py
+
+The existing `test_sequence_flow_real.py` file provides an excellent foundation for testing the full application flow. We can leverage this test in a Docker environment for comprehensive testing.
+
+### 6.1 Running the Sequence Flow Test in Docker
+
+```bash
+#!/bin/bash
+# Run the full sequence flow test in Docker
+
+# Set up environment
+export OPENAI_API_KEY="your-openai-key"
+
+# Build the Docker containers
+docker-compose -f docker-compose.test.yml build
+
+# Start dependent services
+docker-compose -f docker-compose.test.yml up -d redis postgres ai-service api-gateway
+
+# Wait for services to be ready
+echo "Waiting for services to start..."
+sleep 10
+
+# Run the test with real API endpoints
+docker-compose -f docker-compose.test.yml run --
+```
+
+# Testing Approach Implementation Plan
+
+## Overview
+
+This document outlines the practical implementation strategy for testing the Birth Time Rectifier application. It integrates our comprehensive test approaches into a concrete execution plan, addressing both automated testing of the full application sequence and real-world user testing scenarios.
+
+# Birth Time Rectifier Testing: Gap Analysis Summary
+
+This document summarizes how our comprehensive testing strategy addresses the specific gaps identified in the gap analysis document and ensures complete test coverage of the application's end-to-end functionality.
+
+## 1. Mapping Identified Gaps to Test Implementations
+
+The following table maps each key issue from the gap analysis to specific test implementations:
+
+| Gap Area | Testing Resolution | Implementation Location |
+|----------|-------------------|------------------------|
+| **Incomplete Astrological Calculations** | Validated calculations with benchmark birth chart data | `test_chart_data_accuracy_verification` |
+| **Inconsistent Database Integration** | Database operations testing across all workflows | `test_session_initialization`, `test_chart_storage` |
+| **Incomplete OpenAI Integration** | OpenAI verification tests for all components | `test_comprehensive_openai_integration` |
+| **Questionnaire Processing Limitations** | End-to-end questionnaire flow testing | `test_questionnaire_flow` |
+| **Error Handling Gaps** | Network failure, edge case, and recovery testing | `test_network_instability`, `test_error_retry_mechanism` |
+| **Workflow Misalignment** | Full sequence testing following architecture diagram | `test_sequence_flow_real.py` |
+| **Visualization Implementation Gaps** | Chart export and visualization testing | `test_pdf_export_functionality`, `test_3d_visualization`|
+| **Dependency Fallbacks** | Testing with fallbacks disabled | Environment setting: `DISABLE_FALLBACKS=true` |
+| **WebSocket Implementation** | Real-time progress update testing | `test_websocket_detailed_progress` |
+
+## 2. End-to-End Application Testing
+
+Our comprehensive testing approach validates the complete application flow according to the original sequence diagram, ensuring each component functions correctly and integrates properly with others:
+
+### 2.1 Automated Sequence Testing
+
+The automated testing framework ensures all aspects of the sequence diagram are properly implemented:
+
+1. **Session Initialization** → Tests validate Redis integration, token management
+2. **Location Geocoding** → Tests verify coordinate resolution, timezone detection
+3. **Birth Details Validation** → Tests check format validation, astrological constraints
+4. **Chart Generation with OpenAI** → Tests confirm proper AI verification integration
+5. **Questionnaire Flow** → Tests verify adaptive questioning, contradiction handling
+6. **Birth Time Rectification** → Tests validate AI-driven analysis accuracy
+7. **Chart Comparison** → Tests check difference detection and visualization
+8. **Chart Export** → Tests confirm proper PDF/image generation
+
+### 2.2 Critical Technical Component Testing
+
+For technically complex components, additional focused testing ensures robustness:
+
+1. **WebSocket Integration** tests verify:
+   - Event propagation
+   - Connection stability
+   - Reconnection logic
+   - Progress reporting detail
+
+2. **OpenAI Integration** tests verify:
+   - Consistent AI model usage
+   - Proper error handling
+   - Response parsing
+   - Fallback behavior when necessary
+
+3. **3D Visualization** tests verify:
+   - WebGL rendering accuracy
+   - Performance across devices
+   - Interactive controls
+   - Data consistency with chart
+
+## 3. Real-World User Testing
+
+To complement automated testing, comprehensive real-world testing validates the application with actual users in realistic scenarios:
+
+### 3.1 First-Time User Testing
+
+The first-time user testing protocol includes:
+
+- **15-20 diverse participants** with varying astrological knowledge
+- **Structured user journey** through the complete application flow
+- **Think-aloud protocol** to capture user thoughts and confusion points
+- **Quantitative metrics** tracking task completion, time-on-task, error rates
+- **Post-test interviews** to gather qualitative feedback
+
+### 3.2 Specialized Testing Scenarios
+
+Advanced real-world testing addresses edge cases and complex scenarios:
+
+1. **Returning users** and session persistence
+2. **Network instability** and connection recovery
+3. **Resource-constrained devices** and performance degradation
+4. **Timezone and geographical edge cases**
+5. **Professional astrologer workflows**
+6. **Accessibility requirements**
+7. **Multi-device usage patterns**
+
+## 4. Gap Analysis Resolution Status
+
+Our testing strategy directly addresses all identified gaps in the current implementation:
+
+| Gap Area | Resolution Approach | Status |
+|----------|---------------------|--------|
+| **Chart Service Implementations** | Test chart export, rectification, calculation, comparison, verification | Comprehensive coverage |
+| **Chart Visualization Issues** | Test all visualization types and export formats | Comprehensive coverage |
+| **Database Implementation Issues** | Test error handling, storage operations, validation | Comprehensive coverage |
+| **Core Rectification Issues** | Test with fallbacks disabled, validate calculations with benchmarks | Comprehensive coverage |
+| **Questionnaire Service Issues** | Test dynamic question generation, answer analysis, contradiction handling | Comprehensive coverage |
+| **API Routing Gaps** | Test all endpoints for proper integration and error handling | Comprehensive coverage |
+| **OpenAI Integration Gaps** | Test with strict validation, unified prompts, error handling | Comprehensive coverage |
+| **Session Management and Real-time Communication** | Test WebSocket events, reconnection, progress updates | Comprehensive coverage |
+
+## 5. Implementation Timeline
+
+The following timeline ensures all gaps are addressed systematically:
+
+| Week | Focus | Gap Areas Addressed |
+|------|-------|---------------------|
+| 1-2 | Gap Remediation | OpenAI integration, WebSocket implementation, PDF Export |
+| 3 | Automated Sequence Testing | Workflow misalignment, astrological calculations |
+| 4 | Environment Setup | Dependency fallbacks, database integration |
+| 5-6 | First-Time User Testing | Questionnaire processing, UI/UX issues |
+| 7-8 | Advanced Testing | Edge cases, error handling |
+| 9 | Performance Testing | Visualization implementation, resource usage |
+| 10-12 | Long-term Field Testing | Real-world usage patterns, environment variations |
+
+## 6. Key Metrics for Validating Gap Resolution
+
+To verify that the gaps have been successfully addressed, the following metrics will be tracked:
+
+1. **Calculation Accuracy**: Planetary positions within 1 arc-minute of reference data
+2. **Database Reliability**: Zero data loss across all test scenarios
+3. **OpenAI Integration**: 100% API call success rate with proper error handling
+4. **Questionnaire Quality**: 90%+ question relevance rating from users
+5. **Error Recovery**: 100% recovery from simulated failures
+6. **Workflow Alignment**: Complete workflow match with sequence diagram
+7. **Visualization Quality**: Professional-grade output in all formats
+8. **WebSocket Performance**: 100% event delivery with no missed updates
+
+## 7. Continuous Testing Framework
+
+To ensure gaps don't reappear in future development:
+
+1. **Automated Test Pipeline**: CI/CD integration with GitHub Actions
+2. **Regression Test Suite**: Verification of all fixed gaps in every build
+3. **Benchmark Dataset**: Reference data for verifying continued calculation accuracy
+4. **User Testing Cycles**: Periodic user testing sessions to validate ongoing usability
+
+-----
+
+## 1. Testing Approach Implementation Phases
+
+### Phase 1: Gaps Remediation (Week 1-2)
+
+Our first priority is addressing the critical gaps identified in the gap analysis:
+
+1. **Fix incomplete OpenAI integration**
+   - Implement consistent OpenAI verification across all components
+   - Ensure proper error handling for API failures
+   - Standardize prompt templates for birth time verification
+
+2. **Complete WebSocket implementation**
+   - Implement detailed progress updates for rectification
+   - Add proper reconnection logic
+   - Ensure event consistency across all message types
+
+3. **Address chart export and visualization issues**
+   - Implement PDF generation with proper formatting
+   - Connect chart visualization functions with export functionality
+   - Test export on all major browsers
+
+4. **Enhance error handling**
+   - Implement comprehensive retry logic
+   - Standardize error response formats
+   - Add detailed progress information
+
+### Phase 2: Docker Environment Setup (Week 2)
+
+1. **Create Docker test environment**
+   - Implement docker-compose.test.yml
+   - Configure all required services (Redis, PostgreSQL)
+   - Set up test runner container
+
+2. **Environment configuration**
+   - Configure strict validation mode (disable fallbacks)
+   - Set up OpenAI API integration
+   - Prepare ephemeris data access
+
+3. **Test dataset preparation**
+   - Create benchmark birth data sets
+   - Prepare edge case test data
+   - Generate reference charts for validation
+
+### Phase 3: Automated Sequence Testing (Week 3)
+
+1. **Enhance sequence flow test**
+   - Extend existing test_sequence_flow_real.py
+   - Add validation for all sequence components
+   - Implement comprehensive assertions
+
+2. **Implement specialized component tests**
+   - WebSocket tests for real-time updates
+   - OpenAI integration tests
+   - Chart export and visualization tests
+
+3. **Test execution and refinement**
+   - Run tests in Docker environment
+   - Fix any failures
+   - Document test results
+
+### Phase 4: User Testing Preparation (Week 4)
+
+1. **Participant recruitment**
+   - Create screening criteria and questionnaire
+   - Set up recruitment channels
+   - Schedule participants
+
+2. **Test environment setup**
+   - Configure testing room and equipment
+   - Install recording software
+   - Prepare observation templates
+
+3. **Protocol finalization**
+   - Create test scripts
+   - Prepare moderator guidelines
+   - Train observers
+
+### Phase 5: First-Time User Testing (Week 5-6)
+
+1. **Basic user testing (15-20 participants)**
+   - Run protocol-based testing sessions
+   - Document all user interactions
+   - Collect quantitative metrics
+
+2. **Data analysis**
+   - Identify common issues
+   - Categorize by severity
+   - Prioritize fixes
+
+3. **Initial fixes**
+   - Address critical usability issues
+   - Implement quick usability enhancements
+   - Document changes
+
+### Phase 6: Advanced User Testing (Week 7-8)
+
+1. **Edge case testing**
+   - Test with returning users
+   - Run network instability tests
+   - Test timezone and location edge cases
+
+2. **Special scenario testing**
+   - Professional astrologer workflows
+   - Accessibility testing
+   - Group collaboration testing
+
+3. **Long-term testing preparation**
+   - Set up extended usage study
+   - Configure monitoring tools
+   - Recruit long-term testers
+
+### Phase 7: Performance & Stress Testing (Week 9)
+
+1. **Load testing**
+   - Simulate concurrent users
+   - Test system limits
+   - Identify bottlenecks
+
+2. **Long-running tests**
+   - Extended session testing
+   - Memory leak detection
+   - Session persistence verification
+
+3. **Rapid interaction testing**
+   - Race condition testing
+   - UI responsiveness under load
+   - Data consistency verification
+
+### Phase 8: Field Testing (Week 10-12)
+
+1. **Multi-location testing**
+   - Various network environments
+   - Different devices
+   - Time-of-day variations
+
+2. **Long-term usage study**
+   - 30-60 day user tracking
+   - Periodic feedback collection
+   - Feature discovery monitoring
+
+3. **Final testing report**
+   - Comprehensive issue documentation
+   - Performance benchmarks
+   - Usability metrics
+
+## 2. Resource Requirements
+
+### 2.1 Personnel
+
+| Role | Responsibilities | Number Required |
+|------|------------------|-----------------|
+| **Test Lead** | Overall coordination, test planning, reporting | 1 |
+| **Test Engineers** | Automated test implementation, Docker configuration | 2 |
+| **UX Researchers** | User testing moderation, protocol development | 2 |
+| **Observers** | Note-taking, issue documentation | 2 |
+| **Development Support** | Fixing issues, implementing test harnesses | 2 |
+| **Astrology Subject Matter Expert** | Validation of astrological calculations | 1 |
+
+### 2.2 Hardware/Software
+
+| Resource | Purpose | Specifications |
+|----------|---------|----------------|
+| **Test Devices** | Cross-platform testing | Desktop (Mac/Windows/Linux), Mobile devices (iOS/Android), Tablets |
+| **Recording Equipment** | User testing documentation | Screen recording software, webcams, microphones |
+| **Testing Environment** | User testing sessions | Quiet room, comfortable seating, proper lighting |
+| **Network Tools** | Network simulation | Throttling tools, proxy servers for packet manipulation |
+| **Load Testing Tools** | Simulating concurrent users | JMeter or k6 for API load testing |
+| **Docker Environment** | Isolated testing | Server with 16GB+ RAM, 8+ cores |
+
+### 2.3 External Services
+
+| Service | Purpose | Requirements |
+|---------|---------|--------------|
+| **OpenAI API** | Testing AI integration | Production API key with sufficient quota |
+| **Geocoding Service** | Testing location features | Production API key with global coverage |
+| **User Recruitment Service** | Finding test participants | Budget for participant incentives |
+
+## 3. Test Case Implementation Priorities
+
+### 3.1 Critical Path Test Cases
+
+These test cases must be implemented first as they validate core functionality:
+
+1. **Complete sequence flow** - Following the entire user journey
+2. **OpenAI verification** - Testing the AI integration for chart validation
+3. **Questionnaire flow** - Testing the dynamic question generation
+4. **Birth time rectification** - Testing the core rectification algorithm
+5. **WebSocket progress updates** - Testing real-time communication
+
+### 3.2 Secondary Test Cases
+
+These test cases are important but can be implemented after critical path:
+
+1. **Chart comparison** - Testing difference detection and visualization
+2. **Chart export** - Testing PDF/image generation
+3. **Session persistence** - Testing user data preservation
+4. **Error handling** - Testing recovery from failures
+5. **3D visualization** - Testing WebGL rendering and interaction
+
+### 3.3 Edge Case Test Cases
+
+These test cases focus on challenging scenarios:
+
+1. **Timezone boundary cases** - Testing date/time edge cases
+2. **Extreme latitude locations** - Testing polar regions
+3. **Network failure recovery** - Testing connectivity issues
+4. **Historical date calculations** - Testing very old birth dates
+5. **Resource-constrained devices** - Testing performance limits
+
+## 4. Detailed Test Implementation Guide
+
+### 4.1 Docker Test Environment Implementation
+
+The following steps detail how to set up the Docker testing environment:
+
+```bash
+# 1. Create test directory structure
+mkdir -p test-environment/{data,logs,scripts}
+
+# 2. Generate docker-compose.test.yml
+cat > docker-compose.test.yml << 'EOF'
+version: '3.8'
+services:
+  # Python Backend Service
+  ai-service:
+    build:
+      context: .
+      dockerfile: ai_service.Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - POSTGRES_CONNECTION=postgresql://postgres:postgres@postgres:5432/birth_rectifier
+      - DISABLE_FALLBACKS=true
+      - FORCE_REAL_API=true
+      - STRICT_VALIDATION=true
+    volumes:
+      - ./ephemeris:/app/ephemeris
+      - ./tests/test_data_source:/app/tests/test_data_source
+    depends_on:
+      - redis
+      - postgres
+
+  # API Gateway Service
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api_gateway.Dockerfile
+    environment:
+      - AI_SERVICE_URL=http://ai-service:8000
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "3001:3001"
+    depends_on:
+      - ai-service
+      - redis
+
+  # Redis for Session Management
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # PostgreSQL for Data Storage
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=birth_rectifier
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Test Runner Container
+  test-runner:
+    build:
+      context: .
+      dockerfile: test_runner.Dockerfile
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:3001
+      - AI_SERVICE_URL=http://ai-service:8000
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_CONNECTION=postgresql://postgres:postgres@postgres:5432/birth_rectifier
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DISABLE_FALLBACKS=true
+      - FORCE_REAL_API=true
+      - STRICT_VALIDATION=true
+    volumes:
+      - ./tests:/app/tests
+      - ./ephemeris:/app/ephemeris
+      - ./test-output:/app/test-output
+    depends_on:
+      - ai-service
+      - api-gateway
+      - redis
+      - postgres
+
+volumes:
+  postgres_data:
+EOF
+
+# 3. Create test runner Dockerfile
+cat > test_runner.Dockerfile << 'EOF'
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install pytest pytest-asyncio pytest-html requests-mock
+
+COPY . .
+
+CMD ["pytest", "-v"]
+EOF
+
+# 4. Script to run tests with multiple test datasets
+cat > test-environment/scripts/run_test_matrix.sh << 'EOF'
+#!/bin/bash
+set -e
+
+echo "Running test matrix with multiple datasets..."
+
+# Create test output directory
+mkdir -p test-output
+
+# Run tests with different birth data files
+for test_case in tests/test_data_source/input_birth_data_*.json; do
+  echo "Testing with dataset: $test_case"
+  cp "$test_case" tests/test_data_source/input_birth_data.json
+
+  # Run the sequence flow test
+  docker-compose -f docker-compose.test.yml run --rm test-runner \
+    pytest tests/integration/test_sequence_flow_real.py -v
+
+  # Save test results
+  test_case_name=$(basename "$test_case" .json)
+  mkdir -p "test-output/$test_case_name"
+  cp tests/test_data_source/test_charts_data.json "test-output/$test_case_name/"
+done
+
+echo "Test matrix completed."
+EOF
+
+chmod +x test-environment/scripts/run_test_matrix.sh
+```
+
+### 4.2 Automated Test Implementation Examples
+
+#### 4.2.1 Example: WebSocket Testing Implementation
+
+```python
+# tests/integration/test_websocket_updates.py
+
+import pytest
+import asyncio
+import json
+import time
+import websockets
+import aiohttp
+from helpers import setup_test_session, create_test_chart
+
+@pytest.mark.asyncio
+async def test_websocket_detailed_progress():
+    """Test detailed progress updates for rectification via WebSockets."""
+    # Setup and initialize chart for rectification
+    session_data = await setup_test_session()
+    chart_data = await create_test_chart(session_data["token"])
+
+    chart_id = chart_data["chart_id"]
+    session_token = session_data["token"]
+
+    # Connect to WebSocket and authenticate
+    async with websockets.connect(f"ws://api-gateway:3001/api/ws?token={session_token}") as ws:
+        # Authentication and channel subscription
+        await ws.send(json.dumps({"type": "authenticate", "token": session_token}))
+        auth_response = json.loads(await ws.recv())
+        assert auth_response["type"] == "authentication_result"
+        assert auth_response["success"] is True
+
+        # Subscribe to rectification updates
+        await ws.send(json.dumps({
+            "type": "subscribe",
+            "channel": f"rectification:{chart_id}"
+        }))
+
+        # Start rectification process via REST API
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "http://api-gateway:3001/api/chart/rectify",
+                json={"chart_id": chart_id},
+                headers={"Authorization": f"Bearer {session_token}"}
+            ) as response:
+                assert response.status == 200
+
+        # Collect all progress messages
+        progress_messages = []
+        completion_message = None
+        start_time = time.time()
+
+        # Wait for messages with timeout
+        try:
+            while True:
+                message = await asyncio.wait_for(ws.recv(), timeout=30)
+                data = json.loads(message)
+
+                if data.get("type") == "rectification_progress":
+                    progress_messages.append(data)
+                elif data.get("type") == "rectification_complete":
+                    completion_message = data
+                    break
+
+                # Safety timeout
+                if time.time() - start_time > 120:
+                    raise TimeoutError("Rectification taking too long")
+        except asyncio.TimeoutError:
+            pytest.fail("Timed out waiting for rectification completion")
+
+        # Verify we received progress updates
+        assert len(progress_messages) >= 3, "Not enough progress updates"
+
+        # Verify progress percentage increases
+        percentages = [msg.get("percentage", 0) for msg in progress_messages]
+        assert percentages[-1] > percentages[0], "Progress should increase"
+
+        # Verify completion message
+        assert completion_message is not None, "Missing completion message"
+        assert "rectified_time" in completion_message, "Missing rectified time"
+        assert "confidence" in completion_message, "Missing confidence score"
+```
+
+#### 4.2.2 Example: PDF Export Testing Implementation
+
+```python
+# tests/integration/test_export_functionality.py
+
+import pytest
+import aiohttp
+import io
+import re
+from helpers import setup_test_session, create_test_chart, complete_rectification
+
+@pytest.mark.asyncio
+async def test_pdf_export_functionality():
+    """Test the PDF export functionality and verify content."""
+    # Setup rectified chart
+    session_data = await setup_test_session()
+    chart_data = await create_test_chart(session_data["token"])
+    rectification = await complete_rectification(
+        session_data["token"],
+        chart_data["chart_id"]
+    )
+
+    session_token = session_data["token"]
+    chart_id = rectification["rectified_chart_id"]
+
+    # Request export with various options
+    export_options = {
+        "format": "pdf",
+        "include_comparison": True,
+        "include_interpretation": True
+    }
+
+    # Export request
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "http://api-gateway:3001/api/chart/export",
+            json={"chart_id": chart_id, "options": export_options},
+            headers={"Authorization": f"Bearer {session_token}"}
+        ) as response:
+            assert response.status == 200
+            export_data = await response.json()
+
+            # Verify export response
+            assert "export_id" in export_data
+            assert "download_url" in export_data
+
+            # Download the exported file
+            download_url = export_data["download_url"]
+            async with session.get(
+                f"http://api-gateway:3001{download_url}",
+                headers={"Authorization": f"Bearer {session_token}"}
+            ) as download_response:
+                assert download_response.status == 200
+                assert download_response.headers["Content-Type"] == "application/pdf"
+
+                # Get PDF content
+                pdf_content = await download_response.read()
+
+                # Basic PDF validation
+                assert pdf_content.startswith(b"%PDF-")
+                assert len(pdf_content) > 10000  # Reasonable size for a chart
+
+                # Convert to text for content checking
+                pdf_text = pdf_content.decode('latin-1')  # Simple extraction
+
+                # Verify content
+                assert "Birth Chart

@@ -16,14 +16,17 @@ from fastapi.responses import FileResponse
 from fastapi.background import BackgroundTasks
 import re
 import traceback
+import tempfile
+import base64
+import asyncio
 
 from ai_service.services import get_chart_service
-from ai_service.services.chart_service import create_chart_service
 from ai_service.api.services.openai import get_openai_service
 from ai_service.core.rectification.main import comprehensive_rectification
-from ai_service.utils.chart_visualizer import generate_comparison_chart, generate_chart_image
+from ai_service.utils.chart_visualizer import generate_comparison_chart, generate_3d_chart
 from ai_service.database.repositories import ChartRepository
 from ai_service.core.config import settings
+from ai_service.services.chart_service import ChartService
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -72,6 +75,7 @@ class RectificationRequest(BaseModel):
     questionnaire_id: Optional[str] = Field(None, description="ID of the questionnaire with answers")
     responses: List[Dict[str, Any]] = Field(..., description="List of questionnaire responses")
     include_details: bool = Field(False, description="Whether to include detailed rectification process")
+    session_id: Optional[str] = Field(None, description="Session ID for WebSocket progress updates")
 
 
 class RectificationResponse(BaseModel):
@@ -90,38 +94,100 @@ class RectificationResponse(BaseModel):
 @router.post("/generate", response_model=ChartResponse, tags=["Chart"])
 async def generate_chart(request: ChartGenerationRequest) -> Dict[str, Any]:
     """
-    Generate a new astrological chart based on birth details.
+    Generate an astrological chart from birth details.
+
+    This endpoint calculates planetary positions, house cusps, and chart data
+    from birth date, time, and location. If requested, the chart is verified
+    against Indian Vedic astrological standards via OpenAI.
 
     Args:
-        request: Chart generation request with birth details
+        request: Chart generation request with birth details and options
 
     Returns:
-        Generated chart data
+        Complete chart data with planetary positions and houses
     """
     try:
-        # Get chart service with session ID if provided
-        if request.session_id:
-            chart_service = create_chart_service(session_id=request.session_id)
+        # Get chart service
+        chart_service = get_chart_service()
+
+        # Get chart repository
+        chart_repository = await get_chart_repository()
+
+        # Extract birth details from request
+        birth_details = request.birth_details
+        verify_with_openai = request.verify_with_openai
+
+        # Log the request
+        logger.info(f"Generating chart for birth date {birth_details.birth_date}, time {birth_details.birth_time}")
+
+        # Validate birth details
+        # (This would normally do more detailed validation)
+        if not birth_details.birth_date or not birth_details.birth_time:
+            raise HTTPException(status_code=400, detail="Invalid birth details")
+
+        # Calculate chart data
+        birth_datetime = f"{birth_details.birth_date} {birth_details.birth_time}"
+
+        try:
+            chart_data = chart_service.calculate_chart(
+                birth_date=birth_details.birth_date,
+                birth_time=birth_details.birth_time,
+                latitude=birth_details.latitude,
+                longitude=birth_details.longitude,
+                timezone=birth_details.timezone or "UTC",
+                verify_with_openai=verify_with_openai
+            )
+        except Exception as calc_error:
+            logger.error(f"Error calculating chart: {calc_error}")
+            raise HTTPException(status_code=500, detail=f"Chart calculation error: {str(calc_error)}")
+
+        # Chart already verified in calculate_chart if requested
+        # No need to verify again here
+
+        # Generate a unique ID for the chart if not already present
+        if "chart_id" not in chart_data:
+            chart_id = f"chart_{uuid.uuid4().hex[:8]}"
+            chart_data["chart_id"] = chart_id
         else:
-            chart_service = get_chart_service()
+            chart_id = chart_data["chart_id"]
 
-        # Generate chart
-        chart_data = await chart_service.generate_chart(
-            birth_date=request.birth_details.birth_date,
-            birth_time=request.birth_details.birth_time,
-            latitude=request.birth_details.latitude,
-            longitude=request.birth_details.longitude,
-            timezone=request.birth_details.timezone,
-            location=request.birth_details.location,
-            verify_with_openai=request.verify_with_openai
-        )
+        # Store chart data in repository if not already stored
+        try:
+            # Add generation timestamp if not present
+            if "generated_at" not in chart_data:
+                chart_data["generated_at"] = datetime.now().isoformat()
 
-        logger.info(f"Chart generated successfully with ID: {chart_data.get('chart_id', 'unknown')}")
+            # Add birth details for reference if not present
+            if "birth_data" not in chart_data:
+                chart_data["birth_data"] = {
+                    "date": birth_details.birth_date,
+                    "time": birth_details.birth_time,
+                    "latitude": birth_details.latitude,
+                    "longitude": birth_details.longitude,
+                    "location": birth_details.location,
+                    "timezone": birth_details.timezone
+                }
+
+            # Store in repository
+            await chart_repository.store_chart(chart_data)
+
+        except Exception as store_error:
+            logger.error(f"Error storing chart: {store_error}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Chart generated but could not be stored: {str(store_error)}"
+            )
+
+        # Return chart data
+        logger.info(f"Chart {chart_id} generated successfully")
         return chart_data
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating chart: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generating chart: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Chart generation failed: {str(e)}")
 
 
 @router.get("/{chart_id}", response_model=ChartResponse, tags=["Chart"])
@@ -139,8 +205,11 @@ async def get_chart(chart_id: str = Path(..., description="Chart ID")) -> Dict[s
         # Get chart service
         chart_service = get_chart_service()
 
-        # Get chart
-        chart_data = await chart_service.get_chart(chart_id)
+        # Get chart repository to retrieve the chart
+        chart_repository = await get_chart_repository()
+
+        # Get chart from repository
+        chart_data = await chart_repository.get_chart(chart_id)
 
         if not chart_data:
             raise HTTPException(status_code=404, detail=f"Chart with ID {chart_id} not found")
@@ -201,17 +270,36 @@ async def rectify_chart(request: RectificationRequest) -> Dict[str, Any]:
         # Get chart service
         chart_service = get_chart_service()
 
+        # Get chart repository
+        chart_repository = await get_chart_repository()
+
         # Get original chart data
-        chart_data = await chart_service.get_chart(request.chart_id)
+        chart_data = await chart_repository.get_chart(request.chart_id)
         if not chart_data:
             raise HTTPException(status_code=404, detail=f"Chart not found with ID: {request.chart_id}")
 
+        # Perform rectification using the core rectification function
+        from ai_service.core.rectification.main import comprehensive_rectification
+
+        # Extract birth details from chart
+        birth_data = chart_data.get("birth_data", {})
+
+        # Convert to datetime
+        try:
+            from datetime import datetime
+            birth_dt = datetime.fromisoformat(f"{birth_data.get('date')}T{birth_data.get('time')}")
+        except Exception as e:
+            logger.error(f"Error parsing birth date/time: {e}")
+            raise HTTPException(status_code=400, detail=f"Invalid birth date/time format: {str(e)}")
+
         # Perform rectification
-        rectification_result = await chart_service.rectify_chart(
-            chart_id=request.chart_id,
-            questionnaire_id=request.questionnaire_id or "direct_api_call",
+        rectification_result = await comprehensive_rectification(
+            birth_dt=birth_dt,
+            latitude=birth_data.get("latitude"),
+            longitude=birth_data.get("longitude"),
+            timezone=birth_data.get("timezone"),
             answers=request.responses,
-            include_details=request.include_details
+            chart_id=request.chart_id
         )
 
         logger.info(f"Birth time rectification completed for chart {request.chart_id} with "
@@ -234,7 +322,8 @@ async def export_chart(
     chart_id: str = Body(..., description="Chart ID to export"),
     format: str = Body("pdf", description="Export format: pdf, png, jpg"),
     include_interpretation: bool = Body(True, description="Include astrological interpretation in export"),
-    paper_size: str = Body("letter", description="Paper size for PDF (letter, a4, legal)")
+    paper_size: str = Body("letter", description="Paper size for PDF (letter, a4, legal)"),
+    is_3d: bool = Query(False, description="Whether to include 3D visualization")
 ):
     """
     Generate exportable files of an astrological chart.
@@ -247,9 +336,14 @@ async def export_chart(
 
     try:
         # Validate chart exists
-        chart = await chart_service.get_chart(chart_id)
-        if not chart:
-            raise HTTPException(status_code=404, detail=f"Chart {chart_id} not found")
+        chart = None
+        try:
+            chart = await chart_repository.get_chart(chart_id)
+            if not chart:
+                raise HTTPException(status_code=404, detail=f"Chart {chart_id} not found")
+        except Exception as e:
+            logger.error(f"Error retrieving chart: {e}")
+            raise HTTPException(status_code=500, detail=f"Error retrieving chart data: {str(e)}")
 
         # Validate format
         supported_formats = ["pdf", "png", "jpg", "jpeg"]
@@ -263,147 +357,211 @@ async def export_chart(
         if format.lower() == "jpg":
             format = "jpeg"
 
-        # Get interpretation if requested
+        # Get interpretation if requested with proper error handling
         interpretation = None
         if include_interpretation:
             logger.info(f"Generating interpretation for chart {chart_id} export")
-            try:
-                openai_service = get_openai_service()
 
-                # Create interpretation request
-                interpretation_request = {
-                    "chart_data": chart,
-                    "task": "chart_interpretation_for_export",
-                    "interpretation_level": "comprehensive",
-                    "format": format,
-                    "required_sections": [
-                        "personality_traits",
-                        "life_purpose",
-                        "career_indications",
-                        "relationship_patterns",
-                        "life_challenges",
-                        "planetary_influences",
-                        "spiritual_path"
-                    ]
-                }
+            # Get OpenAI service with retry mechanism
+            openai_service = get_openai_service()
+            max_retries = 3
+            retry_count = 0
 
-                # Get interpretation from OpenAI
-                interpretation_response = await openai_service.generate_completion(
-                    prompt=json.dumps(interpretation_request),
-                    task_type="astrological_interpretation",
-                    max_tokens=1500
-                )
+            while retry_count < max_retries:
+                try:
+                    # Create interpretation request
+                    interpretation_request = {
+                        "chart_data": chart,
+                        "task": "chart_interpretation_for_export",
+                        "interpretation_level": "comprehensive",
+                        "format": format,
+                        "required_sections": [
+                            "personality_traits",
+                            "life_purpose",
+                            "career_indications",
+                            "relationship_patterns",
+                            "life_challenges",
+                            "planetary_influences",
+                            "spiritual_path"
+                        ]
+                    }
 
-                if interpretation_response and "content" in interpretation_response:
-                    try:
-                        content = interpretation_response["content"]
+                    # Get interpretation from OpenAI
+                    interpretation_response = await openai_service.generate_completion(
+                        prompt=json.dumps(interpretation_request),
+                        task_type="astrological_interpretation",
+                        max_tokens=1500
+                    )
 
-                        # Try to parse as JSON first
+                    if interpretation_response:
+                        # Parse the response
                         try:
-                            interpretation = json.loads(content)
+                            if isinstance(interpretation_response, str):
+                                interpretation = json.loads(interpretation_response)
+                            else:
+                                interpretation = interpretation_response
                         except json.JSONDecodeError:
-                            # If not valid JSON, extract structured information from text
+                            # If not valid JSON, use as text with safe truncation
                             interpretation = {
-                                "overall_summary": "",
-                                "key_planetary_changes": [],
-                                "house_cusp_shifts": [],
-                                "astrological_implications": [],
-                                "life_area_effects": {}
+                                "overall_summary": safe_truncate(interpretation_response)
                             }
 
-                            # Extract sections using regex patterns - use raw strings
-                            summary_match = re.search(r'(?:overall_summary|summary)[\s:"]*([^"]*?)(?:"|$|,\s*")', content, re.IGNORECASE | re.DOTALL)
-                            if summary_match:
-                                interpretation["overall_summary"] = summary_match.group(1).strip()
+                        # Add interpretation to the chart data
+                        chart["interpretation"] = interpretation
 
-                            # Extract other sections as needed
-                            implications_pattern = r'(?:implications|astrological_implications)[\s:"]*([^"]*?)(?:"|$|,\s*")'
-                            implications_match = re.search(implications_pattern, content, re.IGNORECASE | re.DOTALL)
-                            if implications_match:
-                                interpretation["astrological_implications"] = implications_match.group(1).strip()
+                        # Success, break the loop
+                        break
+                except Exception as interp_error:
+                    retry_count += 1
+                    logger.warning(f"OpenAI interpretation error (attempt {retry_count}/{max_retries}): {interp_error}")
 
-                            # Extract life area effects
-                            life_areas = ["career", "relationships", "health", "finances", "spirituality", "family"]
-                            for area in life_areas:
-                                area_pattern = r'(?:' + area + r')[\s:"]*([^"]*?)(?:"|$|,\s*")'
-                                area_match = re.search(area_pattern, content, re.IGNORECASE | re.DOTALL)
-                                if area_match:
-                                    if "life_area_effects" not in interpretation:
-                                        interpretation["life_area_effects"] = {}
-                                    interpretation["life_area_effects"][area] = area_match.group(1).strip()
+                    # Exponential backoff
+                    await asyncio.sleep(1 * retry_count)
 
-                        logger.info("Successfully parsed interpretation data")
-                    except Exception as parsing_error:
-                        logger.error(f"Error processing interpretation response: {parsing_error}")
-                        interpretation = {
-                            "overall_summary": "Failed to parse detailed interpretation. Please see the differences data for comparison information."
+                    if retry_count >= max_retries:
+                        logger.warning(f"Failed to generate interpretation after {max_retries} attempts")
+                        chart["interpretation"] = {
+                            "overall_summary": "Interpretation could not be generated due to a service error."
                         }
 
-            except Exception as interp_error:
-                logger.error(f"Error generating interpretation: {interp_error}")
-                logger.info("Continuing with export without interpretation")
-                interpretation = None
-
-        # Add export options
+        # Define export options
         export_options = {
-            "include_interpretation": include_interpretation and interpretation is not None,
-            "paper_size": paper_size if format.lower() == "pdf" else None,
-            "include_aspects": True,  # Always include aspects in exports
-            "include_chart_wheel": True,  # Always include chart wheel in exports
+            "include_interpretation": include_interpretation,
+            "include_aspects": True,
+            "include_3d": is_3d,
+            "paper_size": paper_size
         }
 
         # Generate export
         logger.info(f"Generating chart export in {format} format for chart {chart_id}")
-        export_result = await chart_service.export_chart(
-            chart_id=chart_id,
-            format=format
-        )
 
-        # Verify file exists after export
-        file_path = export_result.get("file_path")
-        if not file_path or not os.path.exists(file_path):
+        # Generate unique export ID
+        export_id = f"export_{uuid.uuid4().hex[:8]}"
+
+        # Create output directory
+        chart_output_dir = chart_service.chart_output_dir or "exports"
+        export_dir = os.path.join(chart_output_dir, "exports")
+        os.makedirs(export_dir, exist_ok=True)
+
+        # Determine file extension and output path
+        file_ext = format if format != "jpeg" else "jpg"
+        output_path = os.path.join(export_dir, f"{chart_id}_{export_id}.{file_ext}")
+
+        # Generate the export file based on format with enhanced error handling
+        generated_path = None
+
+        try:
+            if format.lower() == "pdf":
+                # Import PDF generator directly to ensure proper integration
+                from ai_service.utils.chart_visualizer import save_chart_as_pdf
+
+                # Generate PDF with chart data and interpretation
+                generated_path = save_chart_as_pdf(
+                    chart_data=chart,
+                    output_path=output_path,
+                    include_interpretation=export_options["include_interpretation"],
+                    paper_size=export_options["paper_size"]
+                )
+            else:
+                # Use chart visualizer for image formats
+                from ai_service.utils.chart_visualizer import generate_chart_image
+
+                # Generate image with chart data
+                generated_path = generate_chart_image(
+                    chart_data=chart,
+                    output_path=output_path,
+                    include_3d=export_options["include_3d"]
+                )
+
+            # Verify file exists and is not empty
+            if not generated_path or not os.path.exists(generated_path):
+                raise ValueError("Export generation failed: output file not created")
+
+            if os.path.getsize(generated_path) == 0:
+                raise ValueError("Export generation failed: output file is empty")
+
+        except Exception as e:
+            logger.error(f"Error generating export file: {e}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500,
+                              detail=f"Export generation failed: {str(e)}")
+
+        # If output path is different from generated path, update it
+        if generated_path != output_path:
+            output_path = generated_path
+
+        logger.info(f"Successfully generated chart export at {output_path}")
+
+        # Verify file permissions and readability
+        try:
+            with open(output_path, 'rb') as test_file:
+                # Read a few bytes to verify permissions
+                test_file.read(10)
+        except PermissionError:
+            logger.error(f"Permission denied accessing export file: {output_path}")
             raise HTTPException(
                 status_code=500,
-                detail="Export generated but file is missing. Please try again."
+                detail="Export file has incorrect permissions"
+            )
+        except IOError as io_error:
+            logger.error(f"Error accessing export file: {output_path} - {io_error}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Cannot read export file: {str(io_error)}"
             )
 
-        logger.info(f"Successfully generated chart export at {file_path}")
+        # Create download URL
+        download_url = f"/api/v1/charts/download/{export_id}?format={format}"
 
-        # Store export download stats
+        # Create expiration timestamp (7 days from now)
+        expiration = datetime.now() + timedelta(days=7)
+        expires_at = expiration.isoformat()
+
+        # Create export metadata
+        export_data = {
+            "export_id": export_id,
+            "chart_id": chart_id,
+            "file_path": output_path,
+            "format": format,
+            "download_url": download_url,
+            "content_type": chart_service._get_content_type(format),
+            "file_size": os.path.getsize(output_path),
+            "generated_at": datetime.now().isoformat(),
+            "expires_at": expires_at,
+            "include_interpretation": export_options["include_interpretation"],
+            "include_aspects": export_options["include_aspects"],
+            "include_3d": export_options["include_3d"],
+            "paper_size": export_options["paper_size"]
+        }
+
+        # Store export metadata in database
+        async def store_export(export_id: str, export_data: Dict[str, Any]) -> None:
+            """Store export metadata in file system."""
+            export_dir = os.path.join(chart_output_dir, "exports_metadata")
+            os.makedirs(export_dir, exist_ok=True)
+
+            export_path = os.path.join(export_dir, f"{export_id}.json")
+            with open(export_path, 'w') as f:
+                json.dump(export_data, f, default=str)
+
+            logger.info(f"Stored export metadata for {export_id}")
+
         try:
-            # Create or update export stats
-            export_stats = {
-                "chart_id": chart_id,
-                "file_path": file_path,
-                "format": format,
-                "download_url": export_result["download_url"],
-                "generated_at": datetime.now().isoformat(),
-                "expires_at": export_result.get("expires_at", (datetime.now() + timedelta(days=7)).isoformat())
-            }
-
-            # Store the export stats using the store_export method
-            await chart_repository.store_export(export_result["export_id"], export_stats)
-        except Exception as stats_error:
-            logger.warning(f"Non-critical error storing export stats: {stats_error}")
-
-        # Update download count in background
-        background_tasks = BackgroundTasks()
-        background_tasks.add_task(
-            _update_download_stats,
-            chart_repository,
-            export_result["export_id"]
-        )
+            await store_export(export_id, export_data)
+        except Exception as db_error:
+            logger.warning(f"Non-critical error storing export metadata: {db_error}")
+            # If metadata storage fails, we still have the file, so we can continue
 
         # Return export details
         return {
             "status": "success",
-            "export_id": export_result["export_id"],
+            "export_id": export_id,
             "chart_id": chart_id,
             "format": format,
-            "download_url": export_result["download_url"],
+            "download_url": download_url,
             "includes_interpretation": export_options["include_interpretation"],
-            "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
-            "expires_at": export_result.get("expires_at", (datetime.now() + timedelta(days=7)).isoformat())
+            "file_size": os.path.getsize(output_path),
+            "expires_at": expires_at
         }
 
     except HTTPException:
@@ -413,90 +571,544 @@ async def export_chart(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Chart export failed: {str(e)}")
 
-@router.get("/download/{export_id}/{format}")
+@router.get("/download/{export_id}", response_class=Response)
 async def download_chart_export(
     export_id: str,
-    format: str,
-    background_tasks: BackgroundTasks
+    format: str = Query(None, description="Export format (optional)"),
+    background_tasks: BackgroundTasks = Depends()
 ):
     """
     Download a previously generated chart export.
 
     This endpoint returns the actual file for download after verifying its existence.
+    It also tracks download statistics.
     """
-    chart_repository = await get_chart_repository()
-
     try:
-        # Get export details from chart repository
-        export_details = await chart_repository.get_export(export_id)
+        # Retrieve export metadata with retries
+        export_data = None
+        max_retries = 3
 
-        if not export_details:
-            raise HTTPException(status_code=404, detail=f"Export {export_id} not found")
+        for attempt in range(max_retries):
+            try:
+                export_data = await get_export(export_id)
+                if export_data:
+                    break
+                logger.warning(f"Export data not found on attempt {attempt+1}, retrying...")
+                await asyncio.sleep(0.5 * (attempt + 1))
+            except Exception as e:
+                logger.warning(f"Error retrieving export data on attempt {attempt+1}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+
+        if not export_data:
+            raise HTTPException(status_code=404, detail=f"Export with ID {export_id} not found")
+
+        # Get file path from export data
+        file_path = export_data.get("file_path")
+        if not file_path:
+            raise HTTPException(status_code=404, detail="Export file path not found in metadata")
+
+        # Verify file exists and is readable
+        if not os.path.exists(file_path):
+            logger.error(f"Export file not found at {file_path}")
+            raise HTTPException(status_code=404, detail=f"Export file not found")
+
+        # Verify file is not empty
+        if os.path.getsize(file_path) == 0:
+            logger.error(f"Export file is empty: {file_path}")
+            raise HTTPException(status_code=404, detail="Export file is empty")
+
+        # Test file permissions
+        try:
+            with open(file_path, 'rb') as test_file:
+                # Read a few bytes to verify permissions
+                test_file.read(10)
+        except PermissionError:
+            logger.error(f"Permission denied accessing export file: {file_path}")
+            raise HTTPException(
+                status_code=403, detail="Permission denied accessing export file")
+        except Exception as e:
+            logger.error(f"Error accessing export file: {e}")
+            raise HTTPException(status_code=500, detail=f"Error accessing export file: {str(e)}")
+
+        # Get content type
+        content_type = export_data.get("content_type")
+        if not content_type:
+            # Determine content type from format
+            export_format = export_data.get("format", "").lower() or (format.lower() if format else "")
+            if export_format == "pdf":
+                content_type = "application/pdf"
+            elif export_format in ["png"]:
+                content_type = "image/png"
+            elif export_format in ["jpg", "jpeg"]:
+                content_type = "image/jpeg"
+            elif export_format == "svg":
+                content_type = "image/svg+xml"
+            else:
+                content_type = "application/octet-stream"
+
+        # Get filename from file path
+        filename = os.path.basename(file_path)
 
         # Check if export has expired
-        expires_at = datetime.fromisoformat(export_details.get("expires_at", "2099-12-31T00:00:00"))
-        if datetime.now() > expires_at:
-            raise HTTPException(status_code=410, detail="Export has expired")
+        expires_at = export_data.get("expires_at")
+        if expires_at:
+            try:
+                expiration_date = datetime.fromisoformat(expires_at)
+                if datetime.now() > expiration_date:
+                    raise HTTPException(status_code=410, detail="Export has expired and is no longer available")
+            except (ValueError, TypeError):
+                # If expiration can't be parsed, assume it hasn't expired
+                pass
 
-        # Get file path
-        file_path = export_details.get("file_path")
+        # Update download statistics in background
+        # Define a local function to update stats to avoid chart_repository undefined error
+        async def update_stats(export_id: str):
+            try:
+                # Update the download count in the export metadata
+                export_data["download_count"] = export_data.get("download_count", 0) + 1
+                export_data["last_downloaded"] = datetime.now().isoformat()
 
-        # Verify file exists and is accessible
-        if not file_path:
-            raise HTTPException(status_code=404, detail="Export file path not found")
+                # Store the updated metadata
+                chart_service = get_chart_service()
+                chart_output_dir = chart_service.chart_output_dir or "exports"
+                export_dir = os.path.join(chart_output_dir, "exports_metadata")
+                export_path = os.path.join(export_dir, f"{export_id}.json")
 
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="Export file not found on server")
+                with open(export_path, 'w') as f:
+                    json.dump(export_data, f, default=str)
 
-        if not os.path.isfile(file_path):
-            raise HTTPException(status_code=404, detail="Export path exists but is not a file")
+                logger.info(f"Updated download count for export {export_id}")
+            except Exception as e:
+                logger.error(f"Error updating download stats: {e}")
+                # Don't re-raise, as this is a background task
 
-        try:
-            # Check file is readable
-            with open(file_path, 'rb') as test_file:
-                test_file.read(1)
-        except Exception as file_error:
-            logger.error(f"File exists but cannot be read: {file_error}")
-            raise HTTPException(status_code=500, detail="Export file cannot be read")
+        background_tasks.add_task(update_stats, export_id)
 
-        # Determine content type
-        content_types = {
-            "pdf": "application/pdf",
-            "png": "image/png",
-            "jpeg": "image/jpeg",
-            "jpg": "image/jpeg"
-        }
-
-        content_type = content_types.get(format.lower(), "application/octet-stream")
-
-        # Log download
-        logger.info(f"Export {export_id} downloading in {format} format")
-
-        # Update download count in background
-        background_tasks.add_task(
-            _update_download_stats,
-            chart_repository,
-            export_id
-        )
-
-        # Create a meaningful filename for the downloaded file
-        chart_id = export_details.get("chart_id", "chart")
-        download_filename = f"astrological_chart_{chart_id}_{datetime.now().strftime('%Y%m%d')}.{format}"
-
-        # Return file
+        # Return the file with additional headers
         return FileResponse(
             path=file_path,
-            filename=download_filename,
             media_type=content_type,
-            background=background_tasks
+            filename=filename,
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\"",
+                "X-Export-ID": export_id,
+                "X-Generated-Date": export_data.get("generated_at", ""),
+                "Cache-Control": "private, max-age=3600"
+            }
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in chart download: {e}")
+        logger.error(f"Error downloading export: {e}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+
+@router.get("/compare", response_model=Dict[str, Any])
+async def compare_charts(
+    chart1_id: str = Query(..., description="First chart ID for comparison"),
+    chart2_id: str = Query(..., description="Second chart ID for comparison"),
+    interpretation_level: str = Query("detailed", description="Level of astrological interpretation: basic, detailed, or comprehensive"),
+    include_visualization: bool = Query(True, description="Whether to include chart visualization in response"),
+    is_3d: bool = Query(False, description="Whether to include 3D visualization in response")
+):
+    """
+    Compare two astrological charts with detailed analysis and visualization.
+
+    This endpoint provides in-depth astrological analysis and visual comparison
+    between two charts. It returns the key differences, planetary shifts, house changes,
+    aspect modifications, and other astrologically significant patterns.
+
+    Args:
+        chart1_id: ID of the first chart for comparison
+        chart2_id: ID of the second chart for comparison
+        interpretation_level: How detailed the astrological interpretation should be
+        include_visualization: Whether to include chart visualization in the response
+        is_3d: Whether to include 3D visualization in the response
+
+    Returns:
+        Detailed comparison data with visualization if requested
+    """
+    try:
+        # Validate parameters
+        if not chart1_id or not chart2_id:
+            raise HTTPException(status_code=400, detail="Both chart IDs are required")
+
+        if chart1_id == chart2_id:
+            raise HTTPException(status_code=400, detail="Cannot compare a chart with itself")
+
+        # Get service instances
+        chart_service = get_chart_service()
+        chart_repository = await get_chart_repository()
+        openai_service = get_openai_service()
+
+        # Retrieve both charts with proper error handling
+        try:
+            chart1 = await chart_repository.get_chart(chart1_id)
+            if not chart1:
+                raise HTTPException(status_code=404, detail=f"Chart with ID {chart1_id} not found")
+        except Exception as e:
+            logger.error(f"Error retrieving chart1: {e}")
+            raise HTTPException(status_code=500, detail=f"Error retrieving first chart: {str(e)}")
+
+        try:
+            chart2 = await chart_repository.get_chart(chart2_id)
+            if not chart2:
+                raise HTTPException(status_code=404, detail=f"Chart with ID {chart2_id} not found")
+        except Exception as e:
+            logger.error(f"Error retrieving chart2: {e}")
+            raise HTTPException(status_code=500, detail=f"Error retrieving second chart: {str(e)}")
+
+        # Generate a comparison ID
+        comparison_id = f"comp_{uuid.uuid4().hex[:8]}"
+
+        # Perform detailed chart comparison based on _generate_comparison_data method in ChartService
+        logger.info(f"Generating comparison between charts {chart1_id} and {chart2_id}")
+
+        try:
+            comparison_data = chart_service._generate_comparison_data(chart1, chart2)
+        except Exception as e:
+            logger.error(f"Error generating comparison data: {e}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500,
+                                detail=f"Error generating chart comparison: {str(e)}")
+
+        # Add comparison metadata
+        comparison_data["comparison_id"] = comparison_id
+        comparison_data["chart1_id"] = chart1_id
+        comparison_data["chart2_id"] = chart2_id
+        comparison_data["generated_at"] = datetime.now().isoformat()
+        comparison_data["interpretation_level"] = interpretation_level
+
+        # Add interpretation based on level with enhanced error handling
+        if interpretation_level.lower() == "basic":
+            # Basic analysis is already included in comparison_data
+            pass
+
+        elif interpretation_level.lower() == "detailed":
+            # Add more detailed analysis to the comparison data
+            try:
+                vd_analysis = chart_service._perform_vedic_comparison_analysis(chart1, chart2)
+                comparison_data["vedic_analysis"] = vd_analysis
+
+                # Add timing implications
+                timing = chart_service._analyze_timing_implications(comparison_data)
+                comparison_data["timing_implications"] = timing
+            except Exception as e:
+                logger.warning(f"Non-critical error in detailed analysis: {e}")
+                comparison_data["analysis_warning"] = f"Some detailed analysis could not be generated: {str(e)}"
+
+        elif interpretation_level.lower() == "comprehensive":
+            # Add comprehensive analysis
+            try:
+                vd_analysis = chart_service._perform_vedic_comparison_analysis(chart1, chart2)
+                comparison_data["vedic_analysis"] = vd_analysis
+
+                # Add timing implications
+                timing = chart_service._analyze_timing_implications(comparison_data)
+                comparison_data["timing_implications"] = timing
+
+                # Add harmonic relationships
+                harmonics = _analyze_harmonic_relationships(chart1, chart2)
+                comparison_data["harmonic_relationships"] = harmonics
+
+                # Generate rich astrological interpretation using OpenAI with improved error handling
+                interpretation = None
+                max_retries = 3
+                retry_count = 0
+
+                while retry_count < max_retries:
+                    try:
+                        # Construct detailed prompt for OpenAI
+                        prompt = {
+                            "task": "interpret_chart_comparison",
+                            "interpretation_level": "comprehensive",
+                            "comparison_data": comparison_data,
+                            "chart1": {
+                                "ascendant": chart1.get("ascendant", {}),
+                                "planets": chart1.get("planets", []),
+                                "houses": chart1.get("houses", [])
+                            },
+                            "chart2": {
+                                "ascendant": chart2.get("ascendant", {}),
+                                "planets": chart2.get("planets", []),
+                                "houses": chart2.get("houses", [])
+                            },
+                            "required_analysis_sections": [
+                                "overall_synastry",
+                                "planetary_aspect_significance",
+                                "house_overlay_impacts",
+                                "ascendant_relationship",
+                                "predictive_insights",
+                                "spiritual_compatibility"
+                            ]
+                        }
+
+                        interpretation = await openai_service.generate_completion(
+                            prompt=json.dumps(prompt),
+                            task_type="astrological_interpretation",
+                            max_tokens=1500
+                        )
+
+                        # Successful response, break the loop
+                        break
+
+                    except Exception as e:
+                        retry_count += 1
+                        logger.warning(f"OpenAI interpretation error (attempt {retry_count}/{max_retries}): {e}")
+                        await asyncio.sleep(1 * retry_count)  # Exponential backoff
+
+                        if retry_count >= max_retries:
+                            logger.error(f"Failed to get OpenAI interpretation after {max_retries} attempts")
+                            comparison_data["interpretation_error"] = f"Could not generate AI interpretation: {str(e)}"
+
+                # Process interpretation if successful
+                if interpretation:
+                    if isinstance(interpretation, str):
+                        try:
+                            interpretation = json.loads(interpretation)
+                        except json.JSONDecodeError:
+                            # Create a valid dictionary with truncated text
+                            interpretation = {
+                                "overall_summary": safe_truncate(interpretation)
+                            }
+
+                    comparison_data["interpretation"] = interpretation
+                else:
+                    # Add a placeholder if interpretation failed
+                    comparison_data["interpretation"] = {
+                        "overall_summary": "Detailed interpretation could not be generated. Please see the comparison data for details."
+                    }
+
+            except Exception as interp_error:
+                logger.warning(f"Error generating comprehensive interpretation: {interp_error}")
+                # Add placeholder interpretation
+                comparison_data["interpretation"] = {
+                    "overall_summary": "Detailed interpretation could not be generated. Please see the comparison data for details.",
+                    "error": str(interp_error)
+                }
+
+        # Generate visualization if requested
+        if include_visualization:
+            try:
+                # Create temporary directory for visualization files
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Generate visualization paths
+                    viz_filename = f"comparison_{comparison_id}.png"
+                    viz_path = os.path.join(temp_dir, viz_filename)
+                    viz3d_filename = f"comparison_3d_{comparison_id}.png"
+                    viz3d_path = os.path.join(temp_dir, viz3d_filename)
+
+                    # Create permanent storage location for the visualizations
+                    chart_output_dir = chart_service.chart_output_dir or "charts"
+                    comp_viz_dir = os.path.join(chart_output_dir, "comparisons")
+                    os.makedirs(comp_viz_dir, exist_ok=True)
+
+                    # Permanent paths for the visualizations
+                    permanent_path = os.path.join(comp_viz_dir, viz_filename)
+                    permanent_3d_path = os.path.join(comp_viz_dir, viz3d_filename)
+
+                    # Initialize visualization data dictionary
+                    comparison_data["visualizations"] = {}
+
+                    # Generate visualizations with error handling
+                    viz_generated = False
+                    viz3d_generated = False
+
+                    # Generate 2D comparison chart
+                    try:
+                        from ai_service.utils.chart_visualizer import generate_comparison_chart
+                        generate_comparison_chart(chart1, chart2, viz_path)
+                        viz_generated = os.path.exists(viz_path) and os.path.getsize(viz_path) > 0
+                    except Exception as viz_error:
+                        logger.warning(f"Error generating 2D comparison visualization: {viz_error}")
+                        comparison_data["visualizations"]["2d_error"] = str(viz_error)
+
+                    # Generate 3D comparison chart if requested
+                    if is_3d:
+                        try:
+                            from ai_service.utils.chart_visualizer import generate_3d_comparison
+                            generate_3d_comparison(chart1, chart2, viz3d_path)
+                            viz3d_generated = os.path.exists(viz3d_path) and os.path.getsize(viz3d_path) > 0
+                        except Exception as viz3d_error:
+                            logger.warning(f"Error generating 3D comparison visualization: {viz3d_error}")
+                            comparison_data["visualizations"]["3d_error"] = str(viz3d_error)
+
+                    # Add 2D visualization if successful
+                    if viz_generated:
+                        try:
+                            # Read file and convert to base64
+                            with open(viz_path, "rb") as img_file:
+                                img_data = base64.b64encode(img_file.read()).decode("utf-8")
+
+                            # Add 2D visualization data to comparison
+                            comparison_data["visualizations"]["2d"] = {
+                                "format": "png",
+                                "content_type": "image/png",
+                                "data": f"data:image/png;base64,{img_data}",
+                                "filename": viz_filename
+                            }
+
+                            # Copy to permanent storage
+                            try:
+                                import shutil
+                                shutil.copy2(viz_path, permanent_path)
+
+                                # Verify file was copied successfully
+                                if os.path.exists(permanent_path) and os.path.getsize(permanent_path) > 0:
+                                    comparison_data["visualizations"]["2d"]["permalink"] = f"/api/v1/charts/comparison/{comparison_id}/visualization"
+                                else:
+                                    logger.warning(f"2D visualization file verification failed after copy")
+                            except Exception as copy_error:
+                                logger.warning(f"Error copying 2D visualization to permanent storage: {copy_error}")
+                        except Exception as viz_process_error:
+                            logger.warning(f"Error processing 2D visualization: {viz_process_error}")
+
+                    # Add 3D visualization if successful
+                    if viz3d_generated:
+                        try:
+                            # Read file and convert to base64
+                            with open(viz3d_path, "rb") as img_file:
+                                img_data = base64.b64encode(img_file.read()).decode("utf-8")
+
+                            # Add 3D visualization data to comparison
+                            comparison_data["visualizations"]["3d"] = {
+                                "format": "png",
+                                "content_type": "image/png",
+                                "data": f"data:image/png;base64,{img_data}",
+                                "filename": viz3d_filename
+                            }
+
+                            # Copy to permanent storage
+                            try:
+                                import shutil
+                                shutil.copy2(viz3d_path, permanent_3d_path)
+
+                                # Verify file was copied successfully
+                                if os.path.exists(permanent_3d_path) and os.path.getsize(permanent_3d_path) > 0:
+                                    comparison_data["visualizations"]["3d"]["permalink"] = f"/api/v1/charts/comparison/{comparison_id}/visualization/3d"
+                                else:
+                                    logger.warning(f"3D visualization file verification failed after copy")
+                            except Exception as copy_error:
+                                logger.warning(f"Error copying 3D visualization to permanent storage: {copy_error}")
+                        except Exception as viz3d_process_error:
+                            logger.warning(f"Error processing 3D visualization: {viz3d_process_error}")
+            except Exception as viz_error:
+                logger.warning(f"Error generating comparison visualization: {viz_error}")
+                comparison_data["visualization_error"] = str(viz_error)
+
+        # Store the comparison data
+        try:
+            await chart_repository.store_comparison(comparison_id, comparison_data)
+        except Exception as store_error:
+            logger.warning(f"Non-critical error storing comparison data: {store_error}")
+
+        return comparison_data
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error comparing charts: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Chart download failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chart comparison failed: {str(e)}")
+
+@router.get("/comparison/{comparison_id}/visualization", response_class=FileResponse)
+async def get_comparison_visualization(
+    comparison_id: str = Path(..., description="Comparison ID"),
+    dimension: str = Query("2d", description="Visualization dimension (2d or 3d)"),
+    background_tasks: BackgroundTasks = Depends()
+):
+    """
+    Get the visualization image for a chart comparison.
+
+    This endpoint returns the comparison visualization image in either 2D or 3D format.
+
+    Args:
+        comparison_id: The unique ID of the comparison
+        dimension: The visualization dimension to retrieve (2d or 3d)
+
+    Returns:
+        The visualization image file
+    """
+    try:
+        # Get chart service
+        chart_service = get_chart_service()
+
+        # Determine filename based on dimension
+        is_3d = dimension.lower() == "3d"
+        viz_filename = f"comparison_{'3d_' if is_3d else ''}{comparison_id}.png"
+
+        # Construct the expected file path
+        chart_output_dir = chart_service.chart_output_dir or "charts"
+        comp_viz_dir = os.path.join(chart_output_dir, "comparisons")
+        viz_path = os.path.join(comp_viz_dir, viz_filename)
+
+        # Verify file exists
+        if not os.path.exists(viz_path):
+            # If file doesn't exist, check if we need to regenerate it
+            comparison = await get_comparison(comparison_id)
+
+            if not comparison:
+                raise HTTPException(status_code=404, detail=f"Comparison with ID {comparison_id} not found")
+
+            # Get chart IDs
+            chart1_id = comparison.get("chart1_id")
+            chart2_id = comparison.get("chart2_id")
+
+            if not chart1_id or not chart2_id:
+                raise HTTPException(status_code=400, detail="Comparison data missing chart IDs")
+
+            # Get chart repository
+            chart_repository = await get_chart_repository()
+
+            # Get charts
+            chart1 = await chart_repository.get_chart(chart1_id)
+            chart2 = await chart_repository.get_chart(chart2_id)
+
+            if not chart1 or not chart2:
+                raise HTTPException(status_code=404, detail="One or both charts not found")
+
+            # Create comparisons directory if it doesn't exist
+            os.makedirs(comp_viz_dir, exist_ok=True)
+
+            # Import visualization functions
+            if is_3d:
+                from ai_service.utils.chart_visualizer import generate_3d_comparison
+                generate_3d_comparison(chart1, chart2, viz_path)
+            else:
+                from ai_service.utils.chart_visualizer import generate_comparison_chart
+                generate_comparison_chart(chart1, chart2, viz_path)
+
+            # Verify file was created
+            if not os.path.exists(viz_path):
+                raise HTTPException(status_code=500, detail=f"Failed to generate {dimension} comparison visualization")
+
+        # Return the visualization file
+        return FileResponse(
+            path=viz_path,
+            media_type="image/png",
+            filename=viz_filename
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving comparison visualization: {e}")
+        raise HTTPException(status_code=500, detail=f"Visualization retrieval failed: {str(e)}")
+
+# Add a dedicated endpoint for 3D visualizations for backward compatibility
+@router.get("/comparison/{comparison_id}/visualization/3d", response_class=FileResponse)
+async def get_comparison_3d_visualization(
+    comparison_id: str = Path(..., description="Comparison ID"),
+    background_tasks: BackgroundTasks = Depends()
+):
+    """
+    Get the 3D visualization image for a chart comparison.
+
+    This endpoint returns the 3D comparison visualization image.
+    """
+    return await get_comparison_visualization(comparison_id, "3d", background_tasks)
 
 async def _update_download_stats(chart_repository, export_id: str) -> None:
     """Update download statistics for an export."""
@@ -522,352 +1134,128 @@ async def _update_download_stats(chart_repository, export_id: str) -> None:
         logger.error(f"Error updating download stats: {e}")
         # Don't re-raise, as this is a background task
 
-@router.get("/compare", response_model=Dict[str, Any])
-async def compare_charts(
-    chart1_id: str = Query(..., description="First chart ID for comparison"),
-    chart2_id: str = Query(..., description="Second chart ID for comparison"),
-    interpretation_level: str = Query("detailed", description="Level of astrological interpretation: basic, detailed, or comprehensive"),
-    include_visualization: bool = Query(True, description="Whether to include chart visualization in response")
-):
-    """
-    Compare two astrological charts with deep astrological interpretation.
-
-    This endpoint analyzes the differences between two charts and provides
-    detailed astrological interpretation of the differences, including
-    visualization if requested.
-    """
+async def get_export(export_id: str) -> Optional[Dict[str, Any]]:
+    """Get export metadata from file system."""
     chart_service = get_chart_service()
-    openai_service = get_openai_service()
-    chart_repository = await get_chart_repository()
+    chart_output_dir = chart_service.chart_output_dir or "exports"
+
+    export_dir = os.path.join(chart_output_dir, "exports_metadata")
+    export_path = os.path.join(export_dir, f"{export_id}.json")
+
+    if not os.path.exists(export_path):
+        logger.warning(f"Export metadata not found for {export_id}")
+        return None
 
     try:
-        # Get both charts
-        chart1 = await chart_service.get_chart(chart1_id)
-        if not chart1:
-            raise HTTPException(status_code=404, detail=f"Chart {chart1_id} not found")
-
-        chart2 = await chart_service.get_chart(chart2_id)
-        if not chart2:
-            raise HTTPException(status_code=404, detail=f"Chart {chart2_id} not found")
-
-        # Extract key birth details for context
-        chart1_details = chart1.get("birth_details", {})
-        chart2_details = chart2.get("birth_details", {})
-
-        logger.info(f"Comparing charts {chart1_id} and {chart2_id} with interpretation level: {interpretation_level}")
-
-        # Use chart service for comprehensive comparison
-        comparison_result = await chart_service.compare_charts(
-            chart1_id=chart1_id,
-            chart2_id=chart2_id,
-            comparison_type="comprehensive"
-        )
-
-        if not comparison_result:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate chart comparison using chart service"
-            )
-
-        # Extract differences from the comparison result
-        differences = comparison_result.get("differences", {})
-
-        # Enhanced analysis: Use OpenAI for deep astrological interpretation
-        interpretation_request = {
-            "chart1": {
-                "id": chart1_id,
-                "birth_details": chart1_details,
-                "ascendant": chart1.get("ascendant", {}),
-                "planets": chart1.get("planets", []),
-                "houses": chart1.get("houses", [])
-            },
-            "chart2": {
-                "id": chart2_id,
-                "birth_details": chart2_details,
-                "ascendant": chart2.get("ascendant", {}),
-                "planets": chart2.get("planets", []),
-                "houses": chart2.get("houses", [])
-            },
-            "differences": differences,
-            "interpretation_level": interpretation_level,
-            "task": "chart_comparison_interpretation",
-            "required_sections": [
-                "overall_summary",
-                "key_planetary_changes",
-                "house_cusp_shifts",
-                "ascendant_changes",
-                "astrological_implications",
-                "life_area_effects",
-                "remedial_measures"
-            ],
-            "astrological_systems": ["western", "vedic"]
-        }
-
-        # Get interpretation from OpenAI
-        interpretation_response = await openai_service.generate_completion(
-            prompt=json.dumps(interpretation_request),
-            task_type="astrological_interpretation",
-            max_tokens=1500  # Increased for more detailed interpretation
-        )
-
-        if not interpretation_response or "content" not in interpretation_response:
-            logger.error("Failed to get interpretation from OpenAI")
-            raise HTTPException(status_code=500, detail="Failed to generate astrological interpretation")
-
-        # Parse the interpretation results
-        try:
-            interpreted_content = interpretation_response["content"]
-
-            # Try to parse as JSON first
-            try:
-                interpretation = json.loads(interpreted_content)
-            except json.JSONDecodeError:
-                # If not valid JSON, extract structured information from text
-                interpretation = {
-                    "overall_summary": "",
-                    "key_planetary_changes": [],
-                    "house_cusp_shifts": [],
-                    "astrological_implications": [],
-                    "life_area_effects": {}
-                }
-
-                # Extract sections using regex patterns - use raw strings
-                summary_match = re.search(r'(?:overall_summary|summary)[\s:"]*([^"]*?)(?:"|$|,\s*")', interpreted_content, re.IGNORECASE | re.DOTALL)
-                if summary_match:
-                    interpretation["overall_summary"] = summary_match.group(1).strip()
-
-                # Extract other sections as needed
-                implications_pattern = r'(?:implications|astrological_implications)[\s:"]*([^"]*?)(?:"|$|,\s*")'
-                implications_match = re.search(implications_pattern, interpreted_content, re.IGNORECASE | re.DOTALL)
-                if implications_match:
-                    interpretation["astrological_implications"] = implications_match.group(1).strip()
-
-                # Extract life area effects
-                life_areas = ["career", "relationships", "health", "finances", "spirituality", "family"]
-                for area in life_areas:
-                    area_pattern = r'(?:' + area + r')[\s:"]*([^"]*?)(?:"|$|,\s*")'
-                    area_match = re.search(area_pattern, interpreted_content, re.IGNORECASE | re.DOTALL)
-                    if area_match:
-                        if "life_area_effects" not in interpretation:
-                            interpretation["life_area_effects"] = {}
-                        interpretation["life_area_effects"][area] = area_match.group(1).strip()
-
-            logger.info("Successfully parsed interpretation data")
-        except Exception as parsing_error:
-            logger.error(f"Error processing interpretation response: {parsing_error}")
-            interpretation = {
-                "overall_summary": "Failed to parse detailed interpretation. Please see the differences data for comparison information."
-            }
-
-        # Generate comparison ID
-        comparison_id = f"comp_{uuid.uuid4().hex[:8]}"
-
-        # Generate comparison visualization if requested
-        visualization_data = None
-        visualization_url = None
-
-        if include_visualization:
-            try:
-                # Import chart visualization utilities
-                from ai_service.utils.chart_visualizer import generate_comparison_chart
-
-                # Create directory for visualizations
-                visualization_dir = os.path.join(settings.MEDIA_ROOT, "visualizations")
-                os.makedirs(visualization_dir, exist_ok=True)
-
-                # Generate visualization file path
-                visualization_path = os.path.join(visualization_dir, f"comparison_{comparison_id}.png")
-
-                # Generate the comparison visualization
-                logger.info(f"Generating comparison visualization for {chart1_id} and {chart2_id}")
-                visualization_success = generate_comparison_chart(
-                    original_chart=chart1,
-                    rectified_chart=chart2,
-                    output_path=visualization_path
-                )
-
-                if visualization_success and os.path.exists(visualization_path):
-                    visualization_url = f"/api/chart/comparison/{comparison_id}/visualization"
-
-                    # Get base64 encoding of the image for inline display
-                    import base64
-                    with open(visualization_path, "rb") as image_file:
-                        image_data = base64.b64encode(image_file.read()).decode('utf-8')
-                        visualization_data = f"data:image/png;base64,{image_data}"
-
-                    logger.info(f"Successfully generated comparison visualization at {visualization_path}")
-                else:
-                    logger.warning(f"Failed to generate visualization image at {visualization_path}")
-            except Exception as viz_error:
-                logger.error(f"Error generating comparison visualization: {viz_error}")
-                # Continue without visualization if it fails
-
-        # Store comparison results with interpretation in database
-        comparison_data = {
-            "comparison_id": comparison_id,
-            "chart1_id": chart1_id,
-            "chart2_id": chart2_id,
-            "differences": differences,
-            "interpretation": interpretation,
-            "created_at": datetime.now().isoformat(),
-            "visualization_url": visualization_url
-        }
-
-        # Store in database
-        try:
-            await chart_repository.store_comparison(comparison_id, comparison_data)
-            logger.info(f"Comparison {comparison_id} stored in database")
-        except Exception as db_error:
-            logger.error(f"Error storing comparison data in database: {db_error}")
-            # Throw error since storing in the database is critical
-            raise HTTPException(status_code=500, detail=f"Failed to store comparison data: {str(db_error)}")
-
-        # Return enhanced comparison with interpretation and visualization
-        response_data = {
-            "status": "success",
-            "comparison_id": comparison_id,
-            "chart1_id": chart1_id,
-            "chart2_id": chart2_id,
-            "charts": {
-                "chart1": {
-                    "id": chart1_id,
-                    "birth_details": chart1_details,
-                    "ascendant": chart1.get("ascendant", {}),
-                },
-                "chart2": {
-                    "id": chart2_id,
-                    "birth_details": chart2_details,
-                    "ascendant": chart2.get("ascendant", {}),
-                }
-            },
-            "differences": differences,
-            "interpretation": interpretation
-        }
-
-        # Add visualization data if available
-        if visualization_url:
-            response_data["visualization_url"] = visualization_url
-
-        if visualization_data:
-            response_data["visualization_data"] = visualization_data
-
-        return response_data
-
-    except HTTPException:
-        raise
+        with open(export_path, 'r') as f:
+            export_data = json.load(f)
+        return export_data
     except Exception as e:
-        logger.error(f"Error in chart comparison: {e}")
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Chart comparison failed: {str(e)}")
+        logger.error(f"Error loading export metadata: {e}")
+        return None
 
-@router.get("/download/comparison/{filename}", response_class=Response)
-async def download_comparison(
-    filename: str,
-    response: Response
-) -> Any:
+async def get_comparison(comparison_id: str) -> Optional[Dict[str, Any]]:
+    """Get comparison data from file system."""
+    chart_service = get_chart_service()
+    chart_output_dir = chart_service.chart_output_dir or "charts"
+
+    comp_dir = os.path.join(chart_output_dir, "comparisons_metadata")
+    comp_path = os.path.join(comp_dir, f"{comparison_id}.json")
+
+    if not os.path.exists(comp_path):
+        logger.warning(f"Comparison metadata not found for {comparison_id}")
+        return None
+
+    try:
+        with open(comp_path, 'r') as f:
+            comparison_data = json.load(f)
+        return comparison_data
+    except Exception as e:
+        logger.error(f"Error loading comparison metadata: {e}")
+        return None
+
+def _analyze_harmonic_relationships(chart1, chart2):
     """
-    Download a chart comparison visualization.
+    Analyze harmonic relationships between two charts.
 
-    This endpoint returns the binary data of a comparison chart image.
+    This is a helper function that should be a method in ChartService.
+    Implemented directly to fix linter errors.
 
     Args:
-        filename: Filename of the comparison chart image
+        chart1: First chart data
+        chart2: Second chart data
 
     Returns:
-        Binary image data with appropriate content type
+        Dictionary of harmonic relationships
     """
-    try:
-        # Construct the file path
-        file_path = os.path.join(settings.MEDIA_ROOT, "exports", "comparisons", filename)
+    # Simplified implementation to resolve linter error
+    harmonic_relationships = {
+        "harmonic_1": {
+            "description": "Identity",
+            "significance": "high",
+            "differences": []
+        },
+        "harmonic_2": {
+            "description": "Polarity",
+            "significance": "medium",
+            "differences": []
+        },
+        "harmonic_3": {
+            "description": "Trinity",
+            "significance": "medium",
+            "differences": []
+        },
+        "harmonic_9": {
+            "description": "Spiritual",
+            "significance": "medium",
+            "differences": []
+        }
+    }
 
-        # Check if file exists
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail=f"Comparison file not found: {filename}")
+    # Get planets from both charts
+    planets1 = chart1.get("planets", [])
+    planets2 = chart2.get("planets", [])
 
-        # Set content type based on file extension
-        if filename.lower().endswith(".png"):
-            response.headers["Content-Type"] = "image/png"
-        elif filename.lower().endswith((".jpg", ".jpeg")):
-            response.headers["Content-Type"] = "image/jpeg"
-        else:
-            response.headers["Content-Type"] = "application/octet-stream"
+    # Analyze major harmonic patterns
+    for harm_idx, (harmonic_key, harmonic_data) in enumerate([
+        ("harmonic_1", {"divisor": 1, "significance": "high"}),
+        ("harmonic_2", {"divisor": 2, "significance": "medium"}),
+        ("harmonic_3", {"divisor": 3, "significance": "medium"}),
+        ("harmonic_9", {"divisor": 9, "significance": "medium"})
+    ]):
+        differences = []
 
-        # Set content disposition for display
-        response.headers["Content-Disposition"] = f"inline; filename={filename}"
+        # Compare planets in this harmonic
+        for p1 in planets1:
+            planet_name = p1.get("name", "")
+            p1_long = p1.get("longitude", 0)
 
-        # Read and return file content
-        with open(file_path, "rb") as f:
-            content = f.read()
+            # Find matching planet in chart2
+            for p2 in planets2:
+                if p2.get("name") == planet_name:
+                    p2_long = p2.get("longitude", 0)
 
-        return content
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error downloading comparison: {e}")
-        raise HTTPException(status_code=500, detail=f"Error downloading comparison: {str(e)}")
+                    # Calculate harmonic position
+                    h1_pos = (p1_long * harmonic_data["divisor"]) % 360
+                    h2_pos = (p2_long * harmonic_data["divisor"]) % 360
 
-@router.get("/comparison/{comparison_id}/visualization", response_class=FileResponse)
-async def get_comparison_visualization(
-    comparison_id: str = Path(..., description="Comparison ID"),
-    background_tasks: BackgroundTasks = Depends()
-):
-    """
-    Retrieve the visualization image for a chart comparison.
+                    # Calculate difference
+                    diff = min(abs(h1_pos - h2_pos), 360 - abs(h1_pos - h2_pos))
 
-    Args:
-        comparison_id: The ID of the comparison
-        background_tasks: Background tasks manager for cleanup
+                    if diff > 5:  # Only report significant differences
+                        differences.append({
+                            "planet": planet_name,
+                            "difference": round(diff, 2),
+                            "significance": "high" if diff > 10 else "medium"
+                        })
 
-    Returns:
-        The visualization image file
-    """
-    try:
-        # Create path to the visualization file
-        visualization_dir = os.path.join(settings.MEDIA_ROOT, "comparisons")
-        file_path = os.path.join(visualization_dir, f"comparison_{comparison_id}.png")
+        harmonic_relationships[harmonic_key]["differences"] = differences
 
-        # Check if the file exists
-        if not os.path.exists(file_path):
-            # Try to get the comparison data to regenerate it
-            chart_repository = await get_chart_repository()
-            comparison_data = await chart_repository.get_comparison(comparison_id)
+    return harmonic_relationships
 
-            if not comparison_data:
-                raise HTTPException(status_code=404, detail=f"Comparison {comparison_id} not found")
-
-            # If the comparison exists but the file doesn't, we need to regenerate it
-            chart_service = get_chart_service()
-            chart1_id = comparison_data.get("chart1_id")
-            chart2_id = comparison_data.get("chart2_id")
-
-            if not chart1_id or not chart2_id:
-                raise HTTPException(status_code=404, detail="Comparison data incomplete")
-
-            chart1 = await chart_service.get_chart(chart1_id)
-            chart2 = await chart_service.get_chart(chart2_id)
-
-            if not chart1 or not chart2:
-                raise HTTPException(status_code=404, detail="One or both charts not found")
-
-            # Ensure the directory exists
-            os.makedirs(visualization_dir, exist_ok=True)
-
-            # Generate the visualization
-            from ai_service.utils.chart_visualizer import generate_comparison_chart
-            file_path = generate_comparison_chart(chart1, chart2, file_path)
-
-            if not os.path.exists(file_path):
-                raise HTTPException(status_code=500, detail="Failed to generate comparison visualization")
-
-        # Return the file
-        return FileResponse(
-            path=file_path,
-            filename=f"comparison_{comparison_id}.png",
-            media_type="image/png"
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving comparison visualization: {e}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving comparison visualization: {str(e)}")
+# Add a helper function to safely truncate text
+def safe_truncate(text: Any, max_length: int = 1000) -> str:
+    """Safely truncate text to a maximum length."""
+    # Convert to string first
+    text_str = str(text)
+    return text_str[:max_length] if len(text_str) > max_length else text_str
