@@ -19,5 +19,8 @@
   },
   "cacheDirectories": [
     ".next/cache"
-  ]
+  ],
+  "devDependencies": {
+    "@playwright/test": "^1.51.1"
+  }
 }

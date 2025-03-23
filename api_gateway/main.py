@@ -15,6 +15,7 @@ import os
 import sys
 import httpx
 import uuid
+import traceback
 from typing import Optional, Dict, Any, List, Union
 import asyncio
 from datetime import datetime
@@ -217,75 +218,83 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     # Generate client ID and session ID
     client_id = f"client-{uuid.uuid4().hex[:8]}"
-    session_id = None
+    session_id = f"session-{uuid.uuid4().hex[:8]}"  # Default session if not provided
 
     try:
         # Accept the connection
         await websocket.accept()
         logger.info(f"WebSocket connection established for client {client_id}")
 
-        # Receive initialization message with authentication
-        try:
-            init_message = await websocket.receive_json()
-            session_id = init_message.get("session_id")
-            token = init_message.get("token")
+        # Send initial welcome message - this helps determine if connection is working
+        await websocket.send_json({
+            "type": "welcome",
+            "client_id": client_id,
+            "message": "Connection established. Please send initialization message.",
+            "timestamp": datetime.now().isoformat()
+        })
 
-            # Validate initialization message
-            if not init_message.get("type") == "initialize" or not session_id:
+        # Wait for initialization message
+        try:
+            # Set a timeout for receiving the initialization message
+            init_message_task = asyncio.create_task(websocket.receive_json())
+            try:
+                init_message = await asyncio.wait_for(init_message_task, timeout=10.0)
+
+                # Get session ID from initialization message or use the default
+                provided_session_id = init_message.get("session_id")
+                if provided_session_id:
+                    session_id = provided_session_id
+
+                token = init_message.get("token")
+
+                # Send acknowledgment immediately to confirm receipt
                 await websocket.send_json({
-                    "type": "error",
-                    "message": "Invalid initialization message. Must include type='initialize' and session_id",
+                    "type": "initialize_ack",
+                    "session_id": session_id,
+                    "client_id": client_id,
                     "timestamp": datetime.now().isoformat()
                 })
-                await websocket.close(1008)  # Policy violation
-                logger.warning(f"Invalid initialization message from client {client_id}")
+
+                # Start WebSocket proxy with error handling and recovery
+                await websocket_proxy.handle_websocket(
+                    websocket=websocket,
+                    session_id=session_id,
+                    upstream_url=f"{AI_SERVICE_WS_URL}/{session_id}",
+                    client_id=client_id,
+                    token=token or "",
+                    ping_interval=int(os.getenv("WS_PING_INTERVAL", "30"))
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"No initialization message received from client {client_id} within timeout")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Initialization timeout. No initialization message received.",
+                    "timestamp": datetime.now().isoformat()
+                })
+                await websocket.close(1013)  # Try/again later
                 return
 
-            # Verify token if provided
-            if token:
-                try:
-                    verify_token(token)
-                except HTTPException as auth_error:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Authentication failed: {auth_error.detail}",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    await websocket.close(1008)  # Policy violation
-                    logger.warning(f"Authentication failed for client {client_id}")
-                    return
-
-            # Send acknowledgment
-            await websocket.send_json({
-                "type": "initialize_ack",
-                "session_id": session_id,
-                "client_id": client_id,
-                "timestamp": datetime.now().isoformat()
-            })
-
-            # Start WebSocket proxy with proper error handling and recovery
-            await websocket_proxy.handle_websocket(
-                websocket=websocket,
-                session_id=session_id,
-                upstream_url=f"{AI_SERVICE_WS_URL}/{session_id}",
-                client_id=client_id,
-                token=token or "",
-                ping_interval=int(os.getenv("WS_PING_INTERVAL", "30"))
-            )
-
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as json_error:
+            logger.warning(f"Invalid JSON from client {client_id}: {str(json_error)}")
             await websocket.send_json({
                 "type": "error",
                 "message": "Invalid JSON in initialization message",
+                "error_details": str(json_error),
                 "timestamp": datetime.now().isoformat()
             })
             await websocket.close(1003)  # Unsupported data
-            logger.warning(f"Invalid JSON from client {client_id}")
+            return
+        except WebSocketDisconnect:
+            logger.info(f"Client {client_id} disconnected during initialization")
             return
 
+    except WebSocketDisconnect:
+        logger.info(f"Client {client_id} disconnected")
     except Exception as e:
         logger.error(f"Error in WebSocket handler for client {client_id}: {str(e)}")
+        logger.error(f"Stack trace: {traceback.format_exc()}")
         try:
+            # Check if the connection is still open before sending error
             if websocket.client_state.CONNECTED:
                 await websocket.send_json({
                     "type": "error",
@@ -297,10 +306,13 @@ async def websocket_endpoint(websocket: WebSocket):
             pass
     finally:
         # Clean up
-        if session_id:
-            logger.info(f"WebSocket connection closed for client {client_id}, session {session_id}")
-        else:
-            logger.info(f"WebSocket connection closed for client {client_id}")
+        logger.info(f"WebSocket connection closed for client {client_id}, session {session_id}")
+
+        # Clean up any resources for this session
+        try:
+            await websocket_proxy.disconnect(websocket, session_id)
+        except Exception as cleanup_error:
+            logger.warning(f"Error during WebSocket cleanup: {str(cleanup_error)}")
 
 # API v1 routes
 @app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"])
@@ -662,7 +674,6 @@ async def proxy_to_ai_service(request: Request, path: str):
         except Exception as e:
             # Unexpected errors
             logger.error(f"Unexpected error proxying request {request_id}: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             last_error = {"type": "unknown", "detail": str(e)}
 

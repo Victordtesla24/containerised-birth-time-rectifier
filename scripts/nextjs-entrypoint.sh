@@ -12,10 +12,21 @@ echo "{}" > .next/fallback-build-manifest.json
 chmod -R 777 .next
 chmod -R 777 node_modules 2>/dev/null || true
 
-# Skip the Babel plugin check and installation - assume it was installed during build
-echo "Skipping Babel plugin check and installation..."
+# Install required babel plugins
+echo "Installing required babel packages..."
+npm install --save-dev @babel/core @babel/preset-env @babel/preset-react babel-plugin-transform-runtime next
+chmod -R 777 node_modules
 
 echo "Next.js directories and files prepared"
+
+# Create a simplified babel config without references to next/babel
+echo "module.exports = {
+  presets: [
+    ['@babel/preset-env', { targets: { node: 'current' } }],
+    '@babel/preset-react'
+  ],
+  plugins: ['@babel/plugin-transform-runtime']
+};" > babel.config.js
 
 # Check NODE_ENV and ensure the right setup
 if [ "$NODE_ENV" = "development" ]; then
@@ -24,11 +35,8 @@ if [ "$NODE_ENV" = "development" ]; then
     # Run the dev server with fallback in place
     echo "{}" > .next/fallback-build-manifest.json
 
-    # Create a minimal babel.config.js file that should work without the transform-runtime plugin
-    echo "module.exports = { presets: ['next/babel'] };" > babel.config.js
-
     # Start Next.js
-    exec npm run dev
+    exec npx next dev
 else
     echo "Building Next.js for production..."
 
@@ -38,15 +46,12 @@ else
     echo "{}" > .next/fallback-build-manifest.json
     chmod -R 777 .next
 
-    # Create a minimal babel.config.js file that should work without the transform-runtime plugin
-    echo "module.exports = { presets: ['next/babel'] };" > babel.config.js
-
     # Build the application with retries
     echo "Running Next.js build..."
     max_retries=3
     retry_count=0
 
-    until npm run build; do
+    until npx next build; do
         retry_count=$((retry_count+1))
         echo "Build attempt $retry_count of $max_retries"
 
@@ -56,7 +61,7 @@ else
             chmod -R 777 .next
 
             # Try to start in dev mode as a last resort
-            exec npm run dev
+            exec npx next dev
             break
         fi
 
@@ -68,5 +73,5 @@ else
     done
 
     echo "Starting Next.js in production mode..."
-    exec npm start
+    exec npx next start
 fi
