@@ -237,23 +237,23 @@ class ChartService:
         try:
             # Import here to avoid circular imports
             from ai_service.services import get_chart_service
+            from ai_service.services.chart_service import ChartService as MainChartService
 
             # Use the complete implementation from the main chart service
             main_chart_service = get_chart_service()
 
-            # Call the main chart service implementation
-            chart_data = await main_chart_service.generate_chart(
+            # Type hint to fix linter error
+            assert isinstance(main_chart_service, MainChartService)
+
+            # Call the main chart service implementation with proper parameters
+            chart_data = await main_chart_service.calculate_chart(
                 birth_date=birth_date,
                 birth_time=birth_time,
                 latitude=latitude,
                 longitude=longitude,
+                location_name=location,
                 timezone=timezone,
-                location=location,
-                house_system=house_system,
-                zodiac_type=zodiac_type,
-                ayanamsa=ayanamsa,
-                verify_with_openai=verify_with_openai,
-                node_type=node_type
+                verify_with_openai=verify_with_openai
             )
 
             # Save the chart in our database as well

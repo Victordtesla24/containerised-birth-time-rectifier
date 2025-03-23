@@ -8,6 +8,7 @@ PyJWT==2.8.0  # Added for JWT token handling
 
 # Swiss Ephemeris library
 pyswisseph==2.10.3.2
+swisseph>=0.6.0  # Swiss Ephemeris Python binding - ensure it's included
 
 # Utilities
 python-multipart==0.0.19
@@ -16,7 +17,7 @@ psutil==5.9.5
 python-jose==3.4.0
 passlib==1.7.4
 bcrypt==4.0.1
-redis==5.0.0
+redis==5.0.1  # Updated to match redis version below
 pydantic-settings==2.0.3
 timezonefinder==5.2.0
 pytz>=2023.3
@@ -75,3 +76,29 @@ structlog==24.1.0
 # Email validator
 email-validator==2.1.0  # Required for Pydantic email validation
 websocket-client==1.7.0  # Added for WebSocket client connections
+
+# Data visualization and chart generation
+matplotlib==3.8.3  # For chart rendering
+Pillow==10.1.0  # PIL fork for image processing
+
+# PDF Generation
+reportlab==4.1.0  # For PDF generation
+weasyprint==60.2  # HTML to PDF conversion alternative
+
+# Redis for session storage and caching
+redis==5.0.1  # For Redis connection
+hiredis==2.3.2  # C accelerator for redis-py
+
+# Database
+asyncpg==0.29.0  # PostgreSQL database driver for asyncio
+alembic==1.13.1  # Database migrations
+
+# Astronomy/Astrological calculations
+pytz>=2023.3  # Time zone calculations
+ephem>=4.1.5  # Astronomical calculations
+jplephem==2.20  # JPL Ephemerides for precise planetary calculations
+skyfield==1.46  # High-precision astronomy
+astropy==6.0.0  # Comprehensive astronomy library
+
+# Make sure dependency_container is properly implemented
+# DI Container is internal, so no external package needed

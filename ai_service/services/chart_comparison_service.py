@@ -6,6 +6,10 @@ Provides functionality to compare original and rectified birth charts.
 import logging
 import uuid
 import math
+import os
+import tempfile
+import base64
+import traceback
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
@@ -14,6 +18,7 @@ from ai_service.models.chart_comparison import (
     AspectData, ChartComparisonResponse
 )
 from ai_service.api.routers.consolidated_chart.utils import retrieve_chart
+from ai_service.utils.chart_visualizer import generate_comparison_chart
 
 # Setup logging
 logger = logging.getLogger("birth-time-rectifier.chart-comparison")
@@ -35,19 +40,21 @@ class ChartComparisonService:
         chart1_id: str,
         chart2_id: str,
         comparison_type: str = "differences",
-        include_significance: bool = True
+        include_significance: bool = True,
+        output_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Compare two charts and identify key differences.
+        Compare two charts and generate a comprehensive analysis with visualization.
 
         Args:
             chart1_id: ID of the first chart
             chart2_id: ID of the second chart
             comparison_type: Type of comparison to perform
             include_significance: Whether to include significance metrics
+            output_path: Optional path to save visualization
 
         Returns:
-            Dictionary with comparison results
+            Dictionary containing comparison results and visualization
         """
         logger.info(f"Comparing charts {chart1_id} and {chart2_id}")
 
@@ -73,13 +80,14 @@ class ChartComparisonService:
         self._validate_chart_data(chart2)
 
         # Prepare comparison response
-        response = ChartComparisonResponse(
+        comparison_id = f"comp_{uuid.uuid4().hex[:8]}"
+        comparison_response = ChartComparisonResponse(
+            comparison_id=comparison_id,
             chart1_id=chart1_id,
             chart2_id=chart2_id,
             differences=[],
             summary="",
-            comparison_type=comparison_type,
-            comparison_date=datetime.utcnow().isoformat()
+            comparison_type=comparison_type
         )
 
         # Identify differences
@@ -116,8 +124,13 @@ class ChartComparisonService:
         # Generate summary
         summary = self._generate_summary(chart1, chart2, differences, overall_impact)
 
+        # Generate visual comparison
+        visualization_data = self._generate_visualization(chart1, chart2, differences, output_path)
+
         # Return formatted response
         return {
+            "comparison_id": comparison_id,
+            "comparison_timestamp": datetime.now().isoformat(),
             "chart1_id": chart1_id,
             "chart2_id": chart2_id,
             "chart1_data": {
@@ -130,9 +143,10 @@ class ChartComparisonService:
                 "time": chart2.get("birth_time", ""),
                 "location": chart2.get("birth_location", "")
             },
-            "differences": [d.dict() for d in differences],
+            "differences": [diff.model_dump() if hasattr(diff, 'model_dump') else diff.dict() for diff in differences],
             "overall_impact": overall_impact,
             "summary": summary,
+            "visualization": visualization_data,
             "comparison_type": comparison_type
         }
 
@@ -197,17 +211,25 @@ class ChartComparisonService:
             # Check if sign has changed
             sign_changed = asc1_sign != asc2_sign
 
+            # Ensure signs are not None for PlanetaryPosition
+            safe_asc1_sign = asc1_sign or "Unknown"
+            safe_asc2_sign = asc2_sign or "Unknown"
+
             difference = ChartDifference(
-                element_type="angle",
-                element_name="Ascendant",
-                difference_type=DifferenceType.POSITION_CHANGE,
+                type=DifferenceType.POSITION_CHANGE,
                 description=f"Ascendant moved by {degree_diff:.2f}° " +
-                            (f"from {asc1_sign} to {asc2_sign}" if sign_changed else f"within {asc1_sign}"),
-                original_value=f"{asc1_data.get('longitude', 0):.2f}°",
-                new_value=f"{asc2_data.get('longitude', 0):.2f}°",
-                degree_difference=degree_diff,
+                            (f"from {safe_asc1_sign} to {safe_asc2_sign}" if sign_changed else f"within {safe_asc1_sign}"),
                 significance=min(100, max(0, degree_diff * 10)) if degree_diff > 0 else 0,
-                sign_changed=sign_changed
+                chart1_position=PlanetaryPosition(
+                    sign=safe_asc1_sign,
+                    degree=asc1_data.get('longitude', 0) % 30,
+                    house=1
+                ),
+                chart2_position=PlanetaryPosition(
+                    sign=safe_asc2_sign,
+                    degree=asc2_data.get('longitude', 0) % 30,
+                    house=1
+                )
             )
 
             return difference
@@ -293,16 +315,20 @@ class ChartComparisonService:
             sign_changed = mc1_sign != mc2_sign
 
             difference = ChartDifference(
-                element_type="angle",
-                element_name="Midheaven",
-                difference_type=DifferenceType.POSITION_CHANGE,
+                type=DifferenceType.POSITION_CHANGE,
                 description=f"Midheaven moved by {degree_diff:.2f}° " +
                             (f"from {mc1_sign} to {mc2_sign}" if sign_changed else f"within {mc1_sign}"),
-                original_value=f"{mc1_data.get('longitude', 0):.2f}°",
-                new_value=f"{mc2_data.get('longitude', 0):.2f}°",
-                degree_difference=degree_diff,
                 significance=min(100, max(0, degree_diff * 8)) if degree_diff > 0 else 0,
-                sign_changed=sign_changed
+                chart1_position=PlanetaryPosition(
+                    sign=mc1_sign,
+                    degree=mc1_data.get('longitude', 0) % 30,
+                    house=10  # Midheaven is typically associated with house 10
+                ),
+                chart2_position=PlanetaryPosition(
+                    sign=mc2_sign,
+                    degree=mc2_data.get('longitude', 0) % 30,
+                    house=10
+                )
             )
 
             return difference
@@ -375,16 +401,20 @@ class ChartComparisonService:
                 significance = min(100, max(0, significance))
 
                 difference = ChartDifference(
-                    element_type="planet",
-                    element_name=name,
-                    difference_type=DifferenceType.POSITION_CHANGE,
+                    type=DifferenceType.POSITION_CHANGE,
                     description=f"{name} moved by {degree_diff:.2f}° " +
                                 (f"from {p1_sign} to {p2_sign}" if sign_changed else f"within {p1_sign}"),
-                    original_value=f"{p1_lon:.2f}°",
-                    new_value=f"{p2_lon:.2f}°",
-                    degree_difference=degree_diff,
                     significance=significance,
-                    sign_changed=sign_changed
+                    chart1_position=PlanetaryPosition(
+                        sign=p1_sign,
+                        degree=p1_lon % 30,
+                        house=p1.get("house", 0)
+                    ),
+                    chart2_position=PlanetaryPosition(
+                        sign=p2_sign,
+                        degree=p2_lon % 30,
+                        house=p2.get("house", 0)
+                    )
                 )
 
                 differences.append(difference)
@@ -426,13 +456,19 @@ class ChartComparisonService:
                     aspect_type = aspect.get("type", "Unknown")
 
                     difference = ChartDifference(
-                        element_type="aspect",
-                        element_name=f"{planet1}-{planet2}",
-                        difference_type=DifferenceType.ASPECT_REMOVED,
+                        type=DifferenceType.ASPECT_REMOVED,
                         description=f"{aspect_type.title()} aspect between {planet1.title()} and {planet2.title()} no longer present",
-                        original_value=f"{aspect_type.title()} ({aspect.get('orb', 0):.2f}° orb)",
-                        new_value="None",
-                        significance=self._get_aspect_significance(aspect_type, planet1, planet2)
+                        significance=self._get_aspect_significance(aspect_type, planet1, planet2),
+                        chart1_position=PlanetaryPosition(
+                            sign=aspect.get("sign1", "Unknown"),
+                            degree=aspect.get("degree1", 0),
+                            house=aspect.get("house1", 0)
+                        ),
+                        chart2_position=PlanetaryPosition(
+                            sign="Unknown",
+                            degree=0,
+                            house=0
+                        )
                     )
                     differences.append(difference)
 
@@ -444,13 +480,19 @@ class ChartComparisonService:
                     aspect_type = aspect.get("type", "Unknown")
 
                     difference = ChartDifference(
-                        element_type="aspect",
-                        element_name=f"{planet1}-{planet2}",
-                        difference_type=DifferenceType.ASPECT_ADDED,
+                        type=DifferenceType.ASPECT_ADDED,
                         description=f"New {aspect_type.title()} aspect between {planet1.title()} and {planet2.title()}",
-                        original_value="None",
-                        new_value=f"{aspect_type.title()} ({aspect.get('orb', 0):.2f}° orb)",
-                        significance=self._get_aspect_significance(aspect_type, planet1, planet2)
+                        significance=self._get_aspect_significance(aspect_type, planet1, planet2),
+                        chart1_position=PlanetaryPosition(
+                            sign="Unknown",
+                            degree=0,
+                            house=0
+                        ),
+                        chart2_position=PlanetaryPosition(
+                            sign=aspect.get("sign1", "Unknown"),
+                            degree=aspect.get("degree1", 0),
+                            house=aspect.get("house1", 0)
+                        )
                     )
                     differences.append(difference)
 
@@ -473,14 +515,20 @@ class ChartComparisonService:
                     strengthening = orb2 < orb1  # Lower orb is stronger
 
                     difference = ChartDifference(
-                        element_type="aspect",
-                        element_name=f"{planet1}-{planet2}",
-                        difference_type=DifferenceType.ASPECT_CHANGED,
+                        type=DifferenceType.ASPECT_CHANGED,
                         description=f"{aspect_type.title()} aspect between {planet1.title()} and {planet2.title()} " +
                                    (f"strengthened by {orb_diff:.2f}°" if strengthening else f"weakened by {orb_diff:.2f}°"),
-                        original_value=f"{orb1:.2f}° orb",
-                        new_value=f"{orb2:.2f}° orb",
-                        significance=min(100, max(0, self._get_aspect_significance(aspect_type, planet1, planet2) * orb_diff / 3))
+                        significance=min(100, max(0, self._get_aspect_significance(aspect_type, planet1, planet2) * orb_diff / 3)),
+                        chart1_position=PlanetaryPosition(
+                            sign=aspect1.get("sign1", "Unknown"),
+                            degree=aspect1.get("degree1", 0),
+                            house=aspect1.get("house1", 0)
+                        ),
+                        chart2_position=PlanetaryPosition(
+                            sign=aspect2.get("sign1", "Unknown"),
+                            degree=aspect2.get("degree1", 0),
+                            house=aspect2.get("house1", 0)
+                        )
                     )
                     differences.append(difference)
 
@@ -541,16 +589,20 @@ class ChartComparisonService:
                 significance = min(100, max(0, significance))
 
                 difference = ChartDifference(
-                    element_type="house",
-                    element_name=f"House {i}",
-                    difference_type=DifferenceType.POSITION_CHANGE,
+                    type=DifferenceType.POSITION_CHANGE,
                     description=f"House {i} cusp moved by {degree_diff:.2f}° " +
                                 (f"from {h1_sign} to {h2_sign}" if sign_changed else f"within {h1_sign}"),
-                    original_value=f"{h1_lon:.2f}°",
-                    new_value=f"{h2_lon:.2f}°",
-                    degree_difference=degree_diff,
                     significance=significance,
-                    sign_changed=sign_changed
+                    chart1_position=PlanetaryPosition(
+                        sign=h1_sign,
+                        degree=h1_lon % 30,
+                        house=i
+                    ),
+                    chart2_position=PlanetaryPosition(
+                        sign=h2_sign,
+                        degree=h2_lon % 30,
+                        house=i
+                    )
                 )
 
                 differences.append(difference)
@@ -568,7 +620,7 @@ class ChartComparisonService:
         overall_impact: Optional[float]
     ) -> str:
         """
-        Generate a summary of the chart comparison.
+        Generate a comprehensive summary of the chart comparison with deep astrological insight.
 
         Args:
             chart1: First chart data
@@ -577,59 +629,231 @@ class ChartComparisonService:
             overall_impact: Overall impact score
 
         Returns:
-            Summary text
+            Detailed astrological summary text
         """
         if not differences:
-            return "The charts show no significant differences."
+            return "The charts show no significant differences in planetary positions or aspects."
 
-        # Count differences by type
-        angle_diffs = [d for d in differences if d.element_type == "angle"]
-        planet_diffs = [d for d in differences if d.element_type == "planet"]
-        aspect_diffs = [d for d in differences if d.element_type == "aspect"]
-        house_diffs = [d for d in differences if d.element_type == "house"]
+        # Get birth time difference if available
+        time_diff_minutes = 0
+        birth_time1 = chart1.get("birth_time", "") or chart1.get("birth_details", {}).get("time", "")
+        birth_time2 = chart2.get("birth_time", "") or chart2.get("birth_details", {}).get("time", "")
 
-        # Format overall impact
-        impact_text = ""
+        if birth_time1 and birth_time2:
+            try:
+                # Extract hours and minutes from time strings
+                from datetime import datetime
+                time1 = datetime.strptime(birth_time1.split(".")[0], "%H:%M:%S")
+                time2 = datetime.strptime(birth_time2.split(".")[0], "%H:%M:%S")
+                diff = time2 - time1
+                time_diff_minutes = abs(diff.total_seconds() / 60)
+            except (ValueError, IndexError):
+                # Handle various time format issues
+                pass
+
+        time_diff_text = f" resulting from a {time_diff_minutes:.0f} minute birth time adjustment" if time_diff_minutes > 0 else ""
+
+        # Categorize and count differences by type with proper null checks
+        angle_diffs = [d for d in differences if d.chart1_position is not None and d.chart1_position.house in [1, 10]]
+        planet_diffs = [d for d in differences if d.type == DifferenceType.POSITION_CHANGE and
+                        d.chart1_position is not None and not (d.chart1_position.house in [1, 10])]
+        aspect_diffs = [d for d in differences if d.type in [DifferenceType.ASPECT_ADDED,
+                                                           DifferenceType.ASPECT_REMOVED,
+                                                           DifferenceType.ASPECT_CHANGED]]
+        house_diffs = [d for d in differences if d.type == DifferenceType.POSITION_CHANGE and
+                       d.chart1_position is not None and d.chart1_position.house is not None and
+                       d.chart1_position.house > 0]
+
+        # Sort differences by significance for better analysis
+        significant_diffs = sorted(differences, key=lambda x: x.significance or 0, reverse=True)
+        top_diffs = significant_diffs[:min(5, len(significant_diffs))]
+
+        # Format overall impact with greater astrological context
+        impact_level = ""
+        impact_description = ""
         if overall_impact is not None:
-            if overall_impact < 20:
-                impact_text = " with minimal impact"
-            elif overall_impact < 50:
-                impact_text = " with moderate impact"
+            if overall_impact < 15:
+                impact_level = "minimal"
+                impact_description = "suggesting minor refinements to timing"
+            elif overall_impact < 35:
+                impact_level = "moderate"
+                impact_description = "indicating notable shifts in planetary dynamics"
+            elif overall_impact < 60:
+                impact_level = "significant"
+                impact_description = "revealing substantial changes in chart interpretation"
             else:
-                impact_text = " with significant impact"
+                impact_level = "transformative"
+                impact_description = "fundamentally altering key chart dynamics and interpretations"
 
-        # Create summary
+        # Create a more insightful and astrologically meaningful summary
         summary_parts = []
-        summary_parts.append(f"Comparison reveals {len(differences)} differences{impact_text}.")
 
-        # Add angle summary
+        # Opening statement
+        summary_parts.append(f"Chart comparison reveals {len(differences)} astrological differences{time_diff_text}, "
+                            f"with {impact_level} overall impact ({overall_impact:.1f}%) {impact_description}.")
+
+        # Analyze angular changes (ascendant and midheaven)
         if angle_diffs:
-            angle_text = ", ".join([d.element_name for d in angle_diffs])
-            summary_parts.append(f"Angular changes to {angle_text}.")
+            asc_diff = next((d for d in angle_diffs if d.description and "Ascendant" in d.description), None)
+            mc_diff = next((d for d in angle_diffs if d.description and "Midheaven" in d.description), None)
 
-        # Add planet summary (focus on the significant ones)
-        significant_planets = sorted(
-            [d for d in planet_diffs if d.significance and d.significance > 30],
-            key=lambda x: x.significance or 0,
-            reverse=True
-        )
-        if significant_planets:
-            top_planets = significant_planets[:3]  # Top 3 most significant
-            planets_text = ", ".join([d.element_name for d in top_planets])
-            summary_parts.append(f"Notable planetary shifts in {planets_text}.")
+            angle_texts = []
+            if asc_diff:
+                # Check if ascendant changed signs
+                sign_change = "crossing into a new sign" if (asc_diff.chart1_position is not None and
+                                                            asc_diff.chart2_position is not None and
+                                                            asc_diff.chart1_position.sign != asc_diff.chart2_position.sign) else "within same sign"
+                angle_texts.append(f"Ascendant shifted {sign_change} ({asc_diff.significance:.1f}% significance)")
 
-        # Add aspect summary
+            if mc_diff:
+                # Check if midheaven changed signs
+                sign_change = "crossing into a new sign" if (mc_diff.chart1_position is not None and
+                                                           mc_diff.chart2_position is not None and
+                                                           mc_diff.chart1_position.sign != mc_diff.chart2_position.sign) else "within same sign"
+                angle_texts.append(f"Midheaven shifted {sign_change} ({mc_diff.significance:.1f}% significance)")
+
+            if angle_texts:
+                angle_impact = "dramatically altering chart interpretation" if any(d.significance and d.significance > 50 for d in angle_diffs) else \
+                              "significantly shifting house positions" if any(d.significance and d.significance > 30 for d in angle_diffs) else \
+                              "modifying overall chart dynamics"
+                summary_parts.append(f"Angular changes: {', '.join(angle_texts)}, {angle_impact}.")
+
+        # Analyze planetary position changes with astrological context
+        if planet_diffs:
+            # Focus on most significant planet changes
+            sig_planets = sorted([d for d in planet_diffs if d.significance and d.significance > 20],
+                                key=lambda x: x.significance or 0, reverse=True)
+
+            # Check for planets changing houses
+            house_changing_planets = [d for d in planet_diffs if d.chart1_position and d.chart2_position and
+                                     d.chart1_position.house != d.chart2_position.house]
+
+            # Check for planets changing signs
+            sign_changing_planets = [d for d in planet_diffs if d.chart1_position and d.chart2_position and
+                                    d.chart1_position.sign != d.chart2_position.sign]
+
+            planet_texts = []
+            if sig_planets:
+                top_planets = sig_planets[:min(3, len(sig_planets))]
+                planet_names = [d.description.split(" moved")[0] for d in top_planets]
+                planet_texts.append(f"Notable shifts in {', '.join(planet_names)}")
+
+            if house_changing_planets:
+                num_changing = len(house_changing_planets)
+                planet_texts.append(f"{num_changing} planet{'s' if num_changing != 1 else ''} changed houses")
+
+            if sign_changing_planets:
+                num_changing = len(sign_changing_planets)
+                planet_texts.append(f"{num_changing} planet{'s' if num_changing != 1 else ''} changed zodiac signs")
+
+            if planet_texts:
+                planetary_impact = "substantially altering life area emphasis" if len(house_changing_planets) > 2 else \
+                                  "shifting planetary energies across different domains" if house_changing_planets else \
+                                  "refining planetary expressions"
+                summary_parts.append(f"Planetary positions: {'; '.join(planet_texts)}, {planetary_impact}.")
+
+        # Analyze aspect changes with deeper astrological meaning
         if aspect_diffs:
-            added = len([d for d in aspect_diffs if d.difference_type == DifferenceType.ASPECT_ADDED])
-            removed = len([d for d in aspect_diffs if d.difference_type == DifferenceType.ASPECT_REMOVED])
-            changed = len([d for d in aspect_diffs if d.difference_type == DifferenceType.ASPECT_CHANGED])
+            added = [d for d in aspect_diffs if d.type == DifferenceType.ASPECT_ADDED]
+            removed = [d for d in aspect_diffs if d.type == DifferenceType.ASPECT_REMOVED]
+            changed = [d for d in aspect_diffs if d.type == DifferenceType.ASPECT_CHANGED]
 
-            if added > 0:
-                summary_parts.append(f"{added} new aspect{'s' if added != 1 else ''} formed.")
-            if removed > 0:
-                summary_parts.append(f"{removed} aspect{'s' if removed != 1 else ''} dissolved.")
-            if changed > 0:
-                summary_parts.append(f"{changed} aspect{'s' if changed != 1 else ''} changed in strength.")
+            # Check for significant aspect changes
+            sig_aspects = [d for d in aspect_diffs if d.significance and d.significance > 40]
+
+            aspect_texts = []
+            if added:
+                num_added = len(added)
+                # Identify most significant new aspect
+                most_sig_new = max(added, key=lambda x: x.significance or 0) if added else None
+                if most_sig_new and most_sig_new.description:
+                    aspect_name = most_sig_new.description.split("New ")[1].split(" aspect")[0]
+                    planets = most_sig_new.description.split("between ")[1].split(" and ")
+                    planet1, planet2 = planets[0], planets[1].split(",")[0] if "," in planets[1] else planets[1]
+                    aspect_texts.append(f"{num_added} new aspect{'s' if num_added != 1 else ''} formed "
+                                       f"(notably {aspect_name} between {planet1} and {planet2})")
+                else:
+                    aspect_texts.append(f"{num_added} new aspect{'s' if num_added != 1 else ''} formed")
+
+            if removed:
+                num_removed = len(removed)
+                aspect_texts.append(f"{num_removed} aspect{'s' if num_removed != 1 else ''} dissolved")
+
+            if changed:
+                num_changed = len(changed)
+                # Count strengthened vs weakened aspects
+                strengthened = len([d for d in changed if "strengthened" in d.description])
+                weakened = len([d for d in changed if "weakened" in d.description])
+
+                if strengthened > weakened:
+                    aspect_texts.append(f"{num_changed} aspect{'s' if num_changed != 1 else ''} changed "
+                                      f"(mostly strengthened)")
+                elif weakened > strengthened:
+                    aspect_texts.append(f"{num_changed} aspect{'s' if num_changed != 1 else ''} changed "
+                                      f"(mostly weakened)")
+                else:
+                    aspect_texts.append(f"{num_changed} aspect{'s' if num_changed != 1 else ''} changed in orb")
+
+            if aspect_texts:
+                aspect_impact = "dramatically reshaping planetary relationships" if len(sig_aspects) > 2 else \
+                               "altering the dynamic interplay of energies" if sig_aspects else \
+                               "subtly adjusting planetary connections"
+                summary_parts.append(f"Aspect changes: {'; '.join(aspect_texts)}, {aspect_impact}.")
+
+        # Analyze house cusp changes and their astrological meaning
+        if house_diffs:
+            # Count significant house changes
+            sig_houses = [d for d in house_diffs if d.significance and d.significance > 30]
+            # Check for houses changing signs
+            sign_changing_houses = [d for d in house_diffs if d.chart1_position and d.chart2_position and
+                                   d.chart1_position.sign != d.chart2_position.sign]
+
+            house_texts = []
+            if sig_houses:
+                # Focus on angular and succedent houses (1,4,7,10,2,5,8,11)
+                angular_houses = [d for d in sig_houses if d.chart1_position and d.chart1_position.house in [1,4,7,10]]
+                succedent_houses = [d for d in sig_houses if d.chart1_position and d.chart1_position.house in [2,5,8,11]]
+
+                if angular_houses:
+                    houses_text = ", ".join([f"House {d.chart1_position.house}" for d in angular_houses
+                                           if d.chart1_position is not None])
+                    house_texts.append(f"Angular houses shifted ({houses_text})")
+
+                if succedent_houses:
+                    houses_text = ", ".join([f"House {d.chart1_position.house}" for d in succedent_houses
+                                           if d.chart1_position is not None])
+                    house_texts.append(f"Succedent houses shifted ({houses_text})")
+
+            if sign_changing_houses:
+                num_changing = len(sign_changing_houses)
+                house_texts.append(f"{num_changing} house cusp{'s' if num_changing != 1 else ''} changed signs")
+
+            if house_texts:
+                house_impact = "redefining life area interpretations" if len(sign_changing_houses) > 3 else \
+                              "shifting focus of key life domains" if sign_changing_houses else \
+                              "refining life area expressions"
+                summary_parts.append(f"House changes: {'; '.join(house_texts)}, {house_impact}.")
+
+        # Add astrological interpretation summary based on overall pattern of changes
+        if overall_impact is not None:
+            if "Ascendant" in "".join([d.description for d in angle_diffs if d.description]):
+                summary_parts.append(f"This birth time adjustment primarily impacts self-expression, physical appearance, "
+                                   f"and how one approaches life's challenges.")
+            elif "Midheaven" in "".join([d.description for d in angle_diffs if d.description]):
+                summary_parts.append(f"This rectification particularly affects career trajectory, public reputation, "
+                                   f"and relationship with authority figures.")
+            elif len(sign_changing_planets) > 2:
+                summary_parts.append(f"Multiple planets changing signs indicates a significant reframing of core "
+                                   f"personality traits and life experiences.")
+            elif len(house_changing_planets) > 2:
+                summary_parts.append(f"Several planets changing houses suggests a redistribution of energy and focus "
+                                   f"across different areas of life.")
+            elif len(added) > len(removed) and len(added) > 2:
+                summary_parts.append(f"The formation of new aspects enriches the chart with additional planetary "
+                                   f"connections, potentially activating previously dormant energies.")
+            elif len(removed) > len(added) and len(removed) > 2:
+                summary_parts.append(f"The dissolution of multiple aspects suggests a simplification of the chart's "
+                                   f"dynamics, potentially reducing internal tensions or conflicts.")
 
         return " ".join(summary_parts)
 
@@ -731,3 +955,220 @@ class ChartComparisonService:
         }
 
         return significance_map.get(house_number, 5.0)
+
+    def _generate_visualization(self, chart1: Dict[str, Any], chart2: Dict[str, Any],
+                              differences: List[ChartDifference], output_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate visualization for chart comparison.
+
+        Args:
+            chart1: First chart data
+            chart2: Second chart data
+            differences: List of differences
+            output_path: Optional path to save visualization
+
+        Returns:
+            Dictionary containing visualization data
+        """
+        try:
+            # Create a temporary file if no output path is provided
+            if not output_path:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                    temp_path = tmp.name
+            else:
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+                temp_path = output_path
+
+            # Generate the comparison chart image
+            comparison_result = generate_comparison_chart(chart1, chart2, temp_path)
+
+            # Process the result based on its type
+            if isinstance(comparison_result, str):
+                # Result is a file path
+                image_path = comparison_result
+
+                # Read image and encode as base64 for API response
+                with open(image_path, 'rb') as img_file:
+                    img_data = base64.b64encode(img_file.read()).decode('utf-8')
+
+                # Return visualization data
+                result = {
+                    "image_data": f"data:image/png;base64,{img_data}",
+                    "file_path": image_path if output_path else None,
+                    "format": "png",
+                    "encoding": "base64"
+                }
+
+                # Delete temporary file if no output path was provided
+                if not output_path and os.path.exists(temp_path):
+                    os.unlink(temp_path)
+
+                return result
+
+            elif isinstance(comparison_result, dict):
+                # Result is already a dictionary with data
+                if "image_data" in comparison_result:
+                    # The function already returned base64 data
+                    return comparison_result
+                else:
+                    # The function returned a dict with file path
+                    image_path = comparison_result.get("file_path", "")
+
+                    if image_path and os.path.exists(image_path):
+                        # Read image and encode as base64 for API response
+                        with open(image_path, 'rb') as img_file:
+                            img_data = base64.b64encode(img_file.read()).decode('utf-8')
+
+                        # Add base64 data to result
+                        comparison_result["image_data"] = f"data:image/png;base64,{img_data}"
+                        comparison_result["encoding"] = "base64"
+
+                    return comparison_result
+
+            # Fallback for unexpected result type
+            return {
+                "error": "Failed to generate comparison visualization",
+                "generated_at": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating visualization: {e}")
+            logger.error(traceback.format_exc())
+
+            # Return error information
+            return {
+                "error": str(e),
+                "generated_at": datetime.now().isoformat()
+            }
+
+    def compare_chart_data(self, chart1: Dict[str, Any], chart2: Dict[str, Any], output_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Compare two chart data objects directly and generate a comprehensive analysis with visualization.
+
+        Args:
+            chart1: First chart data
+            chart2: Second chart data
+            output_path: Optional path to save visualization
+
+        Returns:
+            Dictionary containing comparison results and visualization
+        """
+        try:
+            # Normalize chart data formats
+            chart1_normalized = self._normalize_chart_data(chart1)
+            chart2_normalized = self._normalize_chart_data(chart2)
+
+            # Add chart titles for better visualization
+            chart1_normalized["title"] = chart1.get("title", "Original Chart")
+            chart2_normalized["title"] = chart2.get("title", "Rectified Chart")
+
+            # Generate comparison ID
+            comparison_id = f"comp_{uuid.uuid4().hex[:8]}"
+
+            # Calculate differences
+            differences = []
+
+            # Ascendant comparison
+            ascendant_diff = self._compare_ascendant(chart1_normalized, chart2_normalized)
+            if ascendant_diff:
+                differences.append(ascendant_diff)
+
+            # Midheaven comparison
+            midheaven_diff = self._compare_midheaven(chart1_normalized, chart2_normalized)
+            if midheaven_diff:
+                differences.append(midheaven_diff)
+
+            # Planet positions comparison
+            planet_diffs = self._compare_planets(chart1_normalized, chart2_normalized)
+            differences.extend(planet_diffs)
+
+            # Aspects comparison
+            aspect_diffs = self._compare_aspects(chart1_normalized, chart2_normalized)
+            differences.extend(aspect_diffs)
+
+            # House cusps comparison
+            house_diffs = self._compare_houses(chart1_normalized, chart2_normalized)
+            differences.extend(house_diffs)
+
+            # Calculate overall impact score
+            overall_impact = None
+            if differences:
+                impact_sum = sum(d.significance if d.significance else 0 for d in differences)
+                overall_impact = min(100, max(0, impact_sum / len(differences) * 100))
+
+            # Generate summary text
+            summary = self._generate_summary(chart1_normalized, chart2_normalized, differences, overall_impact)
+
+            # Generate visual comparison
+            visualization_data = self._generate_visualization(chart1_normalized, chart2_normalized, differences, output_path)
+
+            # Return combined results
+            result = {
+                "comparison_id": comparison_id,
+                "comparison_timestamp": datetime.now().isoformat(),
+                "differences": [diff.model_dump() if hasattr(diff, 'model_dump') else diff.dict() for diff in differences],
+                "overall_impact": overall_impact,
+                "summary": summary,
+                "visualization": visualization_data,
+                "chart1_id": chart1.get("chart_id", "chart1"),
+                "chart2_id": chart2.get("chart_id", "chart2"),
+                "chart1_data": {
+                    "date": chart1.get("birth_date", chart1.get("birth_details", {}).get("date", "")),
+                    "time": chart1.get("birth_time", chart1.get("birth_details", {}).get("time", "")),
+                    "location": chart1.get("birth_location", chart1.get("birth_details", {}).get("location", ""))
+                },
+                "chart2_data": {
+                    "date": chart2.get("birth_date", chart2.get("birth_details", {}).get("date", "")),
+                    "time": chart2.get("birth_time", chart2.get("birth_details", {}).get("time", "")),
+                    "location": chart2.get("birth_location", chart2.get("birth_details", {}).get("location", ""))
+                }
+            }
+
+            return result
+        except Exception as e:
+            logger.error(f"Error comparing charts: {e}")
+            logger.error(traceback.format_exc())
+            raise
+
+    def _normalize_chart_data(self, chart_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize chart data to ensure consistent format for comparison.
+
+        Args:
+            chart_data: Chart data to normalize
+
+        Returns:
+            Normalized chart data
+        """
+        normalized_data = chart_data.copy()
+
+        # Ensure planets are in a dictionary format
+        planets = normalized_data.get("planets", {})
+        if isinstance(planets, list):
+            # Convert list of planets to dictionary
+            planets_dict = {}
+            for planet in planets:
+                if isinstance(planet, dict) and "name" in planet:
+                    planets_dict[planet["name"]] = planet
+            normalized_data["planets"] = planets_dict
+
+        # Ensure houses are in a consistent format
+        houses = normalized_data.get("houses", [])
+        if isinstance(houses, dict):
+            # Convert dictionary of houses to list
+            houses_list = []
+            for i in range(1, 13):
+                house_key = str(i)
+                if house_key in houses:
+                    house_data = houses[house_key]
+                    if isinstance(house_data, dict):
+                        house_data["house"] = i
+                        houses_list.append(house_data)
+            normalized_data["houses"] = houses_list
+
+        # Add empty aspects list if not present
+        if "aspects" not in normalized_data:
+            normalized_data["aspects"] = []
+
+        return normalized_data

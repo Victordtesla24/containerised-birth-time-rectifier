@@ -397,7 +397,7 @@ def track_transaction(func):
         from ai_service.utils.dependency_container import get_container
         try:
             container = get_container()
-            tracker = container.get("transaction_tracker", None)
+            tracker = container.get("transaction_tracker")
         except (ImportError, ValueError):
             # Fall back to function attribute if container not available
             tracker = getattr(wrapper, '_tracker', None)
