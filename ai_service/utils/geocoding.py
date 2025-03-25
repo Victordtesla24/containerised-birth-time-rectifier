@@ -1,469 +1,666 @@
 """
-Geocoding utility for resolving location names to coordinates.
-Uses multiple real geocoding services with comprehensive error handling and recovery.
+Geocoding Service
+----------------
+
+Production-ready geocoding service implementation using Google Maps API and OpenStreetMap.
+Provides accurate coordinates and timezone data for global locations.
 """
 
-import logging
-import os
 import asyncio
+import logging
+import time
 import json
-import random
-import re
-from typing import Dict, Optional, Any, List, Tuple
-import aiohttp
+import os
+import uuid
+from typing import Dict, List, Any, Optional, Tuple, Union
 from functools import lru_cache
+import hashlib
+from datetime import datetime
 
+# Geocoding libraries
+import httpx
+from timezonefinder import TimezoneFinder
+import pytz
+
+# Setup logging
 logger = logging.getLogger(__name__)
 
-# Collection of real geocoding services with robust error handling
-GEOCODING_SERVICES = [
-    {
-        "name": "Nominatim",
-        "url": "https://nominatim.openstreetmap.org/search",
-        "params": lambda location: {
-            "q": location,
-            "format": "json",
-            "limit": 1,
-            "addressdetails": 1
-        },
-        "headers": lambda: {
-            "User-Agent": f"birth-time-rectifier-app-{random.randint(1000, 9999)}",
-            "Accept": "application/json"
-        },
-        "extract_func": lambda data: {
-            "latitude": float(data[0].get("lat", 0)),
-            "longitude": float(data[0].get("lon", 0)),
-            "display_name": data[0].get("display_name", ""),
-            "country": data[0].get("address", {}).get("country", ""),
-            "country_code": data[0].get("address", {}).get("country_code", ""),
-            "city": next((data[0].get("address", {}).get(key, "") for key in ["city", "town", "village", "hamlet"]
-                         if key in data[0].get("address", {})), ""),
-            "state": data[0].get("address", {}).get("state", ""),
-            "postal_code": data[0].get("address", {}).get("postcode", ""),
-            "source": "Nominatim"
-        } if data and len(data) > 0 else None
-    },
-    {
-        "name": "Positionstack",
-        "url": "http://api.positionstack.com/v1/forward",
-        "params": lambda location: {
-            "query": location,
-            "access_key": os.environ.get("POSITIONSTACK_API_KEY", ""),
-            "limit": 1
-        },
-        "headers": lambda: {
-            "User-Agent": f"birth-time-rectifier-app-{random.randint(1000, 9999)}",
-            "Accept": "application/json"
-        },
-        "extract_func": lambda data: {
-            "latitude": float(data["data"][0].get("latitude", 0)),
-            "longitude": float(data["data"][0].get("longitude", 0)),
-            "display_name": data["data"][0].get("label", ""),
-            "country": data["data"][0].get("country", ""),
-            "country_code": data["data"][0].get("country_code", ""),
-            "city": data["data"][0].get("city", ""),
-            "state": data["data"][0].get("region", ""),
-            "postal_code": data["data"][0].get("postal_code", ""),
-            "source": "Positionstack"
-        } if data and data.get("data") and len(data.get("data")) > 0 else None
-    },
-    {
-        "name": "MapQuest",
-        "url": "https://www.mapquestapi.com/geocoding/v1/address",
-        "params": lambda location: {
-            "location": location,
-            "key": os.environ.get("MAPQUEST_API_KEY", ""),
-            "maxResults": 1
-        },
-        "headers": lambda: {
-            "User-Agent": f"birth-time-rectifier-app-{random.randint(1000, 9999)}",
-            "Accept": "application/json"
-        },
-        "extract_func": lambda data: {
-            "latitude": data["results"][0]["locations"][0]["latLng"]["lat"],
-            "longitude": data["results"][0]["locations"][0]["latLng"]["lng"],
-            "display_name": data["results"][0]["locations"][0].get("street", "") + ", " +
-                           data["results"][0]["locations"][0].get("adminArea5", "") + ", " +
-                           data["results"][0]["locations"][0].get("adminArea3", "") + " " +
-                           data["results"][0]["locations"][0].get("postalCode", ""),
-            "country": data["results"][0]["locations"][0].get("adminArea1", ""),
-            "country_code": data["results"][0]["locations"][0].get("adminArea1", ""),
-            "city": data["results"][0]["locations"][0].get("adminArea5", ""),
-            "state": data["results"][0]["locations"][0].get("adminArea3", ""),
-            "postal_code": data["results"][0]["locations"][0].get("postalCode", ""),
-            "source": "MapQuest"
-        } if data and data.get("results") and len(data["results"]) > 0
-            and data["results"][0].get("locations")
-            and len(data["results"][0]["locations"]) > 0 else None
-    },
-    {
-        "name": "ArcGIS",
-        "url": "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates",
-        "params": lambda location: {
-            "SingleLine": location,
-            "f": "json",
-            "maxLocations": 1
-        },
-        "headers": lambda: {
-            "User-Agent": f"birth-time-rectifier-app-{random.randint(1000, 9999)}",
-            "Accept": "application/json"
-        },
-        "extract_func": lambda data: {
-            "latitude": data["candidates"][0]["location"]["y"],
-            "longitude": data["candidates"][0]["location"]["x"],
-            "display_name": data["candidates"][0].get("address", ""),
-            "country": "",  # Not provided directly
-            "country_code": "",
-            "city": "",  # Not provided directly
-            "state": "",
-            "postal_code": "",
-            "source": "ArcGIS"
-        } if data and data.get("candidates") and len(data["candidates"]) > 0 else None
-    }
-]
+# API keys and configuration
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+GOOGLE_MAPS_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+GOOGLE_MAPS_TIMEZONE_URL = "https://maps.googleapis.com/maps/api/timezone/json"
 
-# Default coordinates for important locations when no location can be found
-DEFAULT_LOCATIONS = {
-    "new york": {"latitude": 40.7128, "longitude": -74.0060, "name": "New York, USA"},
-    "london": {"latitude": 51.5074, "longitude": -0.1278, "name": "London, UK"},
-    "tokyo": {"latitude": 35.6762, "longitude": 139.6503, "name": "Tokyo, Japan"},
-    "paris": {"latitude": 48.8566, "longitude": 2.3522, "name": "Paris, France"},
-    "beijing": {"latitude": 39.9042, "longitude": 116.4074, "name": "Beijing, China"},
-    "delhi": {"latitude": 28.7041, "longitude": 77.1025, "name": "Delhi, India"},
-    "mumbai": {"latitude": 19.0760, "longitude": 72.8777, "name": "Mumbai, India"},
-    "sydney": {"latitude": -33.8688, "longitude": 151.2093, "name": "Sydney, Australia"},
-    "cairo": {"latitude": 30.0444, "longitude": 31.2357, "name": "Cairo, Egypt"},
-    "johannesburg": {"latitude": -26.2041, "longitude": 28.0473, "name": "Johannesburg, South Africa"},
-    "moscow": {"latitude": 55.7558, "longitude": 37.6173, "name": "Moscow, Russia"},
-    "san francisco": {"latitude": 37.7749, "longitude": -122.4194, "name": "San Francisco, USA"},
-    "mexico city": {"latitude": 19.4326, "longitude": -99.1332, "name": "Mexico City, Mexico"},
-    "berlin": {"latitude": 52.5200, "longitude": 13.4050, "name": "Berlin, Germany"},
-    "rome": {"latitude": 41.9028, "longitude": 12.4964, "name": "Rome, Italy"}
-}
+# OpenStreetMap service configuration
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
-# Ultimate fallback for when all else fails (null island with warning)
-NULL_ISLAND = {"latitude": 0.0, "longitude": 0.0, "display_name": "Unknown location", "source": "fallback"}
+# Cache configuration
+CACHE_TTL = 86400  # 24 hours in seconds
+_geocode_cache: Dict[str, Dict[str, Any]] = {}
+_timezone_cache: Dict[str, Dict[str, Any]] = {}
 
-# Reading the optional data from the test input file is a proper data source, not a mock
-@lru_cache(maxsize=128)
-async def get_optional_coordinates(location: str) -> Optional[Dict[str, Any]]:
+# HTTP client for geocoding services
+_http_client = None
+
+# Initialize timezone finder for local computation when network services aren't available
+timezone_finder = TimezoneFinder()
+
+def manage_cache_size(cache: Dict, max_size: int = 1000) -> None:
     """
-    Extract coordinates from the test input data if available.
-    This is a legitimate data source for testing, not a mock.
+    Remove oldest entries when cache exceeds maximum size.
 
     Args:
-        location: Location to check against the test data
+        cache: Cache dictionary to manage
+        max_size: Maximum number of entries
+    """
+    if len(cache) > max_size:
+        # Sort by timestamp (oldest first) and remove oldest entries
+        sorted_keys = sorted(cache.keys(), key=lambda k: cache[k].get("timestamp", 0))
+        for key in sorted_keys[:len(cache) - max_size]:
+            cache.pop(key, None)
+
+async def get_http_client() -> httpx.AsyncClient:
+    """
+    Get or create a shared HTTP client with appropriate timeouts.
 
     Returns:
-        Dictionary with coordinates if found, otherwise None
+        AsyncClient instance
     """
-    try:
-        # Find the test data file
-        import os
-        test_data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                     "tests", "test_data_source", "input_birth_data.json")
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            follow_redirects=True,
+            http2=True
+        )
+        logger.info("Created shared HTTP client for geocoding services")
+    return _http_client
 
-        if not os.path.exists(test_data_path):
-            return None
-
-        with open(test_data_path, 'r') as f:
-            data = json.load(f)
-
-        # Check if location matches any in the test data
-        location_lower = location.lower()
-        for entry in data:
-            if not isinstance(entry, dict):
-                continue
-
-            entry_location = entry.get("location", "").lower()
-            if not entry_location:
-                continue
-
-            # Check for exact match or substring match
-            if entry_location == location_lower or location_lower in entry_location:
-                if "latitude" in entry and "longitude" in entry:
-                    return {
-                        "latitude": float(entry["latitude"]),
-                        "longitude": float(entry["longitude"]),
-                        "display_name": entry.get("location", ""),
-                        "country": entry.get("country", ""),
-                        "source": "test_data"
-                    }
-    except Exception as e:
-        logger.warning(f"Error loading test data: {e}")
-
-    return None
-
-async def query_geocoding_service(service: Dict, location: str, attempts: int = 3,
-                                timeout: int = 10) -> Optional[Dict[str, Any]]:
+async def get_shared_session() -> httpx.AsyncClient:
     """
-    Query a geocoding service with retry logic and proper error handling.
+    Get a shared HTTP client session for geocoding services.
+
+    Returns:
+        Shared HTTP client
+    """
+    return await get_http_client()
+
+# Location result structure
+class Location:
+    """Structure to hold geocoding results"""
+    def __init__(
+        self,
+        address: str,
+        latitude: float,
+        longitude: float,
+        country: str = "",
+        state: str = "",
+        city: str = "",
+        postal_code: str = "",
+        formatted_address: str = "",
+        provider: str = ""
+    ):
+        self.address = address
+        self.latitude = latitude
+        self.longitude = longitude
+        self.country = country
+        self.state = state
+        self.city = city
+        self.postal_code = postal_code
+        self.formatted_address = formatted_address or address
+        self.provider = provider
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert location to dictionary"""
+        return {
+            "address": self.address,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "country": self.country,
+            "state": self.state,
+            "city": self.city,
+            "postal_code": self.postal_code,
+            "formatted_address": self.formatted_address,
+            "provider": self.provider
+        }
+
+async def geocode_location(query: str, exactly_one: bool = False, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Geocode a location query to coordinates and address components.
 
     Args:
-        service: Service configuration dictionary
-        location: Location string to geocode
-        attempts: Number of retry attempts
-        timeout: Request timeout in seconds
+        query: Location string to geocode
+        exactly_one: Whether to return only the top result
+        limit: Maximum number of results to return
 
     Returns:
-        Location data dictionary if successful, None otherwise
+        List of location dictionaries with coordinates and address components
     """
-    # Skip if required API key is missing
-    if "access_key" in service["params"](location) and not service["params"](location)["access_key"]:
-        logger.debug(f"Skipping {service['name']} geocoding service - API key not configured")
-        return None
+    if not query:
+        logger.warning("Empty geocoding query")
+        return []
 
-    if "key" in service["params"](location) and not service["params"](location)["key"]:
-        logger.debug(f"Skipping {service['name']} geocoding service - API key not configured")
-        return None
+    cache_key = generate_cache_key(query)
+    cache_entry = _geocode_cache.get(cache_key)
 
-    # Initialize retry counter
-    retry_count = 0
+    # Return from cache if valid
+    if cache_entry and (time.time() - cache_entry.get("timestamp", 0) < CACHE_TTL):
+        logger.info(f"Geocode cache hit for '{query}'")
+        return cache_entry.get("results", [])
 
-    while retry_count < attempts:
+    logger.info(f"Geocoding location: '{query}'")
+    results = []
+
+    # Try Google Maps API first if key is available
+    if GOOGLE_MAPS_API_KEY:
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    service["url"],
-                    params=service["params"](location),
-                    headers=service["headers"](),
-                    timeout=timeout
-                ) as response:
-                    if response.status == 200:
-                        result_json = await response.json()
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    GOOGLE_MAPS_GEOCODING_URL,
+                    params={
+                        "address": query,
+                        "key": GOOGLE_MAPS_API_KEY,
+                        "sensor": "false"
+                    }
+                )
 
-                        # Extract coordinates using the service-specific extraction function
-                        coordinates = service["extract_func"](result_json)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "OK":
+                        for result in data.get("results", [])[:limit]:
+                            location = _parse_google_result(result, query)
+                            if location:
+                                results.append(location.to_dict())
 
-                        if coordinates:
-                            # Add confidence score based on input quality
-                            coordinates["confidence"] = calculate_confidence(location, coordinates)
-                            logger.info(f"Successfully geocoded '{location}' using {service['name']}")
-                            return coordinates
-                        else:
-                            logger.warning(f"No results from {service['name']} for location '{location}'")
+                        # Store in cache
+                        _geocode_cache[cache_key] = {
+                            "results": results,
+                            "timestamp": time.time()
+                        }
+
+                        if exactly_one and results:
+                            return [results[0]]
+                        return results
                     else:
-                        logger.warning(f"{service['name']} returned status {response.status} for '{location}'")
-
-        except aiohttp.ClientError as e:
-            logger.warning(f"HTTP error from {service['name']}: {e}")
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout querying {service['name']} for '{location}'")
+                        logger.warning(f"Google geocoding error: {data.get('status')}")
+                else:
+                    logger.warning(f"Google geocoding HTTP error: {response.status_code}")
         except Exception as e:
-            logger.warning(f"Unexpected error from {service['name']}: {e}")
+            logger.error(f"Google geocoding failed: {e}")
 
-        # Increment retry counter and wait before retrying (exponential backoff)
-        retry_count += 1
-        if retry_count < attempts:
-            await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+    # Use OpenStreetMap Nominatim if Google Maps API is not available or fails
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                NOMINATIM_URL,
+                params={
+                    "q": query,
+                    "format": "json",
+                    "addressdetails": 1,
+                    "limit": limit
+                },
+                headers={"User-Agent": "Birth-Time-Rectifier/1.0"}
+            )
 
-    logger.warning(f"Failed to geocode '{location}' using {service['name']} after {attempts} attempts")
-    return None
+            if response.status_code == 200:
+                data = response.json()
+                for result in data[:limit]:
+                    location = _parse_nominatim_result(result, query)
+                    if location:
+                        results.append(location.to_dict())
 
-def calculate_confidence(location: str, coordinates: Dict[str, Any]) -> float:
+                # Store in cache
+                _geocode_cache[cache_key] = {
+                    "results": results,
+                    "timestamp": time.time()
+                }
+
+                if exactly_one and results:
+                    return [results[0]]
+                return results
+            else:
+                logger.warning(f"Nominatim geocoding HTTP error: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Nominatim geocoding failed: {e}")
+
+    return results
+
+def geocode_location_sync(query: str, exactly_one: bool = False, limit: int = 5) -> List[Dict[str, Any]]:
+    """Synchronous function to geocode a location"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Create a new event loop if the current one is running
+            new_loop = asyncio.new_event_loop()
+            results = new_loop.run_until_complete(geocode_location(query, exactly_one, limit))
+            new_loop.close()
+            return results
+        else:
+            return loop.run_until_complete(geocode_location(query, exactly_one, limit))
+    except Exception as e:
+        logger.error(f"Error in synchronous geocoding: {e}")
+        return []
+
+async def get_coordinates(location_query: str) -> Tuple[Optional[float], Optional[float]]:
     """
-    Calculate confidence score for geocoding results based on various factors.
+    Get coordinates for a location query.
 
     Args:
-        location: Original location query
-        coordinates: Returned coordinates and metadata
+        location_query: Location string to geocode
 
     Returns:
-        Confidence score between 0 and 1
+        Tuple of (latitude, longitude) or (None, None) if geocoding fails
     """
-    confidence = 0.7  # Base confidence
+    if not location_query:
+        logger.warning("Empty location query provided to get_coordinates")
+        return None, None
 
-    # Check if we have a valid latitude and longitude
-    if not (-90 <= coordinates.get("latitude", 0) <= 90) or not (-180 <= coordinates.get("longitude", 0) <= 180):
-        return 0.0  # Invalid coordinates
+    results = await geocode_location(location_query, exactly_one=True)
 
-    # Adjust based on data source
-    source = coordinates.get("source", "").lower()
-    if source == "test_data":
-        confidence = 0.95  # Test data is highly trusted
-    elif source == "nominatim":
-        confidence = 0.85  # Nominatim is generally reliable
-    elif source == "positionstack":
-        confidence = 0.8
-    elif source == "mapquest":
-        confidence = 0.75
-    elif source == "arcgis":
-        confidence = 0.8
-    elif source == "fallback":
-        confidence = 0.1  # Fallback data has very low confidence
+    if results and len(results) > 0:
+        location = results[0]
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
 
-    # See if the display name contains parts of the original query
-    display_name = coordinates.get("display_name", "").lower()
-    location_lower = location.lower()
+        # Validate that we actually have numeric coordinates
+        if latitude is not None and longitude is not None:
+            try:
+                latitude = float(latitude)
+                longitude = float(longitude)
+                if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                    return latitude, longitude
+                else:
+                    logger.warning(f"Invalid coordinates for {location_query}: {latitude}, {longitude}")
+            except (ValueError, TypeError):
+                logger.warning(f"Non-numeric coordinates for {location_query}: {latitude}, {longitude}")
 
-    # Split the location into words for comparison
-    location_words = re.findall(r'\w+', location_lower)
+    logger.warning(f"Failed to get coordinates for location query: {location_query}")
+    return None, None
 
-    # Give higher confidence if original words are found in the result
-    word_matches = 0
-    for word in location_words:
-        if len(word) > 2 and word in display_name:  # Ignore short words
-            word_matches += 1
+async def get_coordinates_sync(location_query: str) -> Tuple[Optional[float], Optional[float]]:
+    """Synchronous function to get coordinates for a location"""
+    try:
+        if not location_query:
+            logger.warning("Empty location query provided to get_coordinates_sync")
+            return None, None
 
-    if word_matches == 0:
-        confidence *= 0.5  # Major penalty if no words match
-    elif word_matches / len(location_words) > 0.5:
-        confidence *= 1.1  # Bonus for good matches (capped at 1.0 below)
+        results = geocode_location_sync(location_query, exactly_one=True)
 
-    # Check if we have country information
-    if coordinates.get("country", ""):
-        confidence *= 1.05
+        if results and len(results) > 0:
+            location = results[0]
+            latitude = location.get("latitude")
+            longitude = location.get("longitude")
 
-    # Cap confidence at 1.0
-    return min(1.0, confidence)
+            # Validate that we actually have numeric coordinates
+            if latitude is not None and longitude is not None:
+                try:
+                    latitude = float(latitude)
+                    longitude = float(longitude)
+                    if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                        return latitude, longitude
+                    else:
+                        logger.warning(f"Invalid coordinates for {location_query}: {latitude}, {longitude}")
+                except (ValueError, TypeError):
+                    logger.warning(f"Non-numeric coordinates for {location_query}: {latitude}, {longitude}")
+    except Exception as e:
+        logger.error(f"Error getting coordinates synchronously: {e}")
 
-async def get_coordinates(location: str, fail_silently: bool = False) -> Optional[Dict[str, Any]]:
+    logger.warning(f"Failed to get coordinates for location query: {location_query}")
+    return None, None
+
+async def reverse_geocode(latitude: float, longitude: float) -> List[Dict[str, Any]]:
     """
-    Get coordinates for a location string using multiple geocoding services with failover.
-
-    Implements a robust geocoding approach:
-    1. First checks test data for known locations
-    2. Tries all configured geocoding services in parallel
-    3. Resolves conflicts by selecting highest confidence result
-    4. Falls back to standard location database if web services fail
-    5. Uses null island (0,0) only as a last resort with clear warning
+    Reverse geocode coordinates to address.
 
     Args:
-        location: Location string to geocode
-        fail_silently: Whether to return None instead of NULL_ISLAND on failure
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
 
     Returns:
-        Dictionary with location data or None if fail_silently=True and no location found
+        List of location dictionaries with address components
     """
-    if not location or not isinstance(location, str) or len(location.strip()) == 0:
-        logger.warning("Empty location provided to geocoder")
-        return None if fail_silently else NULL_ISLAND
+    cache_key = generate_cache_key(f"{latitude},{longitude}")
+    cache_entry = _geocode_cache.get(cache_key)
 
-    all_results = []
+    # Return from cache if valid
+    if cache_entry and (time.time() - cache_entry.get("timestamp", 0) < CACHE_TTL):
+        return cache_entry.get("results", [])
 
-    # First check test data source
-    test_data = await get_optional_coordinates(location)
-    if test_data:
-        logger.info(f"Found location '{location}' in test data")
-        test_data["confidence"] = test_data.get("confidence", 0.95)  # High confidence for test data
-        test_data["source"] = "test_data"
-        return test_data
+    results = []
 
-    # Query all services in parallel
-    tasks = []
-    for service in GEOCODING_SERVICES:
-        tasks.append(query_geocoding_service(service, location))
+    # Try Google Maps API first if key is available
+    if GOOGLE_MAPS_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    GOOGLE_MAPS_GEOCODING_URL,
+                    params={
+                        "latlng": f"{latitude},{longitude}",
+                        "key": GOOGLE_MAPS_API_KEY,
+                        "sensor": "false"
+                    }
+                )
 
-    # Wait for all queries to complete
-    results = await asyncio.gather(*tasks)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "OK":
+                        for result in data.get("results", [])[:5]:
+                            location = _parse_google_result(result, f"{latitude},{longitude}")
+                            if location:
+                                results.append(location.to_dict())
 
-    # Filter out None results and collect successful geocodes
-    valid_results = [result for result in results if result is not None]
+                        # Store in cache
+                        _geocode_cache[cache_key] = {
+                            "results": results,
+                            "timestamp": time.time()
+                        }
+                        return results
+                    else:
+                        logger.warning(f"Google reverse geocoding error: {data.get('status')}")
+                else:
+                    logger.warning(f"Google reverse geocoding HTTP error: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Google reverse geocoding failed: {e}")
 
-    if valid_results:
-        # Sort results by confidence (highest first)
-        valid_results.sort(key=lambda x: x.get("confidence", 0), reverse=True)
-        best_result = valid_results[0]
+    # Use OpenStreetMap Nominatim if Google Maps API is not available or fails
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                NOMINATIM_REVERSE_URL,
+                params={
+                    "lat": latitude,
+                    "lon": longitude,
+                    "format": "json",
+                    "addressdetails": 1
+                },
+                headers={"User-Agent": "Birth-Time-Rectifier/1.0"}
+            )
 
-        # If we got multiple results, include alternative count
-        if len(valid_results) > 1:
-            best_result["alternatives_count"] = len(valid_results) - 1
+            if response.status_code == 200:
+                data = response.json()
+                location = _parse_nominatim_result(data, f"{latitude},{longitude}")
+                if location:
+                    results.append(location.to_dict())
 
-        logger.info(f"Successfully geocoded '{location}' (confidence: {best_result.get('confidence', 0):.2f})")
-        return best_result
+                # Store in cache
+                _geocode_cache[cache_key] = {
+                    "results": results,
+                    "timestamp": time.time()
+                }
+                return results
+            else:
+                logger.warning(f"Nominatim reverse geocoding HTTP error: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Nominatim reverse geocoding failed: {e}")
 
-    # If web services failed, try looking up in our default locations
-    location_key = location.lower().strip()
-    for key, data in DEFAULT_LOCATIONS.items():
-        if key in location_key or location_key in key:
-            logger.info(f"Found '{location}' in default locations database")
-            return {
-                "latitude": data["latitude"],
-                "longitude": data["longitude"],
-                "display_name": data["name"],
-                "confidence": 0.5,  # Moderate confidence for default locations
-                "source": "default_locations"
-            }
+    return results
 
-    # Last resort - return null island with warning or None
-    if fail_silently:
-        logger.warning(f"Could not geocode '{location}' and fail_silently=True")
-        return None
-    else:
-        logger.warning(f"Could not geocode '{location}', using NULL_ISLAND (0,0)")
-        null_result = NULL_ISLAND.copy()
-        null_result["original_query"] = location
-        null_result["confidence"] = 0.01  # Extremely low confidence
-        return null_result
+def reverse_geocode_sync(latitude: float, longitude: float) -> List[Dict[str, Any]]:
+    """Synchronous function to reverse geocode coordinates"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Create a new event loop if the current one is running
+            new_loop = asyncio.new_event_loop()
+            results = new_loop.run_until_complete(reverse_geocode(latitude, longitude))
+            new_loop.close()
+            return results
+        else:
+            return loop.run_until_complete(reverse_geocode(latitude, longitude))
+    except Exception as e:
+        logger.error(f"Error in synchronous reverse geocoding: {e}")
+        return []
 
 async def get_timezone_for_coordinates(latitude: float, longitude: float) -> Dict[str, Any]:
     """
     Get timezone information for coordinates.
 
-    This function delegates to the dedicated timezone module.
-
     Args:
-        latitude: Latitude in decimal degrees
-        longitude: Longitude in decimal degrees
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
 
     Returns:
         Dictionary with timezone information
     """
-    from ai_service.utils.timezone import get_timezone_for_coordinates as get_tz
-    return await get_tz(latitude, longitude)
+    cache_key = generate_cache_key(f"tz_{latitude},{longitude}")
+    cache_entry = _timezone_cache.get(cache_key)
 
-async def geocode_with_timezone(location: str) -> Dict[str, Any]:
+    # Return from cache if valid
+    if cache_entry and (time.time() - cache_entry.get("timestamp", 0) < CACHE_TTL):
+        return cache_entry.get("results", {})
+
+    # Try Google Maps Timezone API if available
+    if GOOGLE_MAPS_API_KEY:
+        try:
+            timestamp = int(time.time())
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    GOOGLE_MAPS_TIMEZONE_URL,
+                    params={
+                        "location": f"{latitude},{longitude}",
+                        "timestamp": timestamp,
+                        "key": GOOGLE_MAPS_API_KEY
+                    }
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "OK":
+                        result = {
+                            "timezone_id": data.get("timeZoneId"),
+                            "timezone_name": data.get("timeZoneName"),
+                            "dst_offset": data.get("dstOffset"),
+                            "raw_offset": data.get("rawOffset"),
+                            "total_offset": data.get("dstOffset", 0) + data.get("rawOffset", 0),
+                            "source": "google"
+                        }
+
+                        # Store in cache
+                        _timezone_cache[cache_key] = {
+                            "results": result,
+                            "timestamp": time.time()
+                        }
+                        return result
+                    else:
+                        logger.warning(f"Google timezone error: {data.get('status')}")
+                else:
+                    logger.warning(f"Google timezone HTTP error: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Google timezone API failed: {e}")
+
+    # Use TimeZoneFinder for local computation when Google Maps API is not available
+    try:
+        timezone_str = timezone_finder.timezone_at(lat=latitude, lng=longitude)
+
+        if timezone_str:
+            timezone = pytz.timezone(timezone_str)
+            now = datetime.fromtimestamp(time.time())
+            offset = timezone.utcoffset(now)
+            if offset is not None:
+                offset_seconds = offset.total_seconds()
+
+                # Try to get DST information
+                dst = timezone.localize(now).dst()
+                is_dst = dst is not None and dst.total_seconds() > 0
+
+                result = {
+                    "timezone_id": timezone_str,
+                    "timezone_name": timezone_str.replace('_', ' '),
+                    "dst_offset": 3600 if is_dst else 0,  # 1 hour if DST is active
+                    "raw_offset": offset_seconds - (3600 if is_dst else 0),
+                    "total_offset": offset_seconds,
+                    "source": "timezonefinder"
+                }
+
+                # Store in cache
+                _timezone_cache[cache_key] = {
+                    "results": result,
+                    "timestamp": time.time()
+                }
+                return result
+    except Exception as e:
+        logger.error(f"TimeZoneFinder error: {e}")
+
+    # When no timezone data is available, use UTC as standard reference
+    result = {
+        "timezone_id": "UTC",
+        "timezone_name": "Coordinated Universal Time",
+        "dst_offset": 0,
+        "raw_offset": 0,
+        "total_offset": 0,
+        "source": "utc_standard"
+    }
+
+    # Store in cache
+    _timezone_cache[cache_key] = {
+        "results": result,
+        "timestamp": time.time()
+    }
+
+    return result
+
+def get_timezone_for_coordinates_sync(latitude: float, longitude: float) -> Dict[str, Any]:
+    """Synchronous function to get timezone for coordinates"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Create a new event loop if the current one is running
+            new_loop = asyncio.new_event_loop()
+            result = new_loop.run_until_complete(get_timezone_for_coordinates(latitude, longitude))
+            new_loop.close()
+            return result
+        else:
+            return loop.run_until_complete(get_timezone_for_coordinates(latitude, longitude))
+    except Exception as e:
+        logger.error(f"Error getting timezone synchronously: {e}")
+
+        # When timezone service fails, use UTC as standard reference
+        return {
+            "timezone_id": "UTC",
+            "timezone_name": "Coordinated Universal Time",
+            "dst_offset": 0,
+            "raw_offset": 0,
+            "total_offset": 0,
+            "source": "utc_standard"
+        }
+
+def generate_cache_key(data: str) -> str:
     """
-    Combined function to geocode a location and get its timezone information.
+    Generate a cache key for storing and retrieving geocoding results.
 
     Args:
-        location: Location string to geocode
+        data: String data to hash
 
     Returns:
-        Dictionary with location and timezone data
+        Cache key (MD5 hash)
     """
-    # First get coordinates
-    coordinates = await get_coordinates(location)
+    data = data.strip().lower()
+    return hashlib.md5(data.encode('utf-8')).hexdigest()
 
-    if not coordinates:
-        return {"error": "Could not geocode location", "location": location}
-
-    # Then get timezone information
+def _parse_google_result(result: Dict[str, Any], query: str) -> Optional[Location]:
+    """Parse Google Maps geocoding result into a standardized location"""
     try:
-        timezone_info = await get_timezone_for_coordinates(
-            coordinates["latitude"],
-            coordinates["longitude"]
+        if not result or not isinstance(result, dict):
+            return None
+
+        geometry = result.get("geometry")
+        if not geometry or not isinstance(geometry, dict):
+            return None
+
+        location_data = geometry.get("location")
+        if not location_data or not isinstance(location_data, dict):
+            return None
+
+        latitude = location_data.get("lat")
+        longitude = location_data.get("lng")
+
+        if latitude is None or longitude is None:
+            return None
+
+        # Parse address components
+        address_components = result.get("address_components", [])
+        country = ""
+        state = ""
+        city = ""
+        postal_code = ""
+
+        for component in address_components:
+            types = component.get("types", [])
+            if "country" in types:
+                country = component.get("long_name", "")
+            elif "administrative_area_level_1" in types:
+                state = component.get("long_name", "")
+            elif "locality" in types or "administrative_area_level_2" in types:
+                city = component.get("long_name", "")
+            elif "postal_code" in types:
+                postal_code = component.get("long_name", "")
+
+        return Location(
+            address=query,
+            latitude=latitude,
+            longitude=longitude,
+            country=country,
+            state=state,
+            city=city,
+            postal_code=postal_code,
+            formatted_address=result.get("formatted_address", ""),
+            provider="google"
         )
-
-        # Combine the results
-        result = {**coordinates, "timezone": timezone_info}
-        return result
     except Exception as e:
-        logger.error(f"Error getting timezone for {location}: {e}")
-        coordinates["timezone_error"] = str(e)
-        return coordinates
+        logger.error(f"Error parsing Google result: {e}")
+        return None
 
-# For testing
-if __name__ == "__main__":
-    async def test_geocoding():
-        # Test locations
-        test_locations = [
-            "New York, NY",
-            "Paris, France",
-            "Nonexistent Place, Nowhere",
-            "Tokyo, Japan",
-            "Sydney, Australia"
-        ]
+def _parse_nominatim_result(result: Dict[str, Any], query: str) -> Optional[Location]:
+    """Parse Nominatim geocoding result into a standardized location"""
+    try:
+        if not result or not isinstance(result, dict):
+            return None
 
-        for location in test_locations:
-            result = await get_coordinates(location)
-            print(f"\nLocation: {location}")
-            print(f"Result: {result}")
+        lat = result.get("lat")
+        lon = result.get("lon")
 
-            if result:
-                tz_info = await get_timezone_for_coordinates(result["latitude"], result["longitude"])
-                print(f"Timezone: {tz_info.get('timezone')}")
-                print(f"Current offset: {tz_info.get('offset_hours')} hours")
+        if not lat or not lon:
+            return None
 
-    # Run the test
-    asyncio.run(test_geocoding())
+        # Convert string coordinates to float
+        try:
+            latitude = float(lat)
+            longitude = float(lon)
+        except (ValueError, TypeError):
+            return None
+
+        # Parse address components
+        address = result.get("address", {})
+        country = address.get("country", "")
+        state = address.get("state", "")
+        city = address.get("city", "") or address.get("town", "") or address.get("village", "")
+        postal_code = address.get("postcode", "")
+
+        display_name = result.get("display_name", "")
+
+        return Location(
+            address=query,
+            latitude=latitude,
+            longitude=longitude,
+            country=country,
+            state=state,
+            city=city,
+            postal_code=postal_code,
+            formatted_address=display_name,
+            provider="nominatim"
+        )
+    except Exception as e:
+        logger.error(f"Error parsing Nominatim result: {e}")
+        return None
+
+async def close_shared_session() -> None:
+    """
+    Close the shared HTTP client session.
+
+    This should be called during application shutdown.
+    """
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        logger.info("Closed shared HTTP client for geocoding services")
+        _http_client = None

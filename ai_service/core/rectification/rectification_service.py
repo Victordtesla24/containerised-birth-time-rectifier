@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional, Tuple, Union
 import uuid
 import json
 import os
+import traceback
 
 from .methods.ai_rectification import ai_assisted_rectification
 from .methods.solar_arc import solar_arc_rectification
@@ -142,7 +143,7 @@ class EnhancedRectificationService:
                 methods_attempted.append("ai_rectification")
                 ai_time, ai_confidence = await ai_assisted_rectification(
                     birth_dt, latitude, longitude, timezone, self.openai_service,
-                    answers=answers, events=events
+                    time_indicators=answers, events=events
                 )
                 methods_succeeded.append("ai_rectification")
                 candidates.append((ai_time, ai_confidence, "ai"))
@@ -316,23 +317,17 @@ class EnhancedRectificationService:
             result: Dictionary with rectification results
         """
         try:
+            # Store rectification results in the database
             if self.chart_repository:
-                # Store rectification results in the database
                 await self.chart_repository.store_rectification_result(result)
                 logger.info(f"Saved rectification result with ID {result.get('rectification_id')}")
             else:
-                # Fallback to storing in a JSON file
-                # Create directory if it doesn't exist
-                os.makedirs("data/rectifications", exist_ok=True)
-
-                # Write to file named by rectification ID
-                rectification_id = result.get("rectification_id", "unknown")
-                filepath = f"data/rectifications/{rectification_id}.json"
-
-                with open(filepath, "w") as f:
-                    json.dump(result, f, indent=2)
-
-                logger.info(f"Saved rectification result to file: {filepath}")
+                # Raise exception if database storage is unavailable
+                error_msg = "Unable to save rectification result: Chart repository not available"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
         except Exception as e:
             logger.error(f"Error saving rectification result: {e}")
-            # Continue execution rather than failing
+            logger.error(traceback.format_exc())
+            # Raise the exception to ensure caller is aware
+            raise RuntimeError(f"Failed to save rectification result: {str(e)}") from e

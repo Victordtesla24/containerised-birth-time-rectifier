@@ -1,7 +1,7 @@
 """
-Service layer initialization.
+AI Service modules for the Birth Time Rectifier.
 
-This module initializes service layer components for the AI service.
+This package contains services that provide core functionality for the application.
 """
 
 import logging
@@ -47,3 +47,34 @@ def get_chart_service() -> ChartService:
         container.register_service("chart_service", chart_service)
         _chart_service_instance = chart_service
         return chart_service
+
+# For backward compatibility, re-export OpenAIService
+# but import it lazily to avoid circular dependencies
+def __getattr__(name):
+    """
+    Lazily load attributes when accessed to avoid circular imports.
+
+    Args:
+        name: The name of the attribute to load
+
+    Returns:
+        The requested attribute
+
+    Raises:
+        AttributeError: If the attribute doesn't exist
+    """
+    if name == "OpenAIService":
+        from ai_service.services.openai_service import OpenAIService as _OpenAIService
+        return _OpenAIService
+    elif name == "get_openai_service":
+        from ai_service.services.openai_service import get_openai_service as _get_openai_service
+        return _get_openai_service
+
+    raise AttributeError(f"module {__name__} has no attribute {name}")
+
+__all__ = [
+    "ChartService",
+    "get_chart_service",
+    "OpenAIService",
+    "get_openai_service"
+]

@@ -25,9 +25,54 @@ from ai_service.utils.geocoding import get_coordinates
 from ai_service.api.services.session_service import get_session_store
 from ai_service.core.rectification.main import comprehensive_rectification
 from ai_service.utils.json_encoder import DateTimeEncoder
+from ai_service.api.models.question import QuestionModel
+from ai_service.api.models.questionnaire import QuestionnaireModel
+from ai_service.common.constants import QUESTION_TEMPLATES
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Create router
+router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
+
+async def get_question_text(question_id: str, questionnaire_id: Optional[str] = None) -> str:
+    """
+    Get the text for a specific question ID.
+
+    Args:
+        question_id: The ID of the question to retrieve
+        questionnaire_id: Optional questionnaire ID for context
+
+    Returns:
+        Question text
+
+    Raises:
+        ValueError: If question cannot be found
+    """
+    if not question_id:
+        raise ValueError("Question ID is required")
+
+    # Try to find the question in the database
+    question = await QuestionModel.get_by_id(question_id)
+    if question:
+        return question.text
+
+    # If question not found and we have a questionnaire ID, try to find it there
+    if questionnaire_id:
+        questionnaire = await QuestionnaireModel.get_by_id(questionnaire_id)
+        if questionnaire and questionnaire.questions:
+            for q in questionnaire.questions:
+                if q.id == question_id:
+                    return q.text
+
+    # If still not found, look in standard question templates
+    for category in QUESTION_TEMPLATES:
+        for q in QUESTION_TEMPLATES[category]:
+            if q.get("id") == question_id:
+                return q.get("text", "")
+
+    # Question not found
+    raise ValueError(f"Question not found with ID: {question_id}")
 
 # Define DynamicQuestionnaireService class
 class DynamicQuestionnaireService:
@@ -566,12 +611,22 @@ async def answer_question(
         session_data = session.copy()
 
         # Add the answer to the session
-        await session_store.add_question_response(
-            session_id,
-            question_id,
-            question_id,  # Using question_id as question text as a fallback
-            answer
-        )
+        try:
+            # Get question text first
+            question_text = await get_question_text(question_id)
+
+            await session_store.add_question_response(
+                session_id,
+                question_id,
+                question_text,
+                answer
+            )
+        except ValueError as e:
+            logger.error(f"Failed to get question text: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid question ID: {question_id}"
+            )
 
         # Get the chart ID from the session
         chart_id = session_data.get("chart_id")
@@ -596,7 +651,7 @@ async def answer_question(
 
         # Get previous answers for context
         responses = await session_store.get_responses(session_id)
-        previous_answers = {"responses": responses}
+        previous_answers = responses
 
         # Current confidence level (increases with more answers)
         current_confidence = 30.0 + (len(responses) * 10)
@@ -612,10 +667,9 @@ async def answer_question(
         # Get the next question
         engine = QuestionnaireEngine()
         next_question_data = await engine.get_next_question(
+            session_id=session_id,
             chart_data=chart_data,
-            birth_details=birth_details,
-            previous_answers=previous_answers,
-            current_confidence=current_confidence
+            previous_answers=previous_answers
         )
 
         # Update the birth time range if provided
@@ -1707,9 +1761,24 @@ async def _execute_rectification_process(
                         try:
                             birth_dt = datetime.strptime(birth_dt_str, "%m/%d/%Y %H:%M")
                         except ValueError:
-                            # Fallback to current time if parsing fails
-                            birth_dt = datetime.now()
-                            logger.warning(f"Failed to parse birth datetime: {birth_dt_str}. Using current time as fallback.")
+                            error_msg = f"Failed to parse birth datetime: {birth_dt_str}"
+                            logger.error(error_msg)
+                            await _update_session_with_error(session_store, session_id, error_msg)
+                            await _update_rectification_progress(
+                                session_store,
+                                session_id,
+                                {
+                                    "status": "error",
+                                    "message": error_msg,
+                                    "step": "parse_birth_time",
+                                    "error": True
+                                },
+                                websocket_service,
+                                session_id,
+                                None,  # chart_id
+                                rectification_id
+                            )
+                            return
 
             latitude = birth_details.get("latitude", 0.0)
             longitude = birth_details.get("longitude", 0.0)
@@ -1759,7 +1828,7 @@ async def _execute_rectification_process(
                 "max_adjustment_minutes": 120, # Maximum 2 hour adjustment
                 "min_confidence_threshold": 30, # Minimum confidence level
                 "reporting_callback": lambda progress_data: _update_rectification_progress(
-                    session_store, session_id, progress_data, websocket_service, session_id, chart_id, rectification_id
+                    session_store, session_id, progress_data, websocket_service, session_id, rectification_id=rectification_id
                 )
             }
 
@@ -1777,7 +1846,6 @@ async def _execute_rectification_process(
                         timezone=timezone,
                         answers=answers,
                         events=birth_time_indicators,
-                        chart_id=chart_id,
                         options=rectification_options
                     )
                     # Successfully got result, break the loop
@@ -1796,10 +1864,9 @@ async def _execute_rectification_process(
                             "message": "Retrying transit analysis",
                             "step": "transits"
                         },
-                        websocket_service,
-                        session_id,
-                        chart_id,
-                        rectification_id
+                        websocket_service=websocket_service,
+                        ws_session_id=session_id,
+                        rectification_id=rectification_id
                     )
 
                     if retry_count >= max_retries:
@@ -1835,10 +1902,9 @@ async def _execute_rectification_process(
                     "message": "Generating final rectified chart",
                     "step": "chart_creation"
                 },
-                websocket_service,
-                session_id,
-                chart_id,
-                rectification_id
+                websocket_service=websocket_service,
+                ws_session_id=session_id,
+                rectification_id=rectification_id
             )
 
             # Send progress update
@@ -2143,107 +2209,372 @@ async def _update_session_with_error(session_store, session_id: str, error_messa
     except Exception as e:
         logger.error(f"Failed to update session with error: {e}")
 
-async def _create_structured_prompt(
-    prompt_type: str,
-    data: Dict[str, Any],
-    chart_id: Optional[str] = None,
-    birth_details: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+@router.post("/generate", response_model=Dict[str, Any])
+async def generate_questionnaire(
+    request: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    session_id: Optional[str] = Query(None, description="Optional session ID to use")
+):
     """
-    Create a structured prompt for astrological analysis.
+    Generate questionnaire data based on birth details and previous answers.
+
+    This endpoint creates a new questionnaire or updates an existing one,
+    generating the next relevant questions based on the person's birth chart
+    and previous responses.
 
     Args:
-        prompt_type: Type of prompt to create (questionnaire, analysis, rectification)
-        data: Data to include in the prompt
-        chart_id: Optional chart ID for reference
-        birth_details: Optional birth details
+        request: Request containing birth details and previous answers
+        background_tasks: FastAPI background tasks
+        session_id: Optional session ID to use
 
     Returns:
-        Structured prompt as a dictionary
+        Dictionary containing questions and metadata
     """
-    base_prompt = {
-        "context": {
-            "prompt_type": prompt_type,
-            "generated_at": datetime.now().isoformat(),
-            "chart_id": chart_id
+    try:
+        # Extract birth details from request
+        birth_details = request.get("birth_details")
+
+        if not birth_details and "birthDetails" in request:
+            # Handle frontend format (camelCase)
+            birth_details = request.get("birthDetails")
+
+        # Validate birth details
+        if not birth_details:
+            raise HTTPException(
+                status_code=400,
+                detail="Birth details are required to generate questionnaire"
+            )
+
+        # Extract required fields
+        required_fields = ["date", "time", "place"]
+        frontend_fields = ["birthDate", "birthTime", "birthPlace"]
+
+        # Handle both API formats
+        for i, field in enumerate(required_fields):
+            frontend_field = frontend_fields[i]
+
+            # Check if field is missing in backend format but present in frontend format
+            if field not in birth_details and frontend_field in birth_details:
+                birth_details[field] = birth_details[frontend_field]
+
+            # Validate required fields
+            if field not in birth_details:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing required field in birth details: {field}"
+                )
+
+        # Extract previous answers
+        previous_answers = request.get("previous_answers", {})
+        if not previous_answers and "previousAnswers" in request:
+            previous_answers = request.get("previousAnswers", {})
+
+        # Get current confidence
+        current_confidence = request.get("current_confidence", 0)
+        if current_confidence == 0 and "currentConfidence" in request:
+            current_confidence = request.get("currentConfidence", 0)
+
+        # Initialize services
+        openai_service = get_openai_service()
+        session_store = get_session_store()
+
+        # Create or get session
+        effective_session_id = session_id
+        if not effective_session_id:
+            effective_session_id = request.get("session_id") or request.get("sessionId")
+
+        if effective_session_id:
+            # Check if session exists
+            session = await session_store.get_session(effective_session_id)
+            if not session:
+                # Create new session with provided ID
+                effective_session_id = await session_store.create_session(
+                    session_id=effective_session_id,
+                    data={
+                        "birth_details": birth_details,
+                        "previous_answers": previous_answers,
+                        "confidence": current_confidence
+                    }
+                )
+        else:
+            # Create new session
+            effective_session_id = await session_store.create_session(
+                data={
+                    "birth_details": birth_details,
+                    "previous_answers": previous_answers,
+                    "confidence": current_confidence
+                }
+            )
+
+        # Determine if this is a new session or continuing
+        is_new_session = len(previous_answers) == 0
+
+        # Prepare context for OpenAI
+        astrological_context = {
+            "birth_details": birth_details,
+            "previous_answers": previous_answers,
+            "is_new_session": is_new_session,
+            "current_confidence": current_confidence
         }
-    }
 
-    if birth_details:
-        base_prompt["birth_details"] = birth_details
-
-    if prompt_type == "questionnaire":
-        # Prompt for generating questionnaire
-        questionnaire_data = {
-            "task": "generate_birth_time_questionnaire",
-            "instructions": [
-                "Generate astrologically relevant questions for birth time rectification",
-                "Focus on questions about personality traits linked to rising sign",
-                "Include questions about life events and timing patterns",
-                "Ask about physical appearance and characteristics",
-                "Create questions about personal tendencies and behaviors",
-                "Ensure questions are concise, clear, and easy to understand"
-            ],
+        # Generate questions using OpenAI
+        question_prompt = {
+            "task": "generate_rectification_questions",
+            "astrological_context": astrological_context,
             "requirements": {
-                "question_count": data.get("question_count", 10),
-                "format": "structured",
-                "include_explanations": data.get("include_explanations", True),
-                "difficulty_level": data.get("difficulty", "mixed")
+                "question_count": 3,
+                "focus_areas": [
+                    "birth time accuracy indicators",
+                    "early life events with time sensitivity",
+                    "physical appearance and personality traits",
+                    "key life events with transit correlations"
+                ],
+                "format": "structured_json"
             }
         }
-        base_prompt = {**base_prompt, **questionnaire_data}
 
-    elif prompt_type == "analysis":
-        # Prompt for analyzing questionnaire responses
-        analysis_data = {
-            "task": "analyze_questionnaire_responses",
-            "instructions": [
-                "Analyze questionnaire responses for birth time indicators",
-                "Identify patterns related to rising sign and house placements",
-                "Extract time-of-day references and time ranges",
-                "Connect life events with potential transit timings",
-                "Consider personality traits in relation to ascendant sign",
-                "Provide confidence level for each time indicator found"
-            ],
-            "data": {
-                "responses": data.get("responses", []),
-                "existing_chart": data.get("chart_data", {}),
-                "potential_time_range": data.get("time_range", {})
+        # Generate questions in background if this is an initial request
+        if is_new_session:
+            # Initial response with a starter question
+            initial_questions = [
+                {
+                    "id": f"q_{uuid.uuid4().hex[:8]}",
+                    "type": "choice",
+                    "text": "Do you know if you were born closer to sunrise, midday, sunset, or during the night?",
+                    "options": [
+                        {"id": "opt_sunrise", "text": "Around sunrise"},
+                        {"id": "opt_midday", "text": "Around midday"},
+                        {"id": "opt_sunset", "text": "Around sunset"},
+                        {"id": "opt_night", "text": "During the night"},
+                        {"id": "opt_unknown", "text": "I don't know"}
+                    ]
+                }
+            ]
+
+            # Start background task to generate more personalized questions
+            background_tasks.add_task(
+                _generate_personalized_questions,
+                session_id=effective_session_id,
+                birth_details=birth_details,
+                openai_service=openai_service,
+                session_store=session_store,
+                question_prompt=question_prompt
+            )
+
+            # Return initial questions immediately
+            return {
+                "questions": initial_questions,
+                "session_id": effective_session_id,
+                "confidence": 10.0,
+                "is_complete": False,
+                "status": "success",
+                "message": "Initial questions generated. More specific questions are being prepared."
             }
-        }
-        base_prompt = {**base_prompt, **analysis_data}
+        else:
+            # For continuing sessions, generate questions synchronously
+            try:
+                question_response = await openai_service.generate_completion(
+                    prompt=json.dumps(question_prompt, cls=DateTimeEncoder),
+                    task_type="astrological_question_generation",
+                    max_tokens=1000
+                )
 
-    elif prompt_type == "rectification":
-        # Prompt for birth time rectification
-        rectification_data = {
-            "task": "rectify_birth_time",
-            "instructions": [
-                "Analyze all birth time indicators to determine most accurate time",
-                "Consider rising sign characteristics and physical appearance",
-                "Evaluate life events against transits and progressions",
-                "Assess house cusps and planetary placements",
-                "Synthesize all available evidence for final recommendation",
-                "Provide rectified time with confidence score and explanation"
-            ],
-            "data": {
-                "birth_time_indicators": data.get("indicators", []),
-                "chart_data": data.get("chart_data", {}),
-                "questionnaire_analysis": data.get("analysis", {}),
-                "original_time": data.get("original_time", "")
-            },
-            "requirements": {
-                "include_detailed_explanation": data.get("detailed", True),
-                "include_confidence_score": True,
-                "format_output_as_json": True
-            }
-        }
-        base_prompt = {**base_prompt, **rectification_data}
+                if not question_response or "content" not in question_response:
+                    logger.error("Failed to receive valid response from OpenAI for question generation")
+                    raise ValueError("Failed to generate astrological questions")
 
-    # Add any additional data passed in
-    for key, value in data.items():
-        if key not in ["question_count", "include_explanations", "difficulty",
-                      "responses", "chart_data", "time_range", "indicators",
-                      "analysis", "original_time", "detailed"]:
-            base_prompt[key] = value
+                # Parse questions from OpenAI response
+                questions_data = json.loads(question_response["content"])
 
-    return base_prompt
+                # Validate and process questions
+                processed_questions = []
+                if "questions" in questions_data:
+                    for q in questions_data["questions"]:
+                        if "text" not in q:
+                            continue
+
+                        question_id = q.get("id", f"q_{uuid.uuid4().hex[:8]}")
+                        question_type = q.get("type", "text")
+                        question_text = q.get("text")
+
+                        processed_question = {
+                            "id": question_id,
+                            "type": question_type,
+                            "text": question_text
+                        }
+
+                        # Process options for choice/multiple-choice questions
+                        if "options" in q and q["options"]:
+                            processed_options = []
+                            for i, option in enumerate(q["options"]):
+                                if isinstance(option, str):
+                                    processed_options.append({
+                                        "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
+                                        "text": option
+                                    })
+                                elif isinstance(option, dict) and "text" in option:
+                                    if "id" not in option:
+                                        option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
+                                    processed_options.append(option)
+                            processed_question["options"] = processed_options
+
+                        processed_questions.append(processed_question)
+
+                if not processed_questions:
+                    # Fallback questions if processing failed
+                    processed_questions = [
+                        {
+                            "id": f"q_{uuid.uuid4().hex[:8]}",
+                            "type": "text",
+                            "text": "Did any significant events happen in your early childhood that could help pinpoint your birth time?"
+                        },
+                        {
+                            "id": f"q_{uuid.uuid4().hex[:8]}",
+                            "type": "choice",
+                            "text": "Does your personality align more with your Sun sign or Rising sign (if you know it)?",
+                            "options": [
+                                {"id": f"opt_1_{uuid.uuid4().hex[:4]}", "text": "More like my Sun sign"},
+                                {"id": f"opt_2_{uuid.uuid4().hex[:4]}", "text": "More like my Rising sign"},
+                                {"id": f"opt_3_{uuid.uuid4().hex[:4]}", "text": "A mix of both"},
+                                {"id": f"opt_4_{uuid.uuid4().hex[:4]}", "text": "I'm not sure"}
+                            ]
+                        }
+                    ]
+
+                # Update session with generated questions
+                session = await session_store.get_session(effective_session_id)
+                if session:
+                    if "questions" not in session:
+                        session["questions"] = []
+                    session["questions"].extend(processed_questions)
+                    session["updated_at"] = datetime.now().isoformat()
+                    await session_store.update_session(effective_session_id, session)
+
+                # Calculate confidence based on number of previous answers
+                answer_count = len(previous_answers)
+                confidence = min(30 + (answer_count * 10), 90)
+
+                # Update session confidence
+                await session_store.update_confidence(effective_session_id, confidence)
+
+                # Is the questionnaire complete?
+                is_complete = answer_count >= 5 or confidence >= 90.0
+
+                return {
+                    "questions": processed_questions,
+                    "session_id": effective_session_id,
+                    "confidence": confidence,
+                    "is_complete": is_complete,
+                    "status": "success"
+                }
+
+            except json.JSONDecodeError:
+                logger.error("Failed to parse OpenAI response as JSON")
+                raise ValueError("Error parsing astrological questions from OpenAI")
+
+    except ValueError as e:
+        logger.error(f"Error in questionnaire generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.error(f"Error generating questionnaire: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate questionnaire: {str(e)}"
+        )
+
+async def _generate_personalized_questions(
+    session_id: str,
+    birth_details: Dict[str, Any],
+    openai_service: Any,
+    session_store: Any,
+    question_prompt: Dict[str, Any]
+) -> None:
+    """
+    Background task to generate personalized questions based on birth details.
+
+    Args:
+        session_id: Session ID to update
+        birth_details: Birth details for astrological context
+        openai_service: OpenAI service instance
+        session_store: Session store instance
+        question_prompt: Question generation prompt
+    """
+    try:
+        # Generate personalized questions with OpenAI
+        question_response = await openai_service.generate_completion(
+            prompt=json.dumps(question_prompt, cls=DateTimeEncoder),
+            task_type="astrological_question_generation",
+            max_tokens=1000
+        )
+
+        if not question_response or "content" not in question_response:
+            logger.error("Failed to generate personalized questions in background task")
+            return
+
+        try:
+            # Parse questions from OpenAI response
+            questions_data = json.loads(question_response["content"])
+
+            # Process questions
+            processed_questions = []
+            if "questions" in questions_data:
+                for q in questions_data["questions"]:
+                    if "text" not in q:
+                        continue
+
+                    question_id = q.get("id", f"q_{uuid.uuid4().hex[:8]}")
+                    question_type = q.get("type", "text")
+                    question_text = q.get("text")
+
+                    processed_question = {
+                        "id": question_id,
+                        "type": question_type,
+                        "text": question_text
+                    }
+
+                    # Process options
+                    if "options" in q and q["options"]:
+                        processed_options = []
+                        for i, option in enumerate(q["options"]):
+                            if isinstance(option, str):
+                                processed_options.append({
+                                    "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
+                                    "text": option
+                                })
+                            elif isinstance(option, dict) and "text" in option:
+                                if "id" not in option:
+                                    option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
+                                processed_options.append(option)
+                        processed_question["options"] = processed_options
+
+                    processed_questions.append(processed_question)
+
+            # Update session with personalized questions
+            if processed_questions:
+                session = await session_store.get_session(session_id)
+                if session:
+                    if "questions" not in session:
+                        session["questions"] = []
+
+                    # Add personalized questions to session
+                    session["questions"].extend(processed_questions)
+                    session["personalized_questions"] = processed_questions
+                    session["personalized_questions_generated"] = True
+                    session["updated_at"] = datetime.now().isoformat()
+
+                    # Update session
+                    await session_store.update_session(session_id, session)
+
+                    logger.info(f"Successfully added {len(processed_questions)} personalized questions to session {session_id}")
+
+        except json.JSONDecodeError:
+            logger.error("Failed to parse personalized questions from OpenAI response")
+
+    except Exception as e:
+        logger.error(f"Error generating personalized questions in background task: {str(e)}")
+        logger.error(traceback.format_exc())

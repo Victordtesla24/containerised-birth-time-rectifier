@@ -195,8 +195,7 @@ async def complete_questionnaire(self, session_id: str, chart_id: Optional[str] 
                                 birth_time_range["most_likely_time"] = rectified_birth_time
                         except (ValueError, IndexError) as e:
                             logger.warning(f"Error calculating mid-point time: {e}")
-                            # Use original time as fallback
-                            rectified_birth_time = original_birth_time
+
 
                     # Only update chart if we have a valid rectified time
                     if rectified_birth_time:
@@ -276,497 +275,174 @@ async def _perform_comprehensive_analysis(
     birth_time_indicators: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
-    Perform comprehensive analysis of questionnaire responses with enhanced astrological insights.
+    Analyze questionnaire responses comprehensively with OpenAI.
+
+    This function performs a thorough analysis of all responses to determine
+    the most likely birth time and provide detailed astrological interpretation.
 
     Args:
-        responses: List of question-answer pairs
-        birth_details: Dictionary with birth details
+        responses: List of questionnaire responses
+        birth_details: Birth details dictionary
         birth_time_indicators: Optional list of extracted birth time indicators
 
     Returns:
-        Dictionary with comprehensive analysis including deep astrological insights
+        Dictionary with comprehensive analysis
+
+    Raises:
+        ValueError: When OpenAI service is not available or analysis fails
     """
+    # Get OpenAI service
+    openai_service = self.openai_service
+    if not openai_service:
+        from ai_service.api.services.openai import get_openai_service
+        openai_service = get_openai_service()
+
+    if not openai_service:
+        error_msg = "OpenAI service is required for comprehensive analysis but is not available"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
     try:
-        # Get OpenAI service
-        openai_service = self.openai_service
-        if not openai_service:
-            from ai_service.api.services.openai import get_openai_service
-            openai_service = get_openai_service()
+        # Compile birth time indicators if not provided
+        if not birth_time_indicators:
+            time_indicators = await self.extract_time_indicators(responses, birth_details)
+        else:
+            time_indicators = birth_time_indicators
 
-        if not openai_service:
-            logger.warning("OpenAI service not available for comprehensive analysis")
-            # Fallback to simpler analysis
-            return self._fallback_comprehensive_analysis(responses, birth_details, birth_time_indicators)
-
-        # Format responses for analysis with categorization
-        categorized_responses = self._categorize_responses(responses)
-
-        # Format response data with better structure
-        response_sections = []
-
-        # Physical appearance indicators (for Ascendant)
-        if categorized_responses.get("physical_appearance"):
-            response_sections.append("PHYSICAL APPEARANCE INDICATORS (relevant for Ascendant):")
-            for idx, resp in enumerate(categorized_responses["physical_appearance"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Personality traits (for Ascendant and Moon)
-        if categorized_responses.get("personality"):
-            response_sections.append("PERSONALITY TRAITS (relevant for Ascendant and Moon):")
-            for idx, resp in enumerate(categorized_responses["personality"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Life events (for transits and progressions)
-        if categorized_responses.get("life_events"):
-            response_sections.append("LIFE EVENTS (relevant for transits and progressions):")
-            for idx, resp in enumerate(categorized_responses["life_events"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Career and work (for MC/10th house)
-        if categorized_responses.get("career"):
-            response_sections.append("CAREER AND WORK (relevant for MC/10th house):")
-            for idx, resp in enumerate(categorized_responses["career"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Relationships (for Venus, 7th house)
-        if categorized_responses.get("relationships"):
-            response_sections.append("RELATIONSHIPS (relevant for Venus, 7th house):")
-            for idx, resp in enumerate(categorized_responses["relationships"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Early life (for Moon, 4th house)
-        if categorized_responses.get("early_life"):
-            response_sections.append("EARLY LIFE (relevant for Moon, 4th house):")
-            for idx, resp in enumerate(categorized_responses["early_life"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Other responses
-        if categorized_responses.get("other"):
-            response_sections.append("OTHER RESPONSES:")
-            for idx, resp in enumerate(categorized_responses["other"]):
-                question = resp.get("question", "")
-                answer = resp.get("answer", "")
-                response_sections.append(f"Q{idx+1}: {question}\nA{idx+1}: {answer}")
-            response_sections.append("")
-
-        # Combine all sections
-        response_text = "\n".join(response_sections)
-
-        # Compile extracted birth time indicators with confidence scores
-        indicators_text = ""
-        ascendant_candidates = {}
-        moon_sign_candidates = {}
-        time_range_candidates = []
-
-        if birth_time_indicators:
-            indicators_text += "BIRTH TIME INDICATORS ANALYSIS:\n"
-
-            for idx, indicator in enumerate(birth_time_indicators):
-                indicator_data = indicator.get("indicators", {})
-                question = indicator.get("question", "")
-                answer = indicator.get("answer", "")
-
-                # Track potential ascendants with confidence
-                if "potential_ascendants" in indicator_data and "potential_ascendant_confidence" in indicator_data:
-                    for sign in indicator_data["potential_ascendants"]:
-                        if sign not in ascendant_candidates:
-                            ascendant_candidates[sign] = 0
-                        ascendant_candidates[sign] += indicator_data["potential_ascendant_confidence"]
-
-                # Track Moon influences
-                if "personality_planet_influences" in indicator_data and "Moon" in indicator_data["personality_planet_influences"]:
-                    moon_idx = indicator_data["personality_planet_influences"].index("Moon")
-                    if "personality_ascendant_indicators" in indicator_data and len(indicator_data["personality_ascendant_indicators"]) > moon_idx:
-                        moon_sign = indicator_data["personality_ascendant_indicators"][moon_idx]
-                        if moon_sign not in moon_sign_candidates:
-                            moon_sign_candidates[moon_sign] = 0
-                        moon_sign_candidates[moon_sign] += indicator_data["personality_planet_confidence"]
-
-                # Track time ranges
-                if "time_range" in indicator_data:
-                    time_range_candidates.append(indicator_data["time_range"])
-                elif "normalized_time" in indicator_data:
-                    hour = int(indicator_data["normalized_time"].split(":")[0])
-                    # Create a 1-hour window
-                    time_range_candidates.append(f"{hour:02d}:00-{(hour+1)%24:02d}:00")
-
-                # Format all indicator data for the prompt
-                indicators_text += f"Indicator {idx+1} (from question about {question.strip()[:30]}...):\n"
-                for key, value in indicator_data.items():
-                    indicators_text += f"  {key}: {value}\n"
-                indicators_text += f"  Source answer: {answer}\n\n"
-
-            # Summarize ascendant candidates
-            if ascendant_candidates:
-                sorted_ascendants = sorted(ascendant_candidates.items(), key=lambda x: x[1], reverse=True)
-                indicators_text += "ASCENDANT CANDIDATES SUMMARY:\n"
-                for sign, score in sorted_ascendants[:3]:
-                    indicators_text += f"  {sign}: confidence score {score:.1f}\n"
-                indicators_text += "\n"
-
-            # Summarize Moon sign candidates
-            if moon_sign_candidates:
-                sorted_moon = sorted(moon_sign_candidates.items(), key=lambda x: x[1], reverse=True)
-                indicators_text += "MOON SIGN CANDIDATES SUMMARY:\n"
-                for sign, score in sorted_moon[:3]:
-                    indicators_text += f"  {sign}: confidence score {score:.1f}\n"
-                indicators_text += "\n"
-
-            # Summarize time ranges
-            if time_range_candidates:
-                indicators_text += "TIME RANGE CANDIDATES:\n"
-                for time_range in time_range_candidates:
-                    indicators_text += f"  {time_range}\n"
-                indicators_text += "\n"
-
-        # Format birth details
+        # Format the data for OpenAI
         birth_date = birth_details.get("birth_date", "")
-        birth_time = birth_details.get("birth_time", "Unknown")
+        birth_time = birth_details.get("birth_time", "")
         latitude = birth_details.get("latitude", 0)
         longitude = birth_details.get("longitude", 0)
-        timezone = birth_details.get("timezone", "UTC")
+        location = birth_details.get("birth_place", "")
 
-        # Create system message with comprehensive astrological knowledge base
-        system_message = """
-        You are an expert Vedic astrologer specialized in birth time rectification with deep knowledge of:
+        # Format responses
+        formatted_responses = ""
+        for idx, response in enumerate(responses):
+            question = response.get("question", "")
+            answer = response.get("answer", "")
+            formatted_responses += f"Q{idx+1}: {question}\nA{idx+1}: {answer}\n\n"
 
-        1. Ascendant determination through physical appearance and personality traits:
-           - Aries rising: Athletic build, prominent forehead, direct manner, pioneering attitude
-           - Taurus rising: Solid build, strong neck, patient demeanor, artistic sensibilities
-           - Gemini rising: Slender build, expressive hands, adaptable personality, communicative
-           - Cancer rising: Rounded face, nurturing presence, emotional sensitivity, family-oriented
-           - Leo rising: Strong posture, abundant hair, confident presence, creative expression
-           - Virgo rising: Neat appearance, analytical expression, detail-oriented, service-minded
-           - Libra rising: Balanced features, diplomatic manner, artistic sensibility, relationship-focused
-           - Scorpio rising: Penetrating gaze, intense presence, passionate nature, transformative
-           - Sagittarius rising: Athletic physique, optimistic expression, philosophical outlook, freedom-loving
-           - Capricorn rising: Dignified bearing, mature demeanor, ambitious nature, disciplined
-           - Aquarius rising: Distinctive appearance, innovative thinking, humanitarian values, independent
-           - Pisces rising: Dreamy eyes, gentle demeanor, intuitive nature, compassionate
+        # Format time indicators
+        formatted_indicators = ""
+        for indicator in time_indicators:
+            indicator_type = indicator.get("type", "")
+            explanation = indicator.get("explanation", "")
+            suggested_time = indicator.get("suggested_time", "")
+            confidence = indicator.get("confidence", 0)
 
-        2. House systems and their significance:
-           - 1st house: Self-image, physical body, appearance, approach to life
-           - 4th house: Home, family, mother, emotional foundations
-           - 7th house: Partnerships, marriage, significant relationships, contracts
-           - 10th house: Career, public reputation, authority, father figure, life direction
+            formatted_indicators += f"Type: {indicator_type}\n"
+            if suggested_time:
+                formatted_indicators += f"Suggested time: {suggested_time}\n"
+            formatted_indicators += f"Confidence: {confidence}%\n"
+            formatted_indicators += f"Explanation: {explanation}\n\n"
 
-        3. Planetary dignities and their impact on chart interpretation
-        4. Transit timing and astrological event correlation
-        5. Dasha systems and timing of life events
-        6. Ashtakavarga and strength determination of houses and planets
+        # System prompt
+        system_prompt = """
+        You are an expert Vedic astrologer specializing in birth time rectification.
 
-        Using all this knowledge, analyze the responses to determine the most likely birth time.
-        Integrate both traditional astrological wisdom and modern timing techniques in your analysis.
+        Your task is to analyze questionnaire responses and birth details to determine
+        the most accurate birth time. Consider all responses carefully, prioritizing
+        those that relate to major life events, personality traits, and physical characteristics
+        that are strongly influenced by birth time.
+
+        Provide a comprehensive analysis including:
+
+        1. A refined birth time estimate (specific time or narrow range)
+        2. Confidence level (percentage)
+        3. The likely ascendant (rising sign) and degree
+        4. Key factors that influenced your determination
+        5. House analysis based on the rectified time
+
+        Format your response as a detailed JSON object that can be parsed by our system.
         """
 
-        # Create user message with enhanced astrological request
-        user_message = f"""
+        # User prompt
+        user_prompt = f"""
         BIRTH DETAILS:
         Date: {birth_date}
-        Current registered time: {birth_time}
-        Coordinates: {latitude}, {longitude}
-        Timezone: {timezone}
+        Approximate Time: {birth_time}
+        Location: {location} (Lat: {latitude}, Lon: {longitude})
 
-        QUESTIONNAIRE RESPONSES (CATEGORIZED BY ASTROLOGICAL RELEVANCE):
-        {response_text}
+        QUESTIONNAIRE RESPONSES:
+        {formatted_responses}
 
-        {indicators_text}
+        EXTRACTED TIME INDICATORS:
+        {formatted_indicators}
 
-        Based on this information, perform a comprehensive astrological analysis to determine the most accurate birth time.
-        Focus on these key astrological factors:
-
-        1. ASCENDANT DETERMINATION:
-           - Analyze physical descriptions for likely Ascendant sign
-           - Evaluate personality traits that correlate with Ascendant/1st house placements
-           - Consider critical degrees that may amplify Ascendant influence
-
-        2. ANGULAR HOUSE ANALYSIS:
-           - Determine likely placements in the 1st, 4th, 7th, and 10th houses
-           - Evaluate influence of house rulers on personality and life events
-           - Identify potential Midheaven sign from career information
-
-        3. PLANETARY INFLUENCE ASSESSMENT:
-           - Identify dominant planets from personality traits and life experiences
-           - Evaluate aspects between personal planets that explain relationship patterns
-           - Determine Moon sign influence on emotional patterns
-
-        4. TRANSIT CORRELATION:
-           - Match significant life events with likely transit patterns
-           - Identify recurring planetary cycles that correspond to life changes
-           - Evaluate Saturn, Jupiter and outer planet transits to angular houses
-
-        5. DASHA/PROGRESSION ANALYSIS:
-           - Relate major life transitions to potential dasha periods
-           - Correlate life themes with major planetary periods
-
-        Return your analysis as a comprehensive JSON object with the following structure:
-        {
-          "birth_time_range": {
-            "start": "HH:MM",
-            "end": "HH:MM",
-            "most_likely_time": "HH:MM"
-          },
-          "time_adjustment": {
-            "minutes": integer (positive or negative),
-            "direction": "earlier" or "later",
-            "explanation": "detailed astrological reasoning"
-          },
-          "confidence": integer (0-100),
-          "ascendant": {
-            "sign": "sign name",
-            "degree": integer,
-            "confidence": integer (0-100),
-            "supporting_traits": ["trait1", "trait2", ...]
-          },
-          "moon_sign": {
-            "sign": "sign name",
-            "house": integer,
-            "confidence": integer (0-100)
-          },
-          "dominant_planets": [
-            {"planet": "name", "sign": "sign", "house": integer, "significance": "explanation"}
-          ],
-          "key_factors": [
-            {"factor": "factor name", "explanation": "explanation", "confidence": integer}
-          ],
-          "house_analysis": {
-            "angular_houses": [
-              {"house": integer, "planets": ["names"], "significance": "explanation"}
-            ],
-            "significant_placements": [
-              {"planet": "name", "house": integer, "significance": "explanation"}
-            ]
-          },
-          "astrological_insights": {
-            "personality": ["detailed insights connecting traits to planetary positions"],
-            "life_path": ["insights about major life themes and directions"],
-            "relationships": ["insights about relationship patterns and planetary influences"],
-            "career": ["insights about career path and MC influences"]
-          }
-        }
+        Based on this information, please provide a comprehensive birth time rectification analysis.
+        Format your response as a JSON object with these sections:
+        - birth_time_range (start, end, most_likely_time)
+        - time_adjustment (minutes, direction, explanation)
+        - confidence (percentage)
+        - ascendant (sign, degree)
+        - key_factors (array of factors with explanations)
+        - house_analysis (analysis of key houses)
         """
 
-        # Call OpenAI API with enhanced parameters
+        # Call OpenAI
         response = await openai_service.generate_completion(
             prompt={
                 "messages": [
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ]
             },
-            task_type="birth_time_rectification",
-            max_tokens=3000,
-            temperature=0.2  # Lower temperature for more consistent, analytical responses
+            task_type="birth_time_rectification_analysis",
+            max_tokens=2000,
+            temperature=0.4
         )
 
-        # Extract and parse response
+        # Parse the response
         content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
 
+        # Extract JSON from content
         try:
-            # Parse the JSON response
-            analysis = json.loads(content)
-
-            # Enhance analysis with additional birth chart data if available
-            if "birth_date" in birth_details and "latitude" in birth_details and "longitude" in birth_details:
+            # First try direct parsing
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            # Try to extract JSON using regex
+            import re
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+            if json_match:
                 try:
-                    # Get most likely birth time for chart calculation
-                    most_likely_time = analysis.get("birth_time_range", {}).get("most_likely_time")
-                    if most_likely_time:
-                        # Parse birth date and time
-                        birth_date_str = birth_details["birth_date"]
+                    result = json.loads(json_match.group(1))
+                except json.JSONDecodeError:
+                    # If still failing, try one more approach to find valid JSON
+                    json_str = re.search(r'({[\s\S]*})', content)
+                    if json_str:
+                        try:
+                            result = json.loads(json_str.group(1))
+                        except json.JSONDecodeError:
+                            error_msg = "Failed to parse OpenAI response as JSON"
+                            logger.error(error_msg)
+                            raise ValueError(error_msg)
+                    else:
+                        error_msg = "Could not find valid JSON in OpenAI response"
+                        logger.error(error_msg)
+                        raise ValueError(error_msg)
+            else:
+                error_msg = "Could not find valid JSON in OpenAI response"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
-                        if isinstance(birth_date_str, str):
-                            # Attempt to handle various date formats
-                            try:
-                                if "T" in birth_date_str:  # ISO format with time
-                                    birth_date_obj = datetime.fromisoformat(birth_date_str.split("T")[0])
-                                else:
-                                    birth_date_obj = datetime.strptime(birth_date_str, "%Y-%m-%d")
-                            except ValueError:
-                                # Try alternate format
-                                try:
-                                    birth_date_obj = datetime.strptime(birth_date_str, "%Y/%m/%d")
-                                except ValueError:
-                                    # Fall back to date object if it's already one
-                                    birth_date_obj = birth_date_str
-                        else:
-                            # Assume it's already a datetime or date object
-                            birth_date_obj = birth_date_str
+        # Ensure required fields are present
+        if "birth_time_range" not in result:
+            result["birth_time_range"] = {
+                "start": birth_time,
+                "end": birth_time,
+                "most_likely_time": birth_time
+            }
 
-                        # Parse time
-                        time_parts = most_likely_time.split(":")
-                        hour = int(time_parts[0])
-                        minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+        if "confidence" not in result:
+            result["confidence"] = 50  # Default confidence
 
-                        # Create full datetime for chart calculation
-                        if isinstance(birth_date_obj, datetime):
-                            rectified_dt = birth_date_obj.replace(hour=hour, minute=minute)
-                        else:
-                            # If it's a date object, convert to datetime
-                            try:
-                                from datetime import date
-                                if isinstance(birth_date_obj, date):
-                                    rectified_dt = datetime.combine(birth_date_obj, datetime.min.time()).replace(hour=hour, minute=minute)
-                                else:
-                                    # Fall back to string parsing
-                                    rectified_dt = datetime.strptime(f"{birth_date_str} {most_likely_time}", "%Y-%m-%d %H:%M")
-                            except (ValueError, TypeError):
-                                logger.warning(f"Could not create datetime from {birth_date_str} and {most_likely_time}")
-                                rectified_dt = None
-
-                        if rectified_dt:
-                            # Calculate chart using MinimalChart
-                            try:
-                                from ai_service.core.rectification.utils.ephemeris import MinimalChart
-                                chart = MinimalChart(
-                                    rectified_dt,
-                                    birth_details["latitude"],
-                                    birth_details["longitude"]
-                                )
-
-                                # Extract chart data
-                                chart_data = chart.to_dict()
-
-                                # Add chart data to analysis for enhanced insights
-                                if "astrological_charts" not in analysis:
-                                    analysis["astrological_charts"] = {}
-
-                                analysis["astrological_charts"]["calculated_chart"] = {
-                                    "ascendant": chart_data.get("angles", {}).get("asc", {}),
-                                    "midheaven": chart_data.get("angles", {}).get("mc", {}),
-                                    "planets": {
-                                        planet: {
-                                            "sign": data.get("sign"),
-                                            "house": data.get("house"),
-                                            "retrograde": data.get("retrograde", False)
-                                        } for planet, data in chart_data.get("planets", {}).items()
-                                    },
-                                    "aspects": {
-                                        aspect_type: len(aspects) for aspect_type, aspects
-                                        in chart_data.get("aspects", {}).items()
-                                    }
-                                }
-                            except Exception as chart_err:
-                                logger.warning(f"Error calculating chart: {chart_err}")
-
-                except Exception as chart_analysis_error:
-                    logger.warning(f"Error enhancing analysis with chart data: {chart_analysis_error}")
-
-            # Extract astrological factors for further processing
-            key_astrological_factors = self._extract_key_astrological_factors(
-                responses,
-                birth_details
-            )
-
-            # Add these to the analysis
-            if key_astrological_factors and "key_factors" not in analysis:
-                analysis["key_factors"] = key_astrological_factors
-
-            # Ensure birth time range is present
-            if "birth_time_range" not in analysis:
-                analysis["birth_time_range"] = self._determine_birth_time_range(
-                    {},  # No specific indicators from AI
-                    analysis,
-                    birth_details
-                )
-
-            # Ensure time adjustment is present
-            if "time_adjustment" not in analysis:
-                analysis["time_adjustment"] = self._calculate_time_adjustment(
-                    {},  # No specific indicators from AI
-                    analysis
-                )
-
-            # Ensure confidence is present
-            if "confidence" not in analysis:
-                analysis["confidence"] = self._calculate_rectification_confidence(
-                    responses,
-                    {}  # No specific indicators from AI
-                )
-
-            return analysis
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing OpenAI response: {e}")
-            logger.error(f"Response content: {content[:500]}...")  # Log first 500 chars
-
-            # Try to extract usable information from the text
-            try:
-                # Extract birth time range
-                birth_time_range = {}
-                time_range_match = re.search(r'birth\s+time\s+range.*?(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})', content, re.IGNORECASE | re.DOTALL)
-                if time_range_match:
-                    birth_time_range["start"] = time_range_match.group(1)
-                    birth_time_range["end"] = time_range_match.group(2)
-
-                # Extract most likely time
-                likely_time_match = re.search(r'most\s+likely\s+time.*?(\d{1,2}:\d{2})', content, re.IGNORECASE | re.DOTALL)
-                if likely_time_match:
-                    birth_time_range["most_likely_time"] = likely_time_match.group(1)
-
-                # Extract confidence
-                confidence = 65  # Default moderate confidence
-                confidence_match = re.search(r'confidence.*?(\d{1,3})', content, re.IGNORECASE | re.DOTALL)
-                if confidence_match:
-                    confidence = int(confidence_match.group(1))
-
-                # Extract ascendant
-                ascendant = {}
-                ascendant_match = re.search(r'ascendant.*?(Aries|Taurus|Gemini|Cancer|Leo|Virgo|Libra|Scorpio|Sagittarius|Capricorn|Aquarius|Pisces)',
-                                           content, re.IGNORECASE | re.DOTALL)
-                if ascendant_match:
-                    ascendant["sign"] = ascendant_match.group(1)
-
-                # Create partial analysis
-                partial_analysis = {
-                    "birth_time_range": birth_time_range,
-                    "confidence": confidence,
-                    "ascendant": ascendant,
-                    "parsing_error": "Complete JSON parsing failed, extracted partial information",
-                    "time_adjustment": self._calculate_time_adjustment({}, {"birth_time_range": birth_time_range})
-                }
-
-                # Add fallback data for missing sections
-                if not birth_time_range:
-                    partial_analysis["birth_time_range"] = self._determine_birth_time_range(
-                        {},
-                        partial_analysis,
-                        birth_details
-                    )
-
-                logger.info("Created partial analysis from text response")
-                return partial_analysis
-
-            except Exception as extract_error:
-                logger.error(f"Error extracting partial data: {extract_error}")
-                # Fall back to basic analysis
-                return self._fallback_comprehensive_analysis(responses, birth_details, birth_time_indicators)
-
-        except Exception as e:
-            logger.error(f"Error in comprehensive analysis: {e}")
-            return self._fallback_comprehensive_analysis(responses, birth_details, birth_time_indicators)
+        return result
 
     except Exception as e:
-        logger.error(f"Error in _perform_comprehensive_analysis: {e}")
-        return self._fallback_comprehensive_analysis(responses, birth_details, birth_time_indicators)
+        error_msg = f"Error in comprehensive analysis: {str(e)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
 def _generate_astrological_report(
     self,

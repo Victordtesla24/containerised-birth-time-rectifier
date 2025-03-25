@@ -1,6 +1,5 @@
 """
 Configuration settings for the Birth Time Rectifier API.
-Loads environment variables and provides default values.
 """
 
 import os

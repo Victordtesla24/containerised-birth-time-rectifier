@@ -280,6 +280,7 @@ def _detect_contradiction(
     # If questions are not similar, skip extensive checking
     if question_similarity < 0.3:
         return None
+        
 
     # Extract key patterns from questions and answers
 

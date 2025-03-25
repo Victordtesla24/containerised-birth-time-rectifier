@@ -12,7 +12,12 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 import re
-import pytz
+
+# Try to import pytz properly with exception handling
+try:
+    import pytz
+except ImportError:
+    raise ImportError("The pytz module is required for timezone operations in the questionnaire engine. Please install it using 'pip install pytz'.")
 
 # Add type checker directive to ignore FixtureFunction related errors
 # pyright: reportInvalidTypeForm=false
@@ -129,28 +134,26 @@ class QuestionnaireEngine:
         diversity_factor: float = 0.0
     ) -> Dict[str, Any]:
         """
-        Generate a dynamic question using AI based on chart data and previous answers.
+        Generate a dynamic question based on previous answers and current chart data.
+
+        Args:
+            chart_data: The natal chart data
+            previous_answers: Previous questions and answers
+            current_confidence: Current confidence in birth time
+            session_id: Unique session identifier
+            diversity_factor: Factor to increase question diversity (0.0-1.0)
+
+        Returns:
+            Dict containing the next question
+
+        Raises:
+            RuntimeError: If question generation fails after retries
         """
         if not self.openai_service:
-            raise ValueError("OpenAI service is required for dynamic question generation")
+            raise RuntimeError("OpenAI service is required but not available")
 
-        # Initialize session tracking if needed
-        if session_id not in self.question_history:
-            self.question_history[session_id] = []
-
-        if session_id not in self.answer_history:
-            self.answer_history[session_id] = []
-
-        # Format chart data for AI analysis, emphasizing time-sensitive factors
-        chart_summary = self._format_chart_for_prompt(chart_data)
-
-        # Extract previous Q&A for context
-        qa_history = ""
+        # Extract relevant responses
         responses = previous_answers.get("responses", [])
-        for i, resp in enumerate(responses):
-            if isinstance(resp, dict):
-                qa_history += f"Q{i+1}: {resp.get('question', 'Unknown question')}\n"
-                qa_history += f"A{i+1}: {resp.get('answer', 'Unknown answer')}\n\n"
 
         # Add previous answers to history
         self.answer_history[session_id].extend(responses)
@@ -163,7 +166,8 @@ class QuestionnaireEngine:
         question_count = len(responses)
 
         # Determine question category based on progression
-        category = self._determine_next_question_category(responses, question_count)
+        # Now using the new _determine_next_category method
+        category = self._determine_next_category(responses)
 
         # Extract previously asked questions to avoid repetition
         asked_questions = [q.get("text", "").lower() for q in self.question_history.get(session_id, [])]
@@ -186,13 +190,13 @@ class QuestionnaireEngine:
         to help determine this person's precise birth time. The current confidence in the birth time is {current_confidence}%.
 
         CRITICAL ASTROLOGICAL CONTEXT:
-        {chart_summary}
+        {self._format_chart_for_prompt(chart_data)}
 
         UNCERTAIN BIRTH TIME FACTORS REQUIRING CLARIFICATION:
         {uncertain_factors_text}
 
         PREVIOUS QUESTIONS AND ANSWERS:
-        {qa_history}
+        {self._format_answers_for_prompt(responses)}
 
         RECTIFICATION CONTEXT:
         - Current question count: {question_count}
@@ -225,44 +229,49 @@ class QuestionnaireEngine:
         PROVIDE ONLY THE JSON OBJECT AND NO OTHER TEXT.
         """
 
-        # Call OpenAI with enhanced prompt
-        response = await self.openai_service.generate_completion(
-            prompt=prompt,
-            task_type="birth_time_rectification_questionnaire",
-            max_tokens=800,
-            temperature=0.7 + (diversity_factor * 0.3)  # Increase temperature for more diverse questions
-        )
+        try:
+            # Call OpenAI with enhanced prompt
+            response = await self.openai_service.generate_completion(
+                prompt=prompt,
+                task_type="birth_time_rectification_questionnaire",
+                max_tokens=800,
+                temperature=0.7 + (diversity_factor * 0.3)  # Increase temperature for more diverse questions
+            )
 
-        # Parse the response
-        question_data = self._parse_question_response(response.get("content", ""))
+            # Parse the response
+            question_data = self._parse_question_response(response.get("content", ""))
 
-        # Ensure required fields
-        if "id" not in question_data:
-            question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
+            # Ensure required fields
+            if "id" not in question_data:
+                question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
 
-        if "category" not in question_data:
-            question_data["category"] = category
+            if "category" not in question_data:
+                question_data["category"] = category
 
-        # Format options for multiple choice
-        if question_data.get("type") == "multiple_choice" and "options" in question_data:
-            processed_options = []
-            for i, option in enumerate(question_data["options"]):
-                if isinstance(option, str):
-                    processed_options.append({
-                        "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
-                        "text": option
-                    })
-                elif isinstance(option, dict) and "text" in option:
-                    if "id" not in option:
-                        option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
-                    processed_options.append(option)
+            # Format options for multiple choice
+            if question_data.get("type") == "multiple_choice" and "options" in question_data:
+                processed_options = []
+                for i, option in enumerate(question_data["options"]):
+                    if isinstance(option, str):
+                        processed_options.append({
+                            "id": f"opt_{i}_{uuid.uuid4().hex[:4]}",
+                            "text": option
+                        })
+                    elif isinstance(option, dict) and "text" in option:
+                        if "id" not in option:
+                            option["id"] = f"opt_{i}_{uuid.uuid4().hex[:4]}"
+                        processed_options.append(option)
 
-            question_data["options"] = processed_options
+                question_data["options"] = processed_options
 
-        # Add to question history
-        self.question_history[session_id].append(question_data)
+            # Add to question history
+            self.question_history[session_id].append(question_data)
 
-        return question_data
+            return question_data
+
+        except Exception as e:
+            logger.error(f"Error generating question: {str(e)}")
+            raise RuntimeError(f"Failed to generate question: {str(e)}")
 
     def _identify_uncertain_factors(self, chart_data: Dict[str, Any]) -> List[str]:
         """
@@ -346,312 +355,269 @@ class QuestionnaireEngine:
 
     def _format_chart_for_prompt(self, chart_data: Dict[str, Any]) -> str:
         """
-        Format chart data into a summary string focused on time-sensitive elements.
+        Format chart data into a concise summary for LLM prompts.
         """
-        summary = ["BIRTH CHART SUMMARY:"]
+        if not chart_data:
+            return "Chart data not available."
 
-        # Extract ascendant (most critical for birth time)
-        ascendant = chart_data.get("ascendant", {})
-        if isinstance(ascendant, dict):
-            asc_sign = ascendant.get("sign", "Unknown")
-            asc_degree = ascendant.get("degree", 0)
-            summary.append(f"Ascendant: {asc_sign} {asc_degree}° (HIGHEST SENSITIVITY TO BIRTH TIME)")
+        # Extract key chart elements
+        ascendant = chart_data.get("houses", {}).get("1", {}).get("sign", "Unknown")
+        planets = chart_data.get("planets", {})
 
-        # Extract MC/Midheaven (very sensitive to birth time)
-        mc_data = {}
-        planets = chart_data.get("planets", [])
-        for planet in planets:
-            if isinstance(planet, dict) and planet.get("planet") in ["MC", "Midheaven"]:
-                mc_data = planet
-                break
+        # Create a summary focusing on most relevant elements for birth time
+        summary = [
+            f"Ascendant (Rising Sign): {ascendant}",
+            "Planet Positions:"
+        ]
 
-        if mc_data:
-            mc_sign = mc_data.get("sign", "Unknown")
-            mc_degree = mc_data.get("degree", 0)
-            summary.append(f"Midheaven: {mc_sign} {mc_degree}° (VERY HIGH SENSITIVITY)")
-
-        # Extract moon (moderate time sensitivity)
-        moon_data = {}
-        for planet in planets:
-            if isinstance(planet, dict) and planet.get("planet") == "Moon":
-                moon_data = planet
-                break
-
-        if moon_data:
-            moon_sign = moon_data.get("sign", "Unknown")
-            moon_degree = moon_data.get("degree", 0)
-            moon_house = moon_data.get("house", "Unknown")
-            summary.append(f"Moon: {moon_sign} {moon_degree}° (House {moon_house}) (MODERATE SENSITIVITY)")
-
-        # Include sun (lower time sensitivity)
-        sun_data = {}
-        for planet in planets:
-            if isinstance(planet, dict) and planet.get("planet") == "Sun":
-                sun_data = planet
-                break
-
-        if sun_data:
-            sun_sign = sun_data.get("sign", "Unknown")
-            sun_degree = sun_data.get("degree", 0)
-            sun_house = sun_data.get("house", "Unknown")
-            summary.append(f"Sun: {sun_sign} {sun_degree}° (House {sun_house}) (LOW SENSITIVITY)")
-
-        # Include angular houses (highly sensitive to birth time)
-        houses = chart_data.get("houses", [])
-        angular_houses = []
-
-        for house in houses:
-            if isinstance(house, dict) and house.get("number") in [1, 4, 7, 10]:
-                number = house.get("number", "")
-                sign = house.get("sign", "")
-                degree = house.get("degree", 0)
-                angular_houses.append(f"House {number}: {sign} {degree}°")
-
-        if angular_houses:
-            summary.append("ANGULAR HOUSES (HIGH SENSITIVITY):")
-            summary.extend(angular_houses)
-
-        # Include key aspects to angles (sensitive to birth time)
-        aspects = chart_data.get("aspects", [])
-        key_aspects = []
-
-        for aspect in aspects:
-            if not isinstance(aspect, dict):
-                continue
-
-            planet1 = aspect.get("planet1", "")
-            planet2 = aspect.get("planet2", "")
-            aspect_type = aspect.get("aspect_type", aspect.get("aspect", ""))
-
-            # Focus on aspects to angles and important planets
-            if any(p in ["Ascendant", "MC", "IC", "Descendant"] for p in [planet1, planet2]):
-                key_aspects.append(f"{planet1} {aspect_type} {planet2}")
-
-        if key_aspects:
-            summary.append("KEY ASPECTS TO ANGLES (SENSITIVE TO BIRTH TIME):")
-            summary.extend([f"- {aspect}" for aspect in key_aspects[:3]])  # Top 3 aspects
+        # Add planet positions
+        for planet in PLANETS_LIST:
+            if planet in planets:
+                planet_data = planets[planet]
+                sign = planet_data.get("sign", "Unknown")
+                house = planet_data.get("house", "Unknown")
+                summary.append(f"- {planet} in {sign} (House {house})")
 
         return "\n".join(summary)
 
-    async def get_next_question(
-        self,
-        chart_data: Dict[str, Any],
-        birth_details: Dict[str, Any],
-        previous_answers: Dict[str, Any],
-        current_confidence: float,
-        session_id: str = "default"
-    ) -> Dict[str, Any]:
+    def _format_answers_for_prompt(self, previous_answers: List[Dict[str, Any]]) -> str:
         """
-        Get the next question for the birth time rectification questionnaire.
+        Format previous answers into context for the next question prompt.
+
+        Args:
+            previous_answers: List of previous question-answer pairs
+
+        Returns:
+            Formatted context string
         """
-        # Initialize session tracking if needed
+        if not previous_answers:
+            return "No previous answers available."
+
+        context_lines = ["PREVIOUS QUESTIONS AND ANSWERS:"]
+
+        for i, qa_pair in enumerate(previous_answers):
+            question = qa_pair.get("question", "")
+            answer = qa_pair.get("answer", "")
+
+            if question and answer:
+                context_lines.append(f"Q{i+1}: {question}")
+                context_lines.append(f"A{i+1}: {answer}")
+                context_lines.append("")
+
+        return "\n".join(context_lines)
+
+    def _determine_next_category(self, previous_answers: List[Dict[str, Any]]) -> str:
+        """
+        Determine the best category for the next question based on previous answers.
+
+        Args:
+            previous_answers: List of previous question-answer pairs
+
+        Returns:
+            Category name for the next question
+        """
+        # Define progression of categories for comprehensive birth time rectification
+        progression = [
+            "physical_traits",      # First focus on physical appearance (Ascendant)
+            "personality",          # Then personality traits (Moon, Mercury)
+            "life_events",          # Major life events (Saturn, Jupiter transits)
+            "timing_preferences",   # Daily rhythms (Sun, Mercury)
+            "relationships",        # Relationship patterns (Venus, Mars, 7th house)
+            "career",               # Career developments (10th house, Saturn)
+            "health",               # Health patterns (6th house, Saturn/Mars)
+            "spiritual"             # Spiritual experiences (9th/12th houses, Neptune)
+        ]
+
+        # Use question count to determine category
+        question_count = len(previous_answers)
+
+        # First 8 questions follow the progression
+        if question_count < len(progression):
+            return progression[question_count]
+
+        # After initial progression, focus on most time-sensitive categories
+        priority_categories = ["life_events", "timing_preferences", "physical_traits"]
+
+        # Count how many times each category has been used
+        category_counts = {}
+        for qa_pair in previous_answers:
+            category = qa_pair.get("category", "unknown")
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        # Find least-used priority category
+        least_used = min(priority_categories, key=lambda c: category_counts.get(c, 0))
+        return least_used
+
+    async def _generate_question(self, category: str, chart_data: str, context: str) -> Dict[str, Any]:
+        """
+        Generate a question using AI based on chart data, previous context, and category.
+
+        Args:
+            category: Question category to focus on
+            chart_data: Formatted chart data
+            context: Previous Q&A context
+
+        Returns:
+            Structured question dictionary
+
+        Raises:
+            ValueError: If question generation fails
+        """
+        if not self.openai_service:
+            raise ValueError("OpenAI service is required for question generation")
+
+        # Create prompt for specific category
+        category_prompts = {
+            "physical_traits": "Focus on physical appearance, body type, face shape, and distinct features that relate to the Ascendant.",
+            "personality": "Focus on personality traits, communication style, and emotional patterns related to Moon and Mercury positions.",
+            "life_events": "Focus on major life events, transitions, and their timing which can correlate with planetary transits.",
+            "timing_preferences": "Focus on daily rhythms, sleep patterns, and times of day when the person feels most/least energetic.",
+            "relationships": "Focus on relationship patterns, attraction types, and significant partnerships.",
+            "career": "Focus on career path, professional achievements, and public reputation.",
+            "health": "Focus on health patterns, strengths, and vulnerabilities that may relate to the 6th house and Mars/Saturn.",
+            "spiritual": "Focus on spiritual experiences, beliefs, and practices that may relate to the 9th and 12th houses."
+        }
+
+        category_guidance = category_prompts.get(category, "Generate a question to help determine birth time.")
+
+        prompt = f"""
+        As an expert astrologer specializing in birth time rectification, generate the next question
+        to ask a person to help determine their precise birth time.
+
+        CHART INFORMATION:
+        {chart_data}
+
+        {context}
+
+        QUESTION CATEGORY: {category}
+        {category_guidance}
+
+        RESPONSE FORMAT:
+        Return only a JSON object with these fields:
+        - id: a unique identifier (use a random string)
+        - text: the question text
+        - type: "text" or "multiple_choice" or "yes_no"
+        - options: an array of options if type is multiple_choice (include at least 4 options)
+        - category: "{category}"
+        - relevance_to_birth_time: brief explanation of how this relates to birth time
+
+        The question must be easily understandable by someone without astrological knowledge.
+        PROVIDE ONLY THE JSON OBJECT AND NO OTHER TEXT.
+        """
+
+        try:
+            # Use generate_completion which is the correct method
+            response = await self.openai_service.generate_completion(
+                prompt=prompt,
+                task_type="questionnaire",
+                max_tokens=1000,
+                temperature=0.7
+            )
+
+            # Extract content from response
+            if response and isinstance(response, dict):
+                content = response.get("choices", [{}])[0].get("text", "")
+                if content:
+                    return self._parse_question_response(content)
+
+            raise ValueError("Invalid or empty response from AI service")
+
+        except Exception as e:
+            logger.error(f"Error generating question: {str(e)}")
+            raise ValueError(f"Failed to generate question: {str(e)}")
+
+    async def get_next_question(self, session_id: str, chart_data: Dict[str, Any],
+                             previous_answers: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Generate the next question based on previous answers and current chart data.
+        Raises an exception if question generation fails.
+        """
+        if not self.openai_service:
+            raise ValueError("OpenAI service is required for dynamic question generation")
+
+        # Track question history for this session
         if session_id not in self.question_history:
             self.question_history[session_id] = []
+            self.answer_history[session_id] = []
 
-        # Extract previously asked questions to avoid duplicates
-        asked_questions = [q.get("text", "").lower() for q in self.question_history.get(session_id, [])]
+        # Update answer history
+        self.answer_history[session_id] = previous_answers.copy()
 
-        # For first question, use dedicated method
-        if not previous_answers or not previous_answers.get("responses", []):
-            # If we don't have any previous questions stored, this is the first question
-            if not asked_questions:
-                first_question = await self.get_first_question(chart_data, birth_details)
-                # Add to history for tracking
-                self.question_history[session_id].append(first_question)
-                return first_question
+        # Format chart data for LLM prompt
+        chart_summary = self._format_chart_for_prompt(chart_data)
 
-        # Calculate diversity factor based on question count
-        question_count = len(previous_answers.get("responses", []))
-        diversity_factor = min(0.8, 0.1 + (question_count * 0.1))
+        # Format previous answers and questions
+        context = self._format_answers_for_prompt(previous_answers)
 
-        # Get the next dynamic question
-        attempts = 0
-        max_attempts = 3
-        next_question = None
+        # Decide question category based on answered questions
+        category = self._determine_next_category(previous_answers)
 
-        while attempts < max_attempts:
-            try:
-                next_question = await self.generate_dynamic_question(
-                    chart_data=chart_data,
-                    previous_answers=previous_answers,
-                    current_confidence=current_confidence,
-                    session_id=session_id,
-                    diversity_factor=diversity_factor
-                )
+        # Generate next question from LLM
+        next_question = await self._generate_question(
+            category=category,
+            chart_data=chart_summary,
+            context=context
+        )
 
-                # Check for duplication
-                is_duplicate = False
-                if next_question.get("text"):
-                    next_text = next_question.get("text", "").lower()
-                    for prev_text in asked_questions:
-                        if self._questions_are_similar(next_text, prev_text):
-                            is_duplicate = True
-                            break
-
-                # If duplicate and not too many attempts, try again with increased diversity
-                if is_duplicate:
-                    attempts += 1
-                    diversity_factor += 0.2  # Increase diversity for next attempt
-                    logger.info(f"Generated duplicate question (attempt {attempts}), trying again with diversity={diversity_factor:.2f}")
-                else:
-                    break
-            except Exception as e:
-                logger.error(f"Error generating question (attempt {attempts+1}): {str(e)}")
-                attempts += 1
-                diversity_factor += 0.2  # Increase diversity even more after an error
-
-                if attempts >= max_attempts:
-                    raise ValueError(f"Failed to generate a unique question after {max_attempts} attempts")
-
-        # Store in question history if not already done
-        if next_question not in self.question_history.get(session_id, []):
+        # Add to question history
+        if next_question:
             self.question_history[session_id].append(next_question)
 
-        # Ensure we never return None
-        if next_question is None:
-            # Create a default question as fallback
-            next_question = {
-                "id": f"q_{uuid.uuid4().hex[:8]}",
-                "text": "Can you tell me about any significant life events that might have coincided with astrological transits?",
-                "type": "text",
-                "category": "life_events",
-                "relevance_to_birth_time": "Helps identify patterns in life events that correlate with planetary movements."
-            }
-            logger.warning("Generated default question due to failure in creating a unique question")
+        # Ensure we have a valid question to return
+        if not next_question:
+            raise ValueError("Failed to generate a valid question. Please try again or check the AI service.")
 
         return next_question
 
     def _questions_are_similar(self, question1: str, question2: str) -> bool:
         """
-        Check if two questions are semantically similar to prevent repetition.
-        Uses a simple word overlap approach.
+        Check if two questions are semantically similar to avoid repetition.
         """
-        # Convert to lowercase and remove punctuation
-        def normalize(text):
-            return re.sub(r'[^\w\s]', '', text.lower())
+        # Simple token similarity approach
+        q1_tokens = set(question1.lower().split())
+        q2_tokens = set(question2.lower().split())
+        common_tokens = q1_tokens.intersection(q2_tokens)
 
-        q1 = normalize(question1)
-        q2 = normalize(question2)
-
-        # Split into words and filter out common stop words
-        stop_words = {"a", "an", "the", "in", "on", "at", "to", "for", "with", "by", "about",
-                      "as", "of", "you", "your", "is", "are", "do", "does", "have", "has",
-                      "would", "could", "when", "what", "where", "how", "why"}
-
-        words1 = [w for w in q1.split() if w not in stop_words]
-        words2 = [w for w in q2.split() if w not in stop_words]
-
-        # Check word overlap
-        if not words1 or not words2:
-            return False
-
-        # Convert to sets for intersection
-        set1 = set(words1)
-        set2 = set(words2)
-
-        # Calculate similarity based on word overlap
-        intersection = len(set1.intersection(set2))
-        union = len(set1.union(set2))
-
-        similarity = intersection / union if union > 0 else 0
-
-        # Questions are similar if they share more than 60% of significant words
-        return similarity > 0.6
-
-    def _determine_next_question_category(self, previous_answers: List[Dict[str, Any]], question_count: int) -> str:
-        """
-        Determine the best category for the next question based on previous answers and question count.
-        """
-        # Define a logical progression of question categories
-        progression = [
-            "physical_traits",       # First question - physical appearance (Ascendant)
-            "personality_traits",    # Second question - personality (Moon, Mercury)
-            "life_events",           # Third question - significant life events
-            "timing_preferences",    # Fourth question - daily rhythms and timing
-            "relationships",         # Fifth question - relationship patterns
-            "career",                # Sixth question - career and public life
-            "health",                # Seventh question - health patterns
-            "spiritual"              # Eighth question - spiritual experiences
-        ]
-
-        # For the first 8 questions, follow the progression
-        if question_count < len(progression):
-            return progression[question_count]
-
-        # For later questions, focus more on the categories that provide best birth time indicators
-        priority_categories = ["life_events", "timing_preferences", "physical_traits"]
-
-        # Pick a category from priority list, preferring ones we've asked less about
-        category_counts = {}
-        for resp in previous_answers:
-            if isinstance(resp, dict):
-                cat = resp.get("category", resp.get("question_category", "unknown"))
-                category_counts[cat] = category_counts.get(cat, 0) + 1
-
-        # Sort priority categories by how many times they've been asked (ascending)
-        sorted_priorities = sorted(
-            priority_categories,
-            key=lambda c: category_counts.get(c, 0)
-        )
-
-        # Return the least asked priority category, or a random one if all equal
-        return sorted_priorities[0] if sorted_priorities else random.choice(priority_categories)
+        # If 70% or more tokens are common, consider questions similar
+        similarity = len(common_tokens) / max(len(q1_tokens), len(q2_tokens))
+        return similarity > 0.7
 
     def _parse_question_response(self, content: str) -> Dict[str, Any]:
         """
         Parse the AI response to extract a structured question.
+
+        Args:
+            content: Raw response content from the model
+
+        Returns:
+            Structured question dictionary
+
+        Raises:
+            ValueError: If the response cannot be parsed properly
         """
         try:
             # Remove markdown code block formatting if present
             cleaned_content = content.strip()
             if cleaned_content.startswith("```json"):
                 cleaned_content = cleaned_content[7:]
-            elif cleaned_content.startswith("```"):
-                cleaned_content = cleaned_content[3:]
-
             if cleaned_content.endswith("```"):
                 cleaned_content = cleaned_content[:-3]
 
             # Parse JSON
-            question_data = json.loads(cleaned_content.strip())
+            question_data = json.loads(cleaned_content)
 
-            # Ensure required fields
-            if "text" not in question_data:
-                raise ValueError("Question text missing from parsed data")
-
-            # Generate ID if missing
-            if "id" not in question_data:
-                question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
-
-            # Set defaults for missing fields
-            if "type" not in question_data:
-                question_data["type"] = "text"
-
-            if "category" not in question_data:
-                question_data["category"] = "general"
+            # Validate required fields
+            required_fields = ["text", "type"]
+            for field in required_fields:
+                if field not in question_data:
+                    raise ValueError(f"Required field '{field}' missing from question data")
 
             return question_data
 
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"Error parsing question response: {str(e)}. Content: {content[:100]}...")
-
-            # Try to extract question using regex as fallback
-            question_match = re.search(r'"text"\s*:\s*"([^"]+)"', content)
-            question_text = question_match.group(1) if question_match else None
-
-            # If regex fails, use the raw content as question
-            if not question_text:
-                # Take the first line or first 100 chars as question text
-                lines = content.strip().split("\n")
-                question_text = lines[0] if lines else content[:100]
-
-            # Create basic question structure
-            return {
-                "id": f"q_{uuid.uuid4().hex[:8]}",
-                "text": question_text,
-                "type": "text",
-                "category": "general"
-            }
+            # Raise an exception instead of providing a fallback
+            raise ValueError(f"Failed to parse question response: {str(e)}")
 
     async def calculate_confidence(self, answers: Dict[str, Any], chart_data: Optional[Dict[str, Any]] = None) -> float:
         """

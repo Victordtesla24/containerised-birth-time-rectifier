@@ -1,313 +1,330 @@
 """
-Timezone utilities module for the Birth Time Rectifier application.
+Timezone utilities for working with locations.
 
-This module provides enhanced functions to:
-1. Get timezone information for given coordinates with proper error handling
-2. Convert datetime between timezones
-3. Calculate timezone offsets
-4. Handle edge cases and invalid coordinates gracefully
+This module provides functions for determining the timezone for a given location
+based on coordinates. It raises proper exceptions when timezone lookup fails
+instead of silently falling back to alternatives.
 """
 
-import asyncio
 import logging
-from typing import Dict, Any, Optional, Tuple, Union
-from datetime import datetime, timezone as tz, timedelta
-from functools import lru_cache
-
-# Import timezone libraries with fallbacks
-try:
-    from timezonefinder import TimezoneFinder, TimezonefinderL
-    from tzfpy import get_timezone
-    HAS_TZFPY = True
-except ImportError:
-    HAS_TZFPY = False
-
+import datetime
+from typing import Dict, Optional, Any, Tuple
+import timezonefinder
 import pytz
-from pytz.exceptions import UnknownTimeZoneError
+from zoneinfo import ZoneInfo, available_timezones
+
+# Custom exception for timezone errors
+class TimezoneError(Exception):
+    """Exception raised when timezone resolution fails."""
+    pass
 
 logger = logging.getLogger(__name__)
 
-# Initialize timezone finders
-_timezone_finder = TimezoneFinder(in_memory=True)
-try:
-    _timezone_finder_light = TimezonefinderL()
-    HAS_TZF_LIGHT = True
-except (ImportError, NameError):
-    HAS_TZF_LIGHT = False
+# Initialize timezone finder once
+_timezone_finder = timezonefinder.TimezoneFinder()
 
-# Default coordinates for fallback (Greenwich, UK)
-DEFAULT_LATITUDE = 51.4778
-DEFAULT_LONGITUDE = -0.0014
-DEFAULT_TIMEZONE = "Europe/London"
-
-# Cache timezone lookups to improve performance
-@lru_cache(maxsize=1024)
-async def get_timezone_for_coordinates(latitude: float, longitude: float,
-                                       use_fast_approach: bool = False) -> Dict[str, Any]:
+def get_timezone_for_coordinates(
+    latitude: float,
+    longitude: float
+) -> str:
     """
-    Get timezone information for the given geographic coordinates with robust error handling.
-
-    Uses multiple methods to determine the timezone with fallbacks:
-    1. TimezoneFinder (high precision, memory intensive)
-    2. TimezonefinderL (lower precision, faster, less memory)
-    3. tzfpy (if available, fast C implementation)
-    4. Fallback to default timezone with warning
+    Determine the timezone for a given latitude and longitude.
 
     Args:
-        latitude: The latitude coordinate (-90 to 90)
-        longitude: The longitude coordinate (-180 to 180)
-        use_fast_approach: Whether to prioritize speed over accuracy
+        latitude: Latitude in decimal degrees
+        longitude: Longitude in decimal degrees
 
     Returns:
-        Dictionary containing timezone information:
-        {
-            "timezone": "America/New_York",  # IANA timezone identifier
-            "timezone_id": "America/New_York",  # Same as timezone for API consistency
-            "offset": -18000,  # Current offset from UTC in seconds
-            "offset_hours": -5,  # Current offset from UTC in hours
-            "name": "Eastern Standard Time",  # Human-readable timezone name
-            "has_dst": True,  # Whether the timezone observes Daylight Saving Time
-            "confidence": 1.0  # Confidence in the timezone determination (0-1)
-        }
+        Timezone string (e.g., 'America/New_York')
 
     Raises:
-        ValueError: If coordinates are invalid and no fallback available
+        TimezoneError: If the timezone cannot be determined
+        ValueError: If the coordinates are invalid
     """
     # Validate coordinates
-    if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-        logger.warning(f"Invalid coordinates: {latitude}, {longitude}. Using fallback.")
-        return await get_timezone_for_coordinates(DEFAULT_LATITUDE, DEFAULT_LONGITUDE, use_fast_approach)
+    if not -90 <= latitude <= 90:
+        raise ValueError(f"Invalid latitude: {latitude}. Must be between -90 and 90.")
 
-    timezone_id = None
-    confidence = 1.0  # Default to full confidence
-    method_used = "unknown"
+    if not -180 <= longitude <= 180:
+        raise ValueError(f"Invalid longitude: {longitude}. Must be between -180 and 180.")
 
-    # Try different methods in sequence, with different priorities based on speed vs accuracy
-    methods = []
-
-    if use_fast_approach and HAS_TZF_LIGHT:
-        # Fast approach prioritizes speed
-        methods = [
-            ("TimezonefinderL", lambda: _timezone_finder_light.timezone_at(lat=latitude, lng=longitude)),
-            ("TimezoneFinder", lambda: _timezone_finder.timezone_at(lat=latitude, lng=longitude)),
-            ("tzfpy", lambda: get_timezone(longitude, latitude) if HAS_TZFPY else None)
-        ]
-    else:
-        # Default approach prioritizes accuracy
-        methods = [
-            ("TimezoneFinder", lambda: _timezone_finder.timezone_at(lat=latitude, lng=longitude)),
-            ("TimezonefinderL", lambda: _timezone_finder_light.timezone_at(lat=latitude, lng=longitude) if HAS_TZF_LIGHT else None),
-            ("tzfpy", lambda: get_timezone(longitude, latitude) if HAS_TZFPY else None)
-        ]
-
-    # Try each method until one succeeds
-    for method_name, finder_func in methods:
-        try:
-            tz_result = finder_func()
-            if tz_result:
-                timezone_id = tz_result
-                method_used = method_name
-                # If using less accurate methods, reduce confidence slightly
-                if method_name in ["TimezonefinderL", "tzfpy"]:
-                    confidence = 0.95
-                break
-        except Exception as e:
-            logger.warning(f"Error using {method_name} for timezone lookup: {e}")
-            continue
-
-    # If no timezone found, try a more expensive certain_timezone_at approach
-    if not timezone_id:
-        try:
-            # This does a more intensive search including nearby points
-            timezone_id = _timezone_finder.certain_timezone_at(lat=latitude, lng=longitude)
-            if timezone_id:
-                method_used = "TimezoneFinder.certain_timezone_at"
-                confidence = 0.9  # Slightly lower confidence as this uses approximation
-        except Exception as e:
-            logger.warning(f"Error using TimezoneFinder.certain_timezone_at: {e}")
-
-    # If still no timezone found, try a closest match
-    if not timezone_id:
-        try:
-            # Find closest timezone within max_distance (default 1 degree ~ 111km)
-            max_distance = 1.0  # degrees
-            closest_tz = _timezone_finder.closest_timezone_at(lat=latitude, lng=longitude, delta_degree=max_distance)
-            if closest_tz:
-                timezone_id = closest_tz
-                method_used = "TimezoneFinder.closest_timezone_at"
-                confidence = 0.8  # Lower confidence for approximate match
-            else:
-                # Last resort: try further distance (3 degrees ~ 333km)
-                closest_tz = _timezone_finder.closest_timezone_at(lat=latitude, lng=longitude, delta_degree=3.0)
-                if closest_tz:
-                    timezone_id = closest_tz
-                    method_used = "TimezoneFinder.closest_timezone_at (extended)"
-                    confidence = 0.6  # Much lower confidence for extended range
-        except Exception as e:
-            logger.warning(f"Error using TimezoneFinder.closest_timezone_at: {e}")
-
-    # If still no timezone found, fallback to default with warning
-    if not timezone_id:
-        logger.warning(f"Could not determine timezone for ({latitude}, {longitude}). Using fallback timezone.")
-        timezone_id = DEFAULT_TIMEZONE
-        method_used = "fallback"
-        confidence = 0.1  # Very low confidence for fallback
-
-    # Get the pytz timezone object
     try:
-        tz_obj = pytz.timezone(timezone_id)
-    except UnknownTimeZoneError:
-        logger.error(f"Unknown timezone: {timezone_id}. Using UTC.")
-        tz_obj = pytz.UTC
-        timezone_id = "UTC"
-        method_used = "fallback to UTC"
-        confidence = 0.0  # No confidence in this result
+        logger.info(f"Looking up timezone for coordinates: {latitude}, {longitude}")
 
-    # Get current datetime in UTC
-    now_utc = datetime.now(tz.utc)
+        # Try to get the timezone from coordinates
+        timezone_str = _timezone_finder.timezone_at(lat=latitude, lng=longitude)
 
-    # Get current offset
-    now_local = now_utc.astimezone(tz_obj)
-    offset = now_local.utcoffset()
-    offset_seconds = 0 if offset is None else offset.total_seconds()
-    offset_hours = offset_seconds / 3600
+        if not timezone_str:
+            # No exact match, try the closest timezone
+            timezone_str = _timezone_finder.closest_timezone_at(
+                lat=latitude,
+                lng=longitude,
+                delta_degree=3  # Search within 3 degrees (~300km at equator)
+            )
 
-    # Get timezone name and DST information
-    tzname = now_local.tzname()
+        if not timezone_str:
+            raise TimezoneError(f"Could not determine timezone for coordinates: {latitude}, {longitude}")
 
-    # Check for DST by comparing winter and summer offsets
-    winter_date = datetime(now_utc.year, 1, 1, tzinfo=tz.utc).astimezone(tz_obj)
-    summer_date = datetime(now_utc.year, 7, 1, tzinfo=tz.utc).astimezone(tz_obj)
-    winter_offset = winter_date.utcoffset()
-    summer_offset = summer_date.utcoffset()
-    has_dst = winter_offset != summer_offset
+        # Validate that the timezone exists in the pytz database
+        if timezone_str not in pytz.all_timezones:
+            raise TimezoneError(f"Invalid timezone identifier: {timezone_str}")
 
-    return {
-        "timezone": timezone_id,
-        "timezone_id": timezone_id,
-        "offset": int(offset_seconds),
-        "offset_hours": offset_hours,
-        "name": tzname,
-        "has_dst": has_dst,
-        "confidence": confidence,
-        "method": method_used
-    }
+        logger.info(f"Found timezone {timezone_str} for coordinates {latitude}, {longitude}")
+        return timezone_str
 
-def convert_to_timezone(dt: datetime, timezone_id: str) -> datetime:
+    except Exception as e:
+        if isinstance(e, TimezoneError):
+            raise
+
+        logger.error(f"Error determining timezone for coordinates {latitude}, {longitude}: {str(e)}")
+        raise TimezoneError(f"Failed to determine timezone: {str(e)}")
+
+def get_utc_offset(timezone_str: str, dt: Optional[datetime.datetime] = None) -> int:
     """
-    Convert a datetime to a specific timezone.
+    Get the UTC offset in minutes for a timezone at a specific date and time.
 
     Args:
-        dt: The datetime object to convert
-        timezone_id: IANA timezone identifier (e.g., 'America/New_York')
+        timezone_str: Timezone string (e.g., 'America/New_York')
+        dt: Datetime for which to calculate the offset (default: current time)
 
     Returns:
-        Datetime object in the specified timezone
+        UTC offset in minutes
 
     Raises:
-        ValueError: If the timezone is invalid
+        TimezoneError: If the timezone is invalid or the offset cannot be determined
     """
-    try:
-        # Ensure the datetime has a timezone
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=tz.utc)
+    if not timezone_str:
+        raise TimezoneError("Timezone string cannot be empty")
 
-        # Get the target timezone
-        target_tz = pytz.timezone(timezone_id)
+    try:
+        # Default to current time if not provided
+        if dt is None:
+            dt = datetime.datetime.now()
+
+        # Get the timezone
+        timezone = pytz.timezone(timezone_str)
+
+        # Localize the datetime to get the correct DST information
+        localized_dt = timezone.localize(dt.replace(tzinfo=None))
+
+        # Get the UTC offset in seconds
+        offset_seconds = localized_dt.utcoffset().total_seconds()
+
+        # Convert to minutes
+        offset_minutes = int(offset_seconds / 60)
+
+        return offset_minutes
+
+    except pytz.exceptions.UnknownTimeZoneError:
+        logger.error(f"Unknown timezone: {timezone_str}")
+        raise TimezoneError(f"Unknown timezone: {timezone_str}")
+    except Exception as e:
+        logger.error(f"Error calculating UTC offset for timezone {timezone_str}: {str(e)}")
+        raise TimezoneError(f"Failed to calculate UTC offset: {str(e)}")
+
+def convert_to_timezone(
+    dt: datetime.datetime,
+    source_timezone: str,
+    target_timezone: str
+) -> datetime.datetime:
+    """
+    Convert a datetime from one timezone to another.
+
+    Args:
+        dt: Datetime to convert
+        source_timezone: Source timezone string
+        target_timezone: Target timezone string
+
+    Returns:
+        Converted datetime
+
+    Raises:
+        TimezoneError: If the timezone conversion fails
+    """
+    if not source_timezone or not target_timezone:
+        raise TimezoneError("Source and target timezone strings cannot be empty")
+
+    try:
+        # Get the timezone objects
+        source_tz = pytz.timezone(source_timezone)
+        target_tz = pytz.timezone(target_timezone)
+
+        # If the datetime doesn't have a timezone, localize it to the source timezone
+        if dt.tzinfo is None:
+            dt = source_tz.localize(dt)
+        elif dt.tzinfo.tzname(dt) != source_timezone:
+            # If it has a different timezone, first convert to UTC, then to source
+            dt = dt.astimezone(pytz.UTC).astimezone(source_tz)
 
         # Convert to the target timezone
-        return dt.astimezone(target_tz)
-    except UnknownTimeZoneError:
-        raise ValueError(f"Invalid timezone: {timezone_id}")
+        converted_dt = dt.astimezone(target_tz)
 
-def get_current_offset(timezone_id: str) -> int:
+        return converted_dt
+
+    except pytz.exceptions.UnknownTimeZoneError as e:
+        logger.error(f"Unknown timezone: {str(e)}")
+        raise TimezoneError(f"Unknown timezone: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error converting datetime between timezones: {str(e)}")
+        raise TimezoneError(f"Failed to convert datetime between timezones: {str(e)}")
+
+def is_dst_at_datetime(timezone_str: str, dt: datetime.datetime) -> bool:
     """
-    Get the current UTC offset in seconds for a timezone.
+    Check if daylight saving time is in effect for a timezone at a specific datetime.
 
     Args:
-        timezone_id: IANA timezone identifier (e.g., 'America/New_York')
+        timezone_str: Timezone string
+        dt: Datetime to check
 
     Returns:
-        Current offset from UTC in seconds
+        True if DST is in effect, False otherwise
 
     Raises:
-        ValueError: If the timezone is invalid
+        TimezoneError: If the timezone is invalid or the DST status cannot be determined
     """
+    if not timezone_str:
+        raise TimezoneError("Timezone string cannot be empty")
+
     try:
+        # Get the timezone
+        timezone = pytz.timezone(timezone_str)
+
+        # Localize the datetime to get DST information
+        localized_dt = timezone.localize(dt.replace(tzinfo=None))
+
+        # Check if DST is in effect
+        return localized_dt.dst() != datetime.timedelta(0)
+
+    except pytz.exceptions.UnknownTimeZoneError:
+        logger.error(f"Unknown timezone: {timezone_str}")
+        raise TimezoneError(f"Unknown timezone: {timezone_str}")
+    except Exception as e:
+        logger.error(f"Error checking DST status for timezone {timezone_str}: {str(e)}")
+        raise TimezoneError(f"Failed to check DST status: {str(e)}")
+
+def get_timezone_info(
+    lat: float,
+    lon: float,
+    dt: Optional[datetime.datetime] = None
+) -> Dict[str, Any]:
+    """
+    Get comprehensive timezone information for coordinates at a specific datetime.
+
+    Args:
+        lat: Latitude
+        lon: Longitude
+        dt: Datetime for which to get timezone info (default: current time)
+
+    Returns:
+        Dictionary with timezone information
+
+    Raises:
+        TimezoneError: If the timezone information cannot be determined
+    """
+    if dt is None:
+        dt = datetime.datetime.now()
+
+    try:
+        # Get the timezone string
+        timezone_str = get_timezone_for_coordinates(lat, lon)
+
         # Get the timezone object
-        tz_obj = pytz.timezone(timezone_id)
+        timezone = pytz.timezone(timezone_str)
 
-        # Get current time in the timezone
-        now_utc = datetime.now(tz.utc)
-        now_local = now_utc.astimezone(tz_obj)
+        # Localize the datetime
+        localized_dt = timezone.localize(dt.replace(tzinfo=None))
 
-        # Get the offset
-        offset = now_local.utcoffset()
-        if offset is None:
-            return 0
-        return int(offset.total_seconds())
-    except UnknownTimeZoneError:
-        raise ValueError(f"Invalid timezone: {timezone_id}")
+        # Calculate the UTC offset
+        utc_offset_minutes = get_utc_offset(timezone_str, dt)
+        hours, minutes = divmod(abs(utc_offset_minutes), 60)
+        offset_str = f"{'-' if utc_offset_minutes < 0 else '+'}{hours:02d}:{minutes:02d}"
 
-def get_dst_transitions(timezone_id: str, year: int) -> Tuple[Optional[datetime], Optional[datetime]]:
+        # Check if DST is in effect
+        is_dst = is_dst_at_datetime(timezone_str, dt)
+
+        # Construct the result
+        result = {
+            "timezone": timezone_str,
+            "offset_minutes": utc_offset_minutes,
+            "offset_string": offset_str,
+            "is_dst": is_dst,
+            "datetime_local": localized_dt.strftime("%Y-%m-%d %H:%M:%S %Z%z"),
+            "coordinates": {
+                "latitude": lat,
+                "longitude": lon
+            }
+        }
+
+        return result
+
+    except Exception as e:
+        if isinstance(e, (TimezoneError, ValueError)):
+            raise
+
+        logger.error(f"Error getting timezone info for coordinates {lat}, {lon}: {str(e)}")
+        raise TimezoneError(f"Failed to get timezone information: {str(e)}")
+
+def get_timezone_abbreviation(timezone_str: str, dt: Optional[datetime.datetime] = None) -> str:
     """
-    Get the DST transition dates for a specific timezone and year.
+    Get the abbreviation for a timezone at a specific datetime.
 
     Args:
-        timezone_id: IANA timezone identifier (e.g., 'America/New_York')
-        year: The year to check
+        timezone_str: Timezone string
+        dt: Datetime for which to get the abbreviation (default: current time)
 
     Returns:
-        Tuple of (start_dst, end_dst) datetimes, or (None, None) if no DST
+        Timezone abbreviation (e.g., 'EST', 'EDT')
 
     Raises:
-        ValueError: If the timezone is invalid
+        TimezoneError: If the timezone abbreviation cannot be determined
+    """
+    if dt is None:
+        dt = datetime.datetime.now()
+
+    try:
+        # Get the timezone
+        timezone = pytz.timezone(timezone_str)
+
+        # Localize the datetime
+        localized_dt = timezone.localize(dt.replace(tzinfo=None))
+
+        # Get the abbreviation
+        abbreviation = localized_dt.strftime("%Z")
+
+        # If the abbreviation is just a numeric offset, use the timezone name
+        if abbreviation.startswith(("GMT", "UTC")) and ('+' in abbreviation or '-' in abbreviation):
+            is_dst = is_dst_at_datetime(timezone_str, dt)
+            timezone_parts = timezone_str.split('/')
+            if len(timezone_parts) > 1:
+                # Use the last part of the timezone name
+                abbreviation = timezone_parts[-1]
+                # Add a 'D' for Daylight Time if DST is in effect
+                if is_dst:
+                    abbreviation = f"{abbreviation[0]}DT"
+                else:
+                    abbreviation = f"{abbreviation[0]}ST"
+
+        return abbreviation
+
+    except pytz.exceptions.UnknownTimeZoneError:
+        logger.error(f"Unknown timezone: {timezone_str}")
+        raise TimezoneError(f"Unknown timezone: {timezone_str}")
+    except Exception as e:
+        logger.error(f"Error getting timezone abbreviation for {timezone_str}: {str(e)}")
+        raise TimezoneError(f"Failed to get timezone abbreviation: {str(e)}")
+
+def validate_timezone(timezone_str: str) -> bool:
+    """
+    Validate that a timezone string exists in the timezone database.
+
+    Args:
+        timezone_str: Timezone string to validate
+
+    Returns:
+        True if the timezone is valid, False otherwise
     """
     try:
-        tz_obj = pytz.timezone(timezone_id)
-    except UnknownTimeZoneError:
-        raise ValueError(f"Invalid timezone: {timezone_id}")
-
-    transitions = []
-
-    # Check each day of the year for DST transitions
-    start_date = datetime(year, 1, 1, tzinfo=tz.utc)
-
-    # For efficiency, first check if the timezone has DST at all
-    jan_offset = start_date.astimezone(tz_obj).utcoffset()
-    jul_offset = datetime(year, 7, 1, tzinfo=tz.utc).astimezone(tz_obj).utcoffset()
-
-    if jan_offset == jul_offset:
-        # No DST in this timezone
-        return None, None
-
-    # Check each day for transitions
-    current_date = start_date
-    prev_offset = None
-
-    for _ in range(366):  # Account for leap years
-        local_dt = current_date.astimezone(tz_obj)
-        current_offset = local_dt.utcoffset()
-
-        if prev_offset is not None and current_offset != prev_offset:
-            # Found a transition
-            transitions.append(current_date)
-
-            # If we've found two transitions, we're done
-            if len(transitions) >= 2:
-                break
-
-        prev_offset = current_offset
-        current_date += timedelta(days=1)
-
-        # Don't go beyond the year
-        if current_date.year > year:
-            break
-
-    # Return the transitions, or None if not found
-    if len(transitions) >= 2:
-        return transitions[0], transitions[1]
-    elif len(transitions) == 1:
-        return transitions[0], None
-    else:
-        return None, None
+        pytz.timezone(timezone_str)
+        return True
+    except pytz.exceptions.UnknownTimeZoneError:
+        return False

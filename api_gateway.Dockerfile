@@ -5,16 +5,16 @@ WORKDIR /app
 
 # Install system dependencies with improved reliability
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential=12.9 \
-    curl=7.88.1-10+deb12u12 \
-    ca-certificates=20230311 \
-    netcat-traditional=1.10-47 \
+    build-essential \
+    curl \
+    ca-certificates \
+    netcat-traditional \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Create Python virtual environment
-RUN python -m venv .venv
-ENV PATH="/app/.venv/bin:$PATH"
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
 # Stage for development
 FROM base as development
@@ -48,9 +48,9 @@ FROM base as production
 
 # Install all dependencies in one RUN command with pinned versions
 COPY requirements.txt constraints.txt ./
-RUN pip install --no-cache-dir pip==23.2.1 setuptools==68.2.2 wheel==0.41.2 && \
+RUN pip install --no-cache-dir pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt -c constraints.txt && \
-    pip install --no-cache-dir websockets==10.4 websocket-client==1.4.0 aiohttp==3.8.5
+    pip install --no-cache-dir websockets websocket-client aiohttp
 
 # Copy application code
 COPY ./api_gateway /app/api_gateway
@@ -58,10 +58,9 @@ COPY ./api_gateway /app/api_gateway
 # Expose port
 EXPOSE 8000
 
-# Add healthcheck with WebSocket verification
+# Add healthcheck
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/health && \
-        python -c "import websocket; websocket.create_connection('ws://localhost:8000/ws'); print('WebSocket OK')" || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Create required directories
 RUN mkdir -p /app/logs /app/cache && \

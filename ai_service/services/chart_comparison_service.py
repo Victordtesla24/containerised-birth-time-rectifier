@@ -1026,21 +1026,17 @@ class ChartComparisonService:
 
                     return comparison_result
 
-            # Fallback for unexpected result type
-            return {
-                "error": "Failed to generate comparison visualization",
-                "generated_at": datetime.now().isoformat()
-            }
+            # Raise an exception for unexpected result type
+            error_msg = "Failed to generate comparison visualization due to unexpected result type"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         except Exception as e:
             logger.error(f"Error generating visualization: {e}")
             logger.error(traceback.format_exc())
 
-            # Return error information
-            return {
-                "error": str(e),
-                "generated_at": datetime.now().isoformat()
-            }
+            # Re-raise the exception instead of returning an error object
+            raise RuntimeError(f"Chart comparison visualization failed: {str(e)}") from e
 
     def compare_chart_data(self, chart1: Dict[str, Any], chart2: Dict[str, Any], output_path: Optional[str] = None) -> Dict[str, Any]:
         """

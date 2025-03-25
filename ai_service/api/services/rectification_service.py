@@ -7,23 +7,7 @@ algorithms and AI-based approaches with real calculations.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Tuple, Optional
-try:
-    import pytz
-except ImportError:
-    logging.warning("pytz module not found. Some timezone functions may not work correctly.")
-    # Define a minimal pytz fallback
-    class FakePytz:
-        class TimezoneClass:
-            @staticmethod
-            def utcoffset(dt):
-                return datetime.utcnow() - dt
-
-        @staticmethod
-        def timezone(tz_str):
-            return FakePytz.TimezoneClass()
-
-    pytz = FakePytz()
+from typing import Dict, List, Any, Tuple, Optional, Union
 import math
 from flatlib.datetime import Datetime
 from flatlib.geopos import GeoPos
@@ -32,6 +16,26 @@ from flatlib import const
 from flatlib.dignities import essential
 import numpy as np
 from timezonefinder import TimezoneFinder
+import os
+from pathlib import Path
+import re
+import json
+import uuid
+
+# Define constants for error handling
+PYTZ_AVAILABLE = True
+
+try:
+    import pytz
+    # Import exception but alias it to a different name
+    from pytz.exceptions import UnknownTimeZoneError as _PytzUnknownTimeZoneError
+except ImportError:
+    PYTZ_AVAILABLE = False
+
+# Define our own exception class regardless of pytz availability
+class UnknownTimeZoneError(Exception):
+    """Exception raised when a timezone cannot be found."""
+    pass
 
 # Use the new modularized structure
 from ai_service.core.rectification.chart_calculator import calculate_chart
@@ -714,3 +718,61 @@ class EnhancedRectificationService:
             "confidence": confidence,
             "explanation": explanation
         }
+
+def get_timezone_info(latitude: float, longitude: float) -> Dict[str, Any]:
+    """
+    Get timezone information for coordinates.
+
+    Args:
+        latitude: Latitude in decimal degrees
+        longitude: Longitude in decimal degrees
+
+    Returns:
+        Dictionary with timezone information
+
+    Raises:
+        ImportError: If pytz or timezonefinder modules are not available
+        ValueError: If the timezone cannot be determined
+    """
+    try:
+        import pytz
+        from timezonefinder import TimezoneFinder
+    except ImportError as e:
+        error_msg = f"Required modules not available: {e}"
+        logger.error(error_msg)
+        raise ImportError(error_msg)
+
+    # Create TimezoneFinder instance
+    tf = TimezoneFinder()
+
+    # Get timezone for coordinates
+    timezone_str = tf.timezone_at(lat=latitude, lng=longitude)
+
+    if not timezone_str:
+        error_msg = f"Could not determine timezone for coordinates: {latitude}, {longitude}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    # Get timezone information
+    timezone = pytz.timezone(timezone_str)
+
+    # Calculate current UTC offset
+    now = datetime.now()
+    offset = timezone.utcoffset(now)
+    offset_seconds = offset.total_seconds() if offset is not None else 0
+    offset_hours = offset_seconds / 3600
+
+    # Format UTC offset string
+    offset_string = f"UTC{'+' if offset_hours >= 0 else ''}{int(offset_hours):02d}:{int(abs(offset_hours % 1) * 60):02d}"
+
+    # Check daylight saving
+    dst = timezone.dst(now)
+    is_dst = dst.total_seconds() != 0 if dst is not None else False
+
+    # Return timezone information
+    return {
+        "timezone": timezone_str,
+        "offset_hours": offset_hours,
+        "offset_string": offset_string,
+        "daylight_saving": is_dst
+    }

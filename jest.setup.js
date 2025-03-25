@@ -76,3 +76,35 @@ afterEach(() => {
   // Reset but don't mock
   jest.restoreAllMocks();
 });
+
+// Mock window.matchMedia which is not implemented in JSDOM
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: jest.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+});
+
+// Mock process.env
+process.env = {
+  ...process.env,
+  NEXT_PUBLIC_API_URL: 'http://localhost:9000',
+  NEXT_PUBLIC_API_SERVICE_URL: 'http://localhost:9000',
+  NEXT_PUBLIC_WS_URL: 'ws://localhost:9001/ws',
+};
+
+// Mock console methods to reduce noise in tests
+global.console = {
+  ...console,
+  // Uncomment the following lines to suppress specific console methods during tests
+  // log: jest.fn(),
+  // error: jest.fn(),
+  // warn: jest.fn(),
+};

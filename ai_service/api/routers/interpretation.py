@@ -64,7 +64,7 @@ class InterpretationResponse(BaseModel):
 @router.get("/interpretation", response_model=InterpretationResponse)
 async def get_interpretation(
     chart_id: str = Query(..., description="ID of the chart to interpret")
-):
+) -> InterpretationResponse:
     """
     Generate an astrological interpretation for a chart.
 
@@ -76,25 +76,28 @@ async def get_interpretation(
         logger.info(f"Generating interpretation for chart: {chart_id}")
 
         # Retrieve the chart
-        chart_data = retrieve_chart(chart_id)
+        chart_data_result = await retrieve_chart(chart_id)
 
         # Check if chart exists
-        if not chart_data:
+        if not chart_data_result:
             raise HTTPException(
                 status_code=404,
                 detail=f"Chart not found: {chart_id}"
             )
 
         # Handle the case when chart_data is a string (JSON)
-        if isinstance(chart_data, str):
+        chart_data: Dict[str, Any] = {}
+        if isinstance(chart_data_result, str):
             try:
-                chart_data = json.loads(chart_data)
+                chart_data = json.loads(chart_data_result)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse chart data as JSON: {e}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to parse chart data: {str(e)}"
                 )
+        else:
+            chart_data = chart_data_result
 
         # Extract planets from chart data
         planets_data = []
@@ -121,7 +124,7 @@ async def get_interpretation(
                 houses_data = chart_data["houses"]
 
         # Extract aspects data
-        aspects_data = chart_data.get("aspects", [])
+        aspects_data = chart_data.get("aspects", []) if isinstance(chart_data, dict) else []
 
         # Create planet interpretations
         planets = []
@@ -207,6 +210,25 @@ async def get_interpretation(
             status_code=500,
             detail=f"Failed to generate interpretation: {str(e)}"
         )
+
+
+def get_sign_keywords(sign: str) -> str:
+    """Get keywords for a zodiac sign"""
+    keywords = {
+        "Aries": "initiative, courage, and assertiveness",
+        "Taurus": "stability, persistence, and sensuality",
+        "Gemini": "adaptability, curiosity, and communication",
+        "Cancer": "nurturing, emotional depth, and intuition",
+        "Leo": "creativity, leadership, and self-expression",
+        "Virgo": "analysis, practicality, and attention to detail",
+        "Libra": "harmony, diplomacy, and relationship-orientation",
+        "Scorpio": "intensity, transformation, and emotional depth",
+        "Sagittarius": "exploration, optimism, and philosophical thinking",
+        "Capricorn": "ambition, discipline, and responsibility",
+        "Aquarius": "innovation, humanitarianism, and independence",
+        "Pisces": "compassion, spirituality, and imagination"
+    }
+    return keywords.get(sign, "unique astrological qualities")
 
 
 def get_planet_keywords(planet: str) -> List[str]:

@@ -25,6 +25,8 @@ try:
 except ImportError:
     PYTZ_AVAILABLE = False
 
+from ai_service.core.rectification.methods.astrological_constants import DSC, IC, MC
+
 from ai_service.core.rectification.utils.ephemeris import (
     get_planet_position as original_get_planet_position,
     get_house_cusps,
@@ -70,28 +72,28 @@ TRANSIT_PLANETS = [
 
 # Transiting points to analyze
 TRANSIT_POINTS = {
-    "career_change": [swe.JUPITER, swe.SATURN, swe.SUN, swe.MC],
-    "relationship": [swe.VENUS, swe.MARS, swe.JUPITER, swe.SATURN, swe.DSC],
-    "residence_change": [swe.MOON, swe.JUPITER, swe.SATURN, swe.URANUS, swe.IC],
-    "education": [swe.MERCURY, swe.JUPITER, swe.SUN, swe.MC],
+    "career_change": [swe.JUPITER, swe.SATURN, swe.SUN, MC],
+    "relationship": [swe.VENUS, swe.MARS, swe.JUPITER, swe.SATURN, DSC],
+    "residence_change": [swe.MOON, swe.JUPITER, swe.SATURN, swe.URANUS, IC],
+    "education": [swe.MERCURY, swe.JUPITER, swe.SUN, MC],
     "health_crisis": [swe.MARS, swe.SATURN, swe.PLUTO, swe.URANUS, swe.SUN, swe.ASC],
     "spiritual": [swe.NEPTUNE, swe.JUPITER, swe.URANUS, swe.PLUTO],
-    "family": [swe.MOON, swe.VENUS, swe.SATURN, swe.JUPITER, swe.IC],
-    "financial": [swe.VENUS, swe.JUPITER, swe.SATURN, swe.PLUTO, swe.MC],
+    "family": [swe.MOON, swe.VENUS, swe.SATURN, swe.JUPITER, IC],
+    "financial": [swe.VENUS, swe.JUPITER, swe.SATURN, swe.PLUTO, MC],
     "travel": [swe.JUPITER, swe.MERCURY, swe.MOON, swe.URANUS],
     "children": [swe.MOON, swe.VENUS, swe.JUPITER, swe.SATURN]
 }
 
 # Natal points to consider for different event types
 NATAL_POINTS = {
-    "career_change": [swe.SUN, swe.SATURN, swe.JUPITER, swe.MC, swe.MERCURY],
-    "relationship": [swe.VENUS, swe.MOON, swe.DSC, swe.MARS, swe.SUN],
-    "residence_change": [swe.MOON, swe.IC, swe.SATURN, swe.URANUS, swe.JUPITER],
-    "education": [swe.MERCURY, swe.JUPITER, swe.SUN, swe.MC, swe.SATURN],
-    "health_crisis": [swe.SUN, swe.MARS, swe.SATURN, swe.PLUTO, swe.ASC],
-    "spiritual": [swe.NEPTUNE, swe.MOON, swe.JUPITER, swe.URANUS],
-    "family": [swe.MOON, swe.VENUS, swe.IC, swe.SATURN, swe.JUPITER],
-    "financial": [swe.VENUS, swe.JUPITER, swe.SATURN, swe.MC, swe.PLUTO],
+    "career_change": [swe.SUN, swe.SATURN, swe.JUPITER, swe.MARS, MC],
+    "relationship": [swe.VENUS, swe.MOON, DSC, swe.MARS, swe.SUN],
+    "residence_change": [swe.MOON, IC, swe.SATURN, swe.URANUS, swe.JUPITER],
+    "education": [swe.MERCURY, swe.JUPITER, swe.SUN, swe.MOON],
+    "health_crisis": [swe.MARS, swe.SATURN, swe.PLUTO, swe.SUN, swe.ASC],
+    "spiritual": [swe.NEPTUNE, swe.JUPITER, swe.MOON, swe.URANUS],
+    "family": [swe.MOON, swe.VENUS, IC, swe.SATURN, swe.JUPITER],
+    "financial": [swe.VENUS, swe.JUPITER, swe.SATURN, MC, swe.PLUTO],
     "travel": [swe.MERCURY, swe.JUPITER, swe.MOON, swe.URANUS, swe.NEPTUNE],
     "children": [swe.MOON, swe.VENUS, swe.JUPITER, swe.SATURN, swe.SUN]
 }
@@ -1215,7 +1217,7 @@ async def correlate_events_with_chart(
                     age_at_event -= 1
         except (ValueError, TypeError):
             # If date parsing fails, skip age calculation
-            pass
+            logger.error(f"Failed to parse event date: {event_date}")
 
         # Format aspects for the correlation output
         natal_factors = []

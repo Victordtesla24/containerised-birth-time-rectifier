@@ -74,9 +74,13 @@ class BasicChartCalculator:
         flags = self.swe.FLG_SWIEPH
         result = self.swe.calc_ut(julian_day, planet_map[planet], flags)
 
-        # Swiss Ephemeris should return a tuple with the first element being longitude
-        if result and hasattr(result, "__getitem__"):
-            longitude = result[0]
+        # Swiss Ephemeris returns a tuple (positions_tuple, flags)
+        if result and isinstance(result, tuple) and len(result) >= 1:
+            positions_tuple = result[0]  # Get the positions tuple
+
+            # The positions tuple should have longitude as first element
+            if isinstance(positions_tuple, tuple) and len(positions_tuple) >= 1:
+                longitude = positions_tuple[0]  # Extract longitude
             if isinstance(longitude, (int, float)):
                 return float(longitude)
 

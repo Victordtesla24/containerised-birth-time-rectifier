@@ -22,9 +22,10 @@ bcrypt==4.0.1
 redis==5.0.1  # Updated to match redis version below (removed duplicate)
 python-dotenv==1.0.0  # Moved from other section for better grouping
 jsonschema==4.20.0  # Added for websocket validation
-
-# Data handling
+googlemaps==4.10.0  # Updated from 5.0.0 to 4.10.0 (highest available version)
+geopy==2.4.0
 timezonefinder==5.2.0
+# Data handling
 pytz==2023.3
 numpy==1.26.4
 pandas==2.2.1
@@ -84,6 +85,7 @@ websocket-client==1.7.0  # Added for WebSocket client connections
 # Data visualization and chart generation
 matplotlib==3.8.3  # For chart rendering
 Pillow==10.1.0  # PIL fork for image processing
+# mpl_toolkits.mplot3d is included in matplotlib, not a separate package
 
 # PDF Generation
 reportlab==4.1.0  # For PDF generation
@@ -101,9 +103,13 @@ ephem==4.1.5  # Astronomical calculations
 jplephem==2.20  # JPL Ephemerides for precise planetary calculations
 skyfield==1.46  # High-precision astronomy
 astropy==6.0.0  # Comprehensive astronomy library
+# swisseph==0.6.0  # Swiss Ephemeris for astrological calculations (used in swisseph_direct) - REMOVED - using pyswisseph instead
 
 # Update problem dependencies
 PyYAML==6.0.1  # Upgraded from 5.x to fix build error
 
-# Make sure dependency_container is properly implemented
-# DI Container is internal, so no external package needed
+# WebSocket service dependencies
+uuid==1.30  # For generating unique identifiers
+
+# traceback2==1.4.0  # For enhanced traceback handling
+traceback2==1.4.0

@@ -1,14 +1,27 @@
+"""
+Dynamic questionnaire service for birth time rectification.
+
+This service utilizes OpenAI to generate personalized questions based on
+previous answers and astrological context.
+"""
+
 import logging
 import json
-from typing import Dict, List, Any, Optional
-from datetime import datetime
-from ai_service.api.services.session_service import get_session_store
+import re
+import uuid
+from typing import Dict, List, Any, Optional, Tuple, Union, cast
+from datetime import datetime, timedelta
+
 from ai_service.api.services.questionnaire_service import QuestionnaireService
-from ai_service.services.openai_service import OpenAIService
+from ai_service.api.services.openai.service import OpenAIService
+from ai_service.utils.dependency_container import get_container
+from ai_service.api.services.session_store import SessionStore
+from ai_service.core.rectification.chart_calculator import calculate_chart
+from ai_service.api.services.session_service import get_session_store
 
 logger = logging.getLogger(__name__)
 
-class DynamicQuestionnaireService(QuestionnaireService):
+class DynamicQuestionnaireService:
     """Enhanced questionnaire service that dynamically generates questions using OpenAI."""
 
     def __init__(self, openai_service: Optional[OpenAIService] = None):
@@ -18,7 +31,10 @@ class DynamicQuestionnaireService(QuestionnaireService):
         Args:
             openai_service: Optional OpenAI service for AI-powered question generation
         """
-        super().__init__(openai_service=openai_service)
+        # Import at runtime to avoid circular imports
+        from ai_service.api.services.questionnaire_service import QuestionnaireService
+        self.questionnaire_service = QuestionnaireService(openai_service=openai_service)
+        self.openai_service = openai_service
         self.session_store = get_session_store()
 
     async def generate_next_question(
@@ -27,41 +43,45 @@ class DynamicQuestionnaireService(QuestionnaireService):
         previous_answers: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Generate next question dynamically based on previous answers using OpenAI.
+        Generate the next dynamic question based on previous answers.
 
         Args:
             birth_details: Dictionary with birth details
-            previous_answers: List of previous answers
+            previous_answers: List of previous question-answer pairs
 
         Returns:
-            Dictionary with next question data
+            Dictionary containing the next question
+
+        Raises:
+            RuntimeError: If question generation fails
         """
         try:
-            if not previous_answers or len(previous_answers) == 0:
-                # Return initial question if no previous answers
-                return await super().generate_next_question(birth_details, previous_answers)
+            logger.info(f"Generating question #{len(previous_answers) + 1} with enhanced AI logic")
 
-            # Generate dynamic question using OpenAI
-            if self.openai_service:
-                prompt = self._create_question_generation_prompt(previous_answers, birth_details)
-                response = await self.openai_service.generate_completion(
-                    prompt=prompt,
-                    task_type="generate_question"
-                )
+            # Get OpenAI service from container if not provided
+            if not self.openai_service:
+                container = get_container()
+                self.openai_service = container.get("openai_service")
+                if not self.openai_service:
+                    raise RuntimeError("OpenAI service required for dynamic question generation")
 
-                if response and "content" in response:
-                    # Parse the OpenAI response
+            # Create prompt for next question
+            prompt = self._create_question_generation_prompt(previous_answers, birth_details)
+
+            # Get response from OpenAI
+            response = await self.openai_service.generate_completion(
+                prompt=prompt,
+                max_tokens=1000,
+                temperature=0.7,
+                model="gpt-4"  # Use a fixed model name instead of config
+            )
+
+            if response:
+                content = response.get("choices", [{}])[0].get("text", "").strip()
+                if content:
                     try:
-                        content = response["content"]
-                        # Extract JSON if wrapped in code blocks
-                        if "```" in content:
-                            import re
-                            match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
-                            if match:
-                                content = match.group(1)
-
-                        question_data = json.loads(content)
-
+                        # Parse JSON response from OpenAI
+                        question_data = self._extract_json_from_content(content)
                         if "question" in question_data:
                             return {
                                 "next_question": {
@@ -76,14 +96,14 @@ class DynamicQuestionnaireService(QuestionnaireService):
                             }
                     except Exception as json_error:
                         logger.error(f"Error parsing OpenAI response: {str(json_error)}")
+                        raise RuntimeError(f"Failed to parse question data: {str(json_error)}")
 
-            # Fallback to standard question if OpenAI generation fails
-            return await super().generate_next_question(birth_details, previous_answers)
+            # If we get here, there was an issue with the OpenAI response
+            raise RuntimeError("Failed to generate a valid question with AI service")
 
         except Exception as e:
             logger.error(f"Error generating dynamic question: {str(e)}")
-            # Fallback to standard question generation
-            return await super().generate_next_question(birth_details, previous_answers)
+            raise RuntimeError(f"Question generation failed: {str(e)}")
 
     async def submit_answer(
         self,
@@ -104,7 +124,7 @@ class DynamicQuestionnaireService(QuestionnaireService):
         """
         try:
             # Store answer using parent method
-            result = await super().submit_answer(session_id, question_id, answer)
+            result = await self.questionnaire_service.submit_answer(session_id, question_id, answer)
 
             # Get session data
             session_data = await self.session_store.get_session(session_id)
@@ -207,7 +227,7 @@ class DynamicQuestionnaireService(QuestionnaireService):
                         logger.error(f"Error parsing final analysis: {str(parse_error)}")
 
             # Fallback to basic completion if OpenAI is unavailable
-            return await super().complete_questionnaire(session_id, chart_id)
+            return await self.questionnaire_service.complete_questionnaire(session_id, chart_id)
 
         except Exception as e:
             logger.error(f"Error completing questionnaire: {str(e)}")
@@ -454,25 +474,31 @@ Your response should be in this JSON format:
 
     def _extract_json_from_content(self, content: str) -> Dict[str, Any]:
         """
-        Extract JSON from OpenAI response content.
+        Extract JSON data from response content, handling code blocks.
 
         Args:
-            content: The response content string
+            content: Text content from the AI model
 
         Returns:
-            Parsed JSON data
-        """
-        try:
-            # If content contains JSON block markers, extract the JSON
-            if "```" in content:
-                import re
-                match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
-                if match:
-                    content = match.group(1)
+            Extracted JSON data as dictionary
 
-            # Parse the JSON
-            return json.loads(content)
-        except Exception as e:
-            logger.error(f"Error extracting JSON from content: {str(e)}")
-            # Return empty dict if parsing fails
-            return {}
+        Raises:
+            ValueError: If JSON cannot be parsed
+        """
+        # Clean up the content to extract JSON
+        clean_content = content.strip()
+
+        # Extract JSON from code blocks if present
+        if "```" in clean_content:
+            pattern = r'```(?:json)?\s*([\s\S]*?)\s*```'
+            matches = re.search(pattern, clean_content)
+            if matches:
+                clean_content = matches.group(1).strip()
+
+        # Try to parse as JSON
+        try:
+            return json.loads(clean_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from content: {e}")
+            logger.debug(f"Content was: {clean_content[:100]}...")
+            raise ValueError(f"Invalid JSON response format: {e}")

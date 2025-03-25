@@ -55,12 +55,15 @@ async def close_pool() -> None:
         _DB_POOL = None
         logger.info("Database connection pool closed")
 
-async def get_db_pool() -> Optional[asyncpg.Pool]:
+async def get_db_pool() -> asyncpg.Pool:
     """
     Get the current database connection pool or create a new one.
 
     Returns:
-        Current connection pool
+        Database connection pool
+
+    Raises:
+        RuntimeError: If pool cannot be created or acquired
     """
     global _DB_POOL
 
@@ -68,40 +71,8 @@ async def get_db_pool() -> Optional[asyncpg.Pool]:
         try:
             return await acquire_pool()
         except Exception as e:
-            logger.error(f"Failed to get database pool: {e}")
-            return None
+            error_msg = f"Failed to get database pool: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
 
     return _DB_POOL
-
-async def create_db_pool(db_config: Optional[Dict[str, Any]] = None) -> asyncpg.Pool:
-    """
-    Create a new database connection pool with custom configuration.
-
-    Args:
-        db_config: Optional configuration overrides
-
-    Returns:
-        New connection pool
-    """
-    config = {
-        "host": settings.DB_HOST,
-        "port": settings.DB_PORT,
-        "user": settings.DB_USER,
-        "password": settings.DB_PASSWORD,
-        "database": settings.DB_NAME,
-        "min_size": 3,
-        "max_size": 10
-    }
-
-    if db_config:
-        config.update(db_config)
-
-    logger.info(f"Creating custom database connection pool to {config['host']}:{config['port']}")
-
-    try:
-        pool = await asyncpg.create_pool(**config)
-        logger.info("Custom database connection pool created successfully")
-        return pool
-    except Exception as e:
-        logger.error(f"Failed to create custom database connection pool: {e}")
-        raise

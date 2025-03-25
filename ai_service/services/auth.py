@@ -15,11 +15,10 @@ from ai_service.models.user import User, UserCreate, UserUpdate, Token
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Mock database for users
-# In a real implementation, this would be a database connection
-_users_db = {}
-_user_emails = {}
-_user_charts = {}
+# Initialize in-memory database
+_users_db: Dict[str, User] = {}
+_user_emails: Dict[str, str] = {}  # email -> user_id mapping
+_user_charts: Dict[str, List[str]] = {}  # user_id -> list of chart_ids
 
 # JWT configuration
 JWT_SECRET = "dev_secret_key"  # In production, use a secure environment variable

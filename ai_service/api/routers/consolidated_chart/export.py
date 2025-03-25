@@ -72,7 +72,7 @@ async def export_chart(
 
         # Retrieve the chart
         chart_id = request.chart_id
-        chart_data = retrieve_chart(chart_id)
+        chart_data = await retrieve_chart(chart_id)
 
         # Check if chart exists
         if not chart_data:
@@ -93,18 +93,21 @@ async def export_chart(
         # Remove verification data if not requested
         exported_data = dict(chart_data)
         if not request.include_verification and "verification" in exported_data:
-            del exported_data["verification"]
+            exported_data.pop("verification")
 
         # Remove aspects if not requested
         if not request.include_aspects and "aspects" in exported_data:
-            del exported_data["aspects"]
+            exported_data.pop("aspects")
 
-        # Add export metadata
-        exported_data["export_info"] = {
-            "exported_at": datetime.now().isoformat(),
-            "format": request.format,
-            "include_verification": request.include_verification,
-            "include_aspects": request.include_aspects
+        # Add export metadata to a new dictionary to avoid modifying potentially incompatible types
+        result_data = {
+            "chart_data": exported_data,
+            "export_info": {
+                "exported_at": datetime.now().isoformat(),
+                "format": request.format,
+                "include_verification": request.include_verification,
+                "include_aspects": request.include_aspects
+            }
         }
 
         # For JSON format, return the data directly
@@ -112,7 +115,7 @@ async def export_chart(
             return {
                 "chart_id": chart_id,
                 "format": request.format,
-                "export_data": exported_data,
+                "export_data": result_data,
                 "message": "Chart exported successfully in JSON format."
             }
 

@@ -1,0 +1,59 @@
+/* Global styles for the Birth Time Rectifier application */
+
+:root {
+  --primary-color: #3f51b5;
+  --secondary-color: #f50057;
+  --background-color: #121212;
+  --surface-color: #1e1e1e;
+  --text-color: #ffffff;
+  --text-secondary-color: rgba(255, 255, 255, 0.7);
+  --error-color: #f44336;
+  --success-color: #4caf50;
+  --warning-color: #ff9800;
+  --info-color: #2196f3;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.planetary-visualization {
+  position: relative;
+  width: 100%;
+  height: 500px;
+  border-radius: 8px;
+  background-color: var(--surface-color);
+  overflow: hidden;
+}
+
+.planet-info {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 10px;
+  border-radius: 4px;
+  max-width: 300px;
+}
+
+.planet-info h3 {
+  margin-bottom: 5px;
+  color: var(--primary-color);
+}

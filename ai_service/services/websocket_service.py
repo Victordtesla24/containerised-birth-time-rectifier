@@ -105,7 +105,7 @@ class WebSocketManager:
         details: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Send a rectification progress update to a client.
+        Send a rectification progress update to a client with enhanced real-time information.
 
         Args:
             session_id: Session identifier for the client
@@ -130,7 +130,7 @@ class WebSocketManager:
         # Create timestamp
         timestamp = datetime.now().isoformat()
 
-        # Create a structured progress data object
+        # Create a structured progress data object with enhanced information
         data = {
             "progress": progress,
             "message": message,
@@ -138,13 +138,34 @@ class WebSocketManager:
             "rectification_id": rectification_id,
             "status": status,
             "timestamp": timestamp,
-            "type": "rectification_progress"
+            "type": "rectification_progress",
+            "sequence_id": str(uuid.uuid4()),  # Add sequence ID for message ordering
+            "channel": f"rectification:{chart_id}"  # Add channel for client filtering
         }
+        # Store progress update in session history for reconnection support
+        if session_id in self.session_data:
+            if "progress_history" not in self.session_data[session_id]:
+                self.session_data[session_id]["progress_history"] = []
 
-        # Create more detailed progress information based on the stage
-        # This provides better client feedback than just a percentage
+            # Add to history with timestamp
+            history_entry = {
+                "progress": progress,
+                "message": message,
+                "status": status,
+                "timestamp": timestamp,
+                "chart_id": chart_id,
+                "rectification_id": rectification_id
+            }
+            self.session_data[session_id]["progress_history"].append(history_entry)
+
+            # Limit history size
+            max_history = 20
+            if len(self.session_data[session_id]["progress_history"]) > max_history:
+                self.session_data[session_id]["progress_history"] = self.session_data[session_id]["progress_history"][-max_history:]
+
+        # Add detailed stage information based on progress
         current_stage = ""
-        techniques = []
+        techniques = []    # Create more detailed progress information based on the stage
 
         if progress < 10:
             current_stage = "Initializing"
@@ -205,19 +226,6 @@ class WebSocketManager:
                     if 0 < remaining_seconds < 3600:  # Between 0 and 1 hour
                         data["estimated_seconds_remaining"] = int(remaining_seconds)
                         data["elapsed_seconds"] = int(elapsed_seconds)
-
-        # Add detailed information if provided
-        if details:
-            # Filter out any invalid or sensitive data before sending
-            valid_detail_keys = [
-                "techniques", "current_step", "total_steps", "time_remaining",
-                "phase", "factors_analyzed", "candidate_times", "confidence_levels",
-                "rectification_methods", "method_confidences", "chart_changes",
-                "significant_aspects", "house_cusps_changes"
-            ]
-
-            filtered_details = {k: v for k, v in details.items() if k in valid_detail_keys}
-            data["details"] = filtered_details
 
         # Add subscription channel for easier client handling
         data["channel"] = f"rectification:{chart_id}"

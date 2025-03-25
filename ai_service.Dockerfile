@@ -1,140 +1,113 @@
-# Add a builder stage for building pyswisseph
-FROM python:3.11-slim as builder
+FROM python:3.11-slim
 
-# Install build dependencies for pyswisseph
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    libffi-dev \
+    libgl1 \
+    libglib2.0-0 \
+    curl \
+    ca-certificates \
+    wget \
+    unzip \
     gcc \
-    libgcc-s1 \
     python3-dev \
+    libc-dev \
+    pkg-config \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Create Python virtual environment
-RUN python -m venv /venv
-ENV PATH="/venv/bin:$PATH"
-ENV PYTHONPATH="/venv/lib/python3.11/site-packages:$PYTHONPATH"
-
-# Build pyswisseph and flatlib
-RUN pip install --upgrade pip setuptools wheel && \
-    # Install pyswisseph and flatlib
-    pip install --no-cache-dir pyswisseph==2.10.3.2 flatlib==0.2.0 && \
-    # List installed packages and locations
-    pip list && \
-    find /venv -name "*swiss*" && \
-    # Create test directory for ephemeris files
-    mkdir -p /tmp/ephemeris && \
-    # Try to import pyswisseph, continue if it fails
-    python -c "import sys; print(sys.path); import flatlib; print(f'Successfully built flatlib {flatlib.__version__}')" && \
-    echo "Successfully installed astrological libraries"
-
-# Start the base stage
-FROM python:3.11-slim as base
-
-# Copy prebuilt venv with dependencies from builder
-COPY --from=builder /venv /venv
-ENV PATH="/venv/bin:$PATH"
-ENV PYTHONPATH="/venv/lib/python3.11/site-packages:$PYTHONPATH"
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies with improved reliability and GPU support
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential=12.9 \
-    libffi-dev=3.4.4-1 \
-    libgl1=1.6.0-1 \
-    libglib2.0-0=2.74.6-2+deb12u5 \
-    curl=7.88.1-10+deb12u12 \
-    ca-certificates=20230311 \
-    wget=1.21.3-1+deb12u1 \
-    netcat-traditional=1.10-47 \
-    unzip \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Create Python virtual environment
+RUN python -m venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
 
-# Verify at least one astrological library works
-RUN python -c "import sys; print(sys.path); import flatlib; print(f'Flatlib imported successfully, version: {flatlib.__version__}')" || \
-    (echo "WARNING: Flatlib import failed, but continuing" && exit 0)
-
-# Set environment variables for GPU usage
+# Set environment variables
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-ENV GPU_ENABLED=false
-
-# Set environment variable for ephemeris files location
 ENV SWISSEPH_PATH=/app/ephemeris
 
-# Create required directories with proper permissions
-RUN mkdir -p /app/cache /app/logs /app/ephemeris && \
-    chmod -R 777 /app/cache /app/logs /app/ephemeris
+# Create required directories
+RUN mkdir -p /app/cache /app/logs /app/ephemeris /app/tests && \
+    chmod -R 777 /app/cache /app/logs /app/ephemeris /app/tests
 
-# Stage for development
-FROM base as development
-
-# Install dependencies in a single RUN command to reduce layers
-RUN pip install --no-cache-dir pip==23.2.1 setuptools==68.2.2 wheel==0.41.2 && \
-    pip install --no-cache-dir websocket-client==1.7.0
-
-# Copy requirements and constraints files
+# Install dependencies
 COPY requirements.txt constraints.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
+RUN pip install --no-cache-dir pip setuptools wheel
 
-# Copy setup script and download ephemeris files
+# Install pyswisseph before other dependencies - with explicit upgrade and forceful installation
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools
+RUN pip install --no-cache-dir --upgrade wheel Cython
+RUN pip install --no-cache-dir --upgrade pyswisseph==2.10.3.2 flatlib==0.2.0
+RUN pip install --no-cache-dir --force-reinstall pyswisseph==2.10.3.2
+
+# Verify pyswisseph installation directly in Python
+RUN python -c "import sys; print(sys.path); import flatlib; print(f'flatlib version: {flatlib.__version__}');" || echo "Flatlib import failed"
+RUN python -c "import sys; print(sys.path); import pyswisseph as swe; print(f'pyswisseph version: {swe.__version__}');" || echo "Pyswisseph import failed"
+RUN python -c "import inspect; import pyswisseph as swe; print(inspect.getfile(swe)); print(dir(swe));" || echo "Pyswisseph details failed"
+RUN python -c "import sys; print('Python path:'); [print(p) for p in sys.path]" || echo "Python path check failed"
+
+# Install other dependencies
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt && \
+    pip install --no-cache-dir websocket-client
+
+# Download ephemeris files
 COPY scripts/setup/download_ephemeris.sh /app/scripts/setup/
 RUN chmod +x /app/scripts/setup/download_ephemeris.sh && \
-    /app/scripts/setup/download_ephemeris.sh && \
-    # Verify ephemeris directory
-    ls -la ${SWISSEPH_PATH} && \
-    # Try using an astrological library
-    (python -c "import flatlib; print('Flatlib initialized successfully, version:', flatlib.__version__)" || \
-     echo "WARNING: Flatlib initialization failed, but continuing")
-
-# Copy AI service module
-COPY ai_service/ /app/ai_service/
-
-# Expose port
-EXPOSE 8000
-
-# Health check with direct health endpoint that uses the ASGI wrapper
-HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-    CMD curl -s -f http://localhost:8000/health || exit 1
-
-# Command to run the application using the wrapper which bypasses middleware for health checks
-CMD ["uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000", "--reload", "--preload", "--log-level", "info"]
-
-# Stage for production
-FROM base as production
-
-# Install dependencies in one RUN command with pinned versions
-RUN pip install --no-cache-dir pip==23.2.1 setuptools==68.2.2 wheel==0.41.2 && \
-    pip install --no-cache-dir websocket-client==1.7.0
-
-# Copy requirements and constraints files
-COPY requirements.txt constraints.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
-
-# Copy setup script and download ephemeris files
-COPY scripts/setup/download_ephemeris.sh /app/scripts/setup/
-RUN chmod +x /app/scripts/setup/download_ephemeris.sh && \
-    /app/scripts/setup/download_ephemeris.sh && \
-    # Verify ephemeris directory
-    ls -la ${SWISSEPH_PATH} && \
-    # Try using an astrological library
-    (python -c "import flatlib; print('Flatlib initialized successfully, version:', flatlib.__version__)" || \
-     echo "WARNING: Flatlib initialization failed, but continuing")
+    SWISSEPH_PATH=/app/ephemeris /app/scripts/setup/download_ephemeris.sh
 
 # Copy application code
-COPY . .
+COPY ./ai_service /app/ai_service
+
+# Copy test files into container
+COPY ./tests /app/tests
+
+# Create a startup script to verify ephemeris files and tests
+RUN echo '#!/bin/bash\n\
+# Ensure ephemeris directory exists and has files\n\
+mkdir -p /app/ephemeris\n\
+\n\
+# Run the download script if needed\n\
+if [ ! -f "/app/ephemeris/.ephemeris_downloaded" ] || [ "$(ls -A /app/ephemeris/*.se1 2>/dev/null | wc -l)" -eq 0 ]; then\n\
+  echo "Ephemeris files missing or incomplete. Running download script..."\n\
+  SWISSEPH_PATH=/app/ephemeris /app/scripts/setup/download_ephemeris.sh\n\
+else\n\
+  echo "Ephemeris files already present in /app/ephemeris"\n\
+  find /app/ephemeris -type f -name "*.se1" | head -5\n\
+  echo "... (more files)"\n\
+fi\n\
+\n\
+# Ensure test directory exists and has files\n\
+if [ ! -d "/app/tests" ] || [ "$(ls -A /app/tests 2>/dev/null | wc -l)" -eq 0 ]; then\n\
+  echo "Test files missing or directory empty. Check volume mounting."\n\
+else\n\
+  echo "Test files present in /app/tests"\n\
+  find /app/tests -type f -name "*.py" | head -5\n\
+  echo "... (more files)"\n\
+fi\n\
+\n\
+# Verify Python can import pyswisseph\n\
+if /app/venv/bin/python -c "import pyswisseph as swe; print(f\"pyswisseph version: {swe.__version__}\")"; then\n\
+  echo "Astrological libraries successfully imported."\n\
+else\n\
+  echo "WARNING: Failed to import astrological libraries."\n\
+fi\n\
+\n\
+# Continue with original command\n\
+exec "$@"' > /app/entrypoint.sh && \
+    chmod +x /app/entrypoint.sh
 
 # Expose port
 EXPOSE 8000
 
-# Health check with direct health endpoint that uses the ASGI wrapper
+# Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-    CMD curl -s -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
-# Command to run the application using the wrapper which bypasses middleware for health checks
-# - preload ensures models are initialized before handling requests
-# - timeout settings prevent long-running operations from crashing the server
-CMD ["uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--preload", "--timeout-keep-alive", "120", "--timeout-graceful-shutdown", "180", "--log-level", "info", "--proxy-headers"]
+# Set the entrypoint to our startup script
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Command to run the application
+CMD ["uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-keep-alive", "120", "--log-level", "info", "--proxy-headers"]

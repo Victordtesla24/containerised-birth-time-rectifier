@@ -211,8 +211,12 @@ class ChartService:
         Returns:
             Dictionary containing export metadata including file path and download URL
         """
-        return export_chart(chart_data, self.chart_output_dir, format, include_interpretation,
-                          include_aspects, include_3d, paper_size)
+        # Create options to pass as formats
+        formats = [format]
+
+        # Pass the correct parameters to the export_chart function
+        from ai_service.services.chart_service_export import export_chart as export_chart_func
+        return export_chart_func(chart_data=chart_data, chart_output_dir=self.chart_output_dir, formats=formats)
 
     def _get_content_type(self, format: str) -> str:
         """

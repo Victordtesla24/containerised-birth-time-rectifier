@@ -74,3 +74,9 @@ class ResourceExhaustionError(BaseServiceError):
     """Exception raised when a resource (API limits, memory, etc.) is exhausted."""
     def __init__(self, message="Resource exhaustion", details=None):
         super().__init__(f"Resource Exhaustion Error: {message}", details)
+
+
+class AstrologicalServiceError(BaseServiceError):
+    """Exception raised for errors in astrological calculations and services."""
+    def __init__(self, message="Error in astrological service", details=None):
+        super().__init__(f"Astrological Service Error: {message}", details)

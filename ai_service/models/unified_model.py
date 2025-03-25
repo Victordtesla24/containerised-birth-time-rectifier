@@ -422,13 +422,8 @@ class UnifiedRectificationModel:
                     try:
                         data = json.loads(json_match.group(0))
                     except json.JSONDecodeError:
-                        # If still fails, raise to fallback parsing
-                        logger.warning(f"Failed to extract JSON from matched pattern")
-                        raise
-                else:
-                    # No JSON found, raise to fallback parsing
-                    logger.warning(f"No JSON pattern found in response")
-                    raise json.JSONDecodeError("No JSON found in response", response_content, 0)
+                        logger.warning(f"No JSON pattern found in response")
+                        raise json.JSONDecodeError("No JSON found in response", response_content, 0)
 
             # Validate expected fields - ensure we're accessing dictionary items safely
             if isinstance(data, dict) and "adjustment_minutes" in data and "confidence" in data:
@@ -442,11 +437,6 @@ class UnifiedRectificationModel:
                 if "technique_details" in data and isinstance(data["technique_details"], dict):
                     result["technique_details"] = data["technique_details"]
 
-                    # Calculate weighted confidence if not already provided
-                    if "weighted_confidence" not in data and all(k in data["technique_details"] for k in self.technique_weights):
-                        # This is just a placeholder for demonstration - in a real implementation,
-                        # we would assess the confidence from each technique more carefully
-                        result["weighted_confidence"] = result["confidence"]
 
                 logger.debug(f"Successfully parsed response as JSON with required fields")
                 return result

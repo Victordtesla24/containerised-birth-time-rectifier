@@ -13,9 +13,7 @@ from typing import Dict, Any, List, Optional, TypedDict, cast, Union, TYPE_CHECK
 import sys
 import random
 import traceback
-
-# Import the base OpenAI library for model selection
-import openai
+from datetime import datetime
 
 # Import httpx for direct API calls
 import httpx
@@ -29,6 +27,9 @@ from ai_service.utils.dependency_container import get_container
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Global OpenAI service instance
+_openai_service_instance = None
+
 # Define typed dictionary for cache entries
 class CacheEntry(TypedDict):
     """Type definition for cache entries."""
@@ -36,254 +37,276 @@ class CacheEntry(TypedDict):
     response: Dict[str, Any]
     response_json: Optional[Dict[str, Any]]
 
-class OpenAIService:
-    """Service for interacting with OpenAI API."""
+# Custom exception
+class OpenAIError(Exception):
+    """Exception raised when OpenAI API requests fail"""
+    pass
 
-    def __init__(self, client=None, api_key=None):
+class OpenAIService:
+    """Service for interacting with the OpenAI API."""
+
+    def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the OpenAI service with API key and model configuration.
+        Initialize the OpenAI service.
 
         Args:
-            client: Optional pre-configured OpenAI client for dependency injection
-            api_key: Optional API key (defaults to environment variable)
+            api_key: OpenAI API key
         """
-        # Clean up the API key - remove whitespace, newlines, and ensure it's properly formatted
-        api_key_raw = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.api_key = api_key_raw.strip().replace("\n", "").replace(" ", "")
-
-        # Track which API mode we're using - we'll use direct API calls
-        self.api_mode = "direct"
-
-        # Log API key length for debugging (without exposing the key)
-        if self.api_key:
-            logger.info(f"API key configured (length: {len(self.api_key)})")
-        else:
-            logger.error("No OpenAI API key provided")
-            raise ValueError("OpenAI API key not provided and OPENAI_API_KEY environment variable is not set")
-
-        # Use injected client or create a direct httpx client with no problematic params
-        if client:
-            self.client = client
-            logger.info("Using provided client")
-        else:
-            try:
-                logger.info("Initializing direct API client")
-                import httpx
-
-                # Get proxy settings from environment if available
-                http_proxy = os.environ.get("HTTP_PROXY", "")
-                https_proxy = os.environ.get("HTTPS_PROXY", "")
-
-                # Set up proxies if available in the environment
-                proxies = None
-                if http_proxy or https_proxy:
-                    proxies = {}
-                    if http_proxy:
-                        proxies["http://"] = http_proxy
-                    if https_proxy:
-                        proxies["https://"] = https_proxy
-                    logger.info(f"Using proxies: {proxies}")
-
-                # Configure httpx with appropriate timeouts and settings
-                timeout_settings = httpx.Timeout(
-                    connect=10.0,  # Connection timeout
-                    read=90.0,     # Read timeout
-                    write=10.0,    # Write timeout
-                    pool=10.0      # Pool timeout
-                )
-
-                # Create client with appropriate timeouts
-                # Note: the httpx version in the container doesn't support 'proxies' parameter
-                self.client = httpx.AsyncClient(
-                    timeout=timeout_settings,
-                    verify=True,  # Verify SSL certificates
-                    follow_redirects=True
-                )
-
-                # Track the client in test mode if the tracker exists
-                if 'tests.integration.test_sequence_flow_real' in sys.modules:
-                    # We're being called from the integration test - track the client
-                    if hasattr(sys.modules['tests.integration.test_sequence_flow_real'], 'active_http_clients'):
-                        sys.modules['tests.integration.test_sequence_flow_real'].active_http_clients.append(self.client)
-                        logger.info("Registered client with test tracker")
-
-                # Log connection settings
-                logger.info(f"Initialized direct API client for OpenAI with {timeout_settings}")
-            except Exception as e:
-                logger.error(f"Failed to initialize direct API client: {e}", exc_info=True)
-                raise ValueError(f"Failed to initialize direct API client: {e}")
-
-        # Configuration
-        self.default_model = os.environ.get("OPENAI_MODEL", "gpt-4-turbo-preview")
-        self.model_name = self.default_model  # Add model_name attribute
-        self.temperature = float(os.environ.get("OPENAI_TEMPERATURE", 0.7))
-
-        # Configure caching settings
-        self.cache_enabled = os.environ.get("ENABLE_CACHE", "true").lower() == "true"
-        self.cache_ttl = int(os.environ.get("CACHE_TTL", "3600"))  # Default 1 hour
-        self.cache: Dict[str, CacheEntry] = {}
-        self.cache_hits = 0
-        self.cache_misses = 0
-
-        # Usage statistics tracking
-        self.usage_stats = {
-            "calls_made": 0,
-            "total_tokens": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_cost": 0.0
-        }
-
-        # Cost tracking
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.http_client = None
+        self.estimated_cost = 0.0
         self.total_tokens = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
-        self.estimated_cost = 0.0
-
-        # API call tracking
         self.api_calls = 0
-        self.last_request_time = 0
-        self.tokens_this_minute = 0
-        self.rate_limit = 90000  # OpenAI rate limit (tokens per minute)
+        self.cache = {}
+        self.cache_enabled = True
+        self.cache_hits = 0
+        self.cache_misses = 0
+        self.cache_ttl = 3600  # 1 hour
+        self.rate_limit = 100000  # 100k tokens per minute
+        self.tokens_this_minute = self.rate_limit  # Start with full capacity
+        self.last_request_time = time.time()
+        self.usage_stats = {
+            "total_tokens": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "calls_made": 0,
+            "total_cost": 0.0
+        }
+        self.default_model = "gpt-4"
+        self.batch_queue = []
+        self.batch_results = {}
+        self.batch_threshold = 5
 
-        logger.info(f"OpenAI service initialized with model: {self.default_model}")
+        # Initialize HTTP client immediately
+        self._init_http_client()
+
+    def _init_http_client(self):
+        """Initialize the HTTP client for OpenAI API requests."""
+        try:
+            if not self.api_key:
+                logger.error("No API key provided for OpenAI service")
+                return
+
+            self.http_client = httpx.AsyncClient(
+                timeout=60.0,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+            )
+            logger.info("HTTP client initialized for OpenAI API access")
+        except Exception as e:
+            logger.error(f"Failed to initialize HTTP client: {e}")
+
+    async def _ensure_http_client(self):
+        """Ensure HTTP client is initialized before making requests."""
+        if self.http_client is None:
+            self._init_http_client()
+            if self.http_client is None:
+                raise OpenAIError("Failed to initialize HTTP client for OpenAI API")
+
+    async def close(self):
+        """
+        Close the OpenAI client and release resources.
+
+        This method should be called when the service is no longer needed.
+        """
+        if self.http_client:
+            try:
+                await self.http_client.aclose()
+                logger.info("HTTP client closed successfully")
+                self.http_client = None
+            except Exception as e:
+                logger.warning(f"Error closing HTTP client: {e}")
 
     def _select_model(self, task_type: str) -> str:
         """
-        Select the appropriate model based on task type.
+        Select the most appropriate model for a given task type.
 
         Args:
-            task_type: Type of task (e.g., completion, chat, embedding)
+            task_type: Type of task to perform
 
         Returns:
-            Model identifier string
+            Model identifier
         """
-        # Define model mapping based on task type
-        model_mapping = {
-            "rectification": "gpt-4-turbo-preview",
-            "questionnaire": "gpt-4-turbo-preview",
-            "chart_verification": "gpt-4-turbo-preview",
-            "explanation": "gpt-3.5-turbo",
-            "auxiliary": "gpt-3.5-turbo"
+        return select_model(task_type)
+
+    def _format_messages(self, prompt: Union[str, Dict, List]) -> List[Dict[str, str]]:
+        """
+        Format the prompt into messages for chat completions.
+
+        Args:
+            prompt: Text prompt or dict of messages
+
+        Returns:
+            List of message dictionaries
+        """
+        if isinstance(prompt, str):
+            return [{"role": "system", "content": "You are a helpful astrological assistant."},
+                    {"role": "user", "content": prompt}]
+        elif isinstance(prompt, dict) and "messages" in prompt:
+            return prompt["messages"]
+        elif isinstance(prompt, list):
+            return prompt
+        else:
+            return [{"role": "system", "content": "You are a helpful astrological assistant."},
+                    {"role": "user", "content": str(prompt)}]
+
+    def _track_request(self, track_data: Dict[str, Any]) -> None:
+        """
+        Track API request for cost calculation and usage metrics.
+
+        Args:
+            track_data: Dictionary containing usage information
+        """
+        # Simplified cost calculation model
+        cost_per_1k_input_tokens = {
+            "gpt-4-turbo": 0.01,
+            "gpt-4": 0.03,
+            "gpt-3.5-turbo": 0.0015,
         }
 
-        # Return the specific model for the task or the default
-        return model_mapping.get(task_type, self.default_model)
+        cost_per_1k_output_tokens = {
+            "gpt-4-turbo": 0.03,
+            "gpt-4": 0.06,
+            "gpt-3.5-turbo": 0.002,
+        }
 
-    def _calculate_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        model = track_data.get("model", "gpt-3.5-turbo")
+        tokens_input = track_data.get("tokens_input", 0)
+        tokens_output = track_data.get("tokens_output", 0)
+
+        input_cost = tokens_input * (cost_per_1k_input_tokens.get(model, 0.0015) / 1000)
+        output_cost = tokens_output * (cost_per_1k_output_tokens.get(model, 0.002) / 1000)
+
+        total_cost = input_cost + output_cost
+        self.estimated_cost += total_cost
+
+        logger.info(f"OpenAI request tracked: {tokens_input} input tokens, {tokens_output} output tokens, cost ${total_cost:.6f}")
+
+    async def generate_completion(self, prompt: Union[str, Dict, List], task_type: str = "rectification",
+                           max_tokens: int = 1000, temperature: float = 0.2,
+                           model: Optional[str] = None) -> Dict[str, Any]:
         """
-        Calculate the cost of API usage.
+        Generate a completion from OpenAI.
 
         Args:
-            model: The model used
-            prompt_tokens: Number of prompt tokens
-            completion_tokens: Number of completion tokens
+            prompt: Text prompt or structured prompt
+            task_type: Type of task for model selection
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
+            model: Override model selection
 
         Returns:
-            Estimated cost in USD
-        """
-        return calculate_cost(model, prompt_tokens, completion_tokens)
-
-    async def _call_with_retry(self, func, *args, max_retries=5, **kwargs):
-        """
-        Call API with exponential backoff for rate limits.
-
-        Args:
-            func: The function to call
-            args: Arguments to pass to the function
-            max_retries: Maximum number of retries
-            kwargs: Keyword arguments to pass to the function
-
-        Returns:
-            The function result
+            Completion response dictionary
 
         Raises:
-            Exception: If maximum retries are exceeded
+            ValueError: If input parameters are invalid
+            OpenAIError: If OpenAI API call fails
         """
-        retry_count = 0
-        base_delay = 1.0  # Start with 1 second delay
-        max_delay = 60.0  # Maximum delay of 60 seconds
+        if not self.api_key:
+            error_msg = "API key is required for OpenAI integration"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
-        while True:
-            try:
-                # Apply rate limiting before making the call
-                await self._apply_rate_limiting()
+        # Ensure http_client is initialized
+        await self._ensure_http_client()
 
-                return await func(*args, **kwargs)
-            except Exception as e:
-                error_str = str(e).lower()
-                is_rate_limit = any(phrase in error_str for phrase in [
-                    "rate limit",
-                    "too many requests",
-                    "exceeded your current quota",
-                    "rate_limit_exceeded",
-                    "429",
-                    "throttled",
-                    "capacity"
-                ])
+        if not self.http_client:
+            error_msg = "OpenAI client is not initialized"
+            logger.error(error_msg)
+            raise OpenAIError(error_msg)
 
-                if not is_rate_limit or retry_count >= max_retries:
-                    # Re-raise if not rate limit or too many retries
-                    logger.error(f"API error (retry {retry_count}/{max_retries}): {str(e)}")
-                    raise
+        # Select model if not specified
+        if not model:
+            model = self._select_model(task_type)
 
-                # Calculate exponential backoff with jitter
-                delay = min(max_delay, base_delay * (2 ** retry_count) + random.uniform(0, 1))
-                logger.warning(f"Rate limit hit, retrying in {delay:.2f}s (attempt {retry_count+1}/{max_retries})")
-                await asyncio.sleep(delay)
-                retry_count += 1
+        # Track costs and tokens
+        track_data = {
+            "tokens_input": 0,
+            "tokens_output": 0,
+            "model": model,
+            "task_type": task_type,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
 
-    async def generate_completion(
-        self,
-        prompt: Union[str, Dict[str, Any]],
-        task_type: str = "general",
-        max_tokens: int = 1000,
-        temperature: float = 0.3,
-        stop: Optional[List[str]] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Generate a text completion using the OpenAI API with retry mechanism.
-
-        Args:
-            prompt: The text prompt to generate from or messages list
-            task_type: The type of task (affects system prompt)
-            max_tokens: Maximum tokens to generate
-            temperature: Temperature for generation (higher = more random)
-            stop: Optional list of stop sequences
-            kwargs: Additional parameters to pass to the API
-
-        Returns:
-            Dictionary with completion result
-        """
-
-        # Use retry mechanism for API calls
         try:
-            return await self._call_with_retry(
-                self._generate_completion_internal,
-                prompt=prompt,
-                task_type=task_type,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop,
-                **kwargs
-            )
-        except Exception as e:
-            # Handle the error after max retries
-            logger.error(f"Failed to generate completion after retries: {str(e)}")
+            # Format the messages based on prompt type
+            messages = self._format_messages(prompt)
 
-            # Return minimal error response
-            return {
-                "content": f"Error generating response: {str(e)}",
-                "model": self.model_name,
-                "task_type": task_type,
-                "error": str(e)
+            # Track the request start time
+            start_time = datetime.now()
+
+            # Make the API call
+            logger.info(f"Calling OpenAI API with model {model}, task_type {task_type}")
+
+            # Use HTTP client to make the request directly instead of using client.chat.completions.create
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature
             }
+
+            response = await self.http_client.post(
+                "https://api.openai.com/v1/chat/completions",
+                json=payload
+            )
+
+            # Check for errors
+            response.raise_for_status()
+
+            # Parse the response JSON
+            response_data = response.json()
+
+            # Track the request duration
+            duration = (datetime.now() - start_time).total_seconds()
+
+            # Process the response
+            if not response_data or not response_data.get("choices") or len(response_data["choices"]) == 0:
+                error_msg = "Empty response from OpenAI API"
+                logger.error(error_msg)
+                raise OpenAIError(error_msg)
+
+            # Extract response content
+            completion = response_data["choices"][0]["message"]["content"]
+
+            # Update token tracking
+            if "usage" in response_data:
+                track_data["tokens_input"] = response_data["usage"].get("prompt_tokens", 0)
+                track_data["tokens_output"] = response_data["usage"].get("completion_tokens", 0)
+
+            # Track the request for cost calculation
+            self._track_request(track_data)
+
+            # Construct the result
+            result = {
+                "content": completion,
+                "model": model,
+                "task_type": task_type,
+                "duration": duration,
+                "tokens": {
+                    "input": track_data["tokens_input"],
+                    "output": track_data["tokens_output"],
+                    "total": track_data["tokens_input"] + track_data["tokens_output"]
+                },
+                "id": str(uuid.uuid4())
+            }
+
+            return result
+
+        except Exception as e:
+            error_msg = f"Error calling OpenAI API: {str(e)}"
+            logger.error(error_msg)
+            raise OpenAIError(error_msg) from e
 
     async def _generate_completion_internal(self, prompt: str, task_type: str, max_tokens: int, temperature: float, stop: Optional[List[str]] = None, **kwargs) -> Dict[str, Any]:
         """Internal method to generate a completion from OpenAI."""
         # Select model based on task type
-        model = self._select_model(task_type)
+        model = select_model(task_type)
 
         # Check for extremely long prompts and truncate if necessary
         if len(prompt) > 12000:  # Roughly 3000 tokens
@@ -347,10 +370,18 @@ class OpenAIService:
                 "temperature": temperature
             }
 
-            # Execute the API call with a timeout
+            # Try each of the methods in sequence
             try:
+                # First, try using asyncio.wait_for to enforce a timeout
+                await self._ensure_http_client()
+
+                if self.http_client is None:
+                    error_msg = "HTTP client is not available"
+                    logger.error(error_msg)
+                    raise OpenAIError(error_msg)
+
                 response = await asyncio.wait_for(
-                    self.client.post(
+                    self.http_client.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers=headers,
                         json=payload
@@ -410,9 +441,13 @@ class OpenAIService:
                 message = response_data["choices"][0].get("message", {})
                 content = message.get("content", "")
 
-            # If content is empty, provide a meaningful error
+            # If content is empty for o1-preview, provide a default response instead of error
             if not content:
-                raise ValueError("OpenAI API returned empty content")
+                if model == "o1-preview":
+                    logger.warning(f"o1-preview model returned empty content - using default response")
+                    content = '{"status": "verification_default", "confidence": 0, "corrections_applied": false, "corrections": [], "message": "Unable to verify chart due to model limitations."}'
+                else:
+                    raise ValueError("OpenAI API returned empty content")
 
             # Extract usage data
             usage = response_data.get("usage", {})
@@ -433,7 +468,7 @@ class OpenAIService:
             self.tokens_this_minute += total_tokens
 
             # Calculate cost
-            cost = self._calculate_cost(model, prompt_tokens, completion_tokens)
+            cost = calculate_cost(model, prompt_tokens, completion_tokens)
             self.estimated_cost += cost
 
             # Build the response
@@ -1108,8 +1143,18 @@ class OpenAIService:
                         json_text = content[start_idx:end_idx]
                         verification_data = json.loads(json_text)
                     else:
-                        # If no valid JSON found, raise error
-                        raise ValueError("No valid JSON found in verification response")
+                        # If we're using o1-preview model with our default response (which should be valid JSON)
+                        if response.get("model") == "o1-preview" and "verification_default" in content:
+                            verification_data = {
+                                "status": "verification_default",
+                                "confidence": 0,
+                                "corrections_applied": False,
+                                "corrections": [],
+                                "message": "Unable to verify chart due to model limitations."
+                            }
+                        else:
+                            # If no valid JSON found, raise error
+                            raise ValueError("No valid JSON found in verification response")
 
                 # Ensure the response has the expected structure
                 expected_fields = ["status", "confidence", "corrections_applied", "corrections", "message"]
@@ -1203,716 +1248,179 @@ class OpenAIService:
 
         system_message = system_prompts.get(task_type, system_prompts["general"])
 
-        return [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt}
-        ]
+        # Use model selection to determine the model
+        model = select_model(task_type)
+
+        # For o1-preview model, don't include system message as it's not supported
+        if model == "o1-preview":
+            # Handle different prompt types for o1-preview
+            if isinstance(prompt, str):
+                # Convert system message context into the user message
+                return [
+                    {"role": "user", "content": f"As an {system_message.replace('You are ', '')}: {prompt}"}
+                ]
+            elif isinstance(prompt, dict) and all(k in prompt for k in ["system", "user"]):
+                # For o1-preview, combine system and user messages
+                system_context = prompt["system"]
+                user_content = prompt["user"]
+                return [
+                    {"role": "user", "content": f"Acting as {system_context}: {user_content}"}
+                ]
+            elif isinstance(prompt, list) and all(isinstance(m, dict) for m in prompt):
+                # Filter out system messages for o1-preview
+                filtered_messages = []
+                system_content = None
+
+                # First extract any system message content to prepend to user message
+                for m in prompt:
+                    if isinstance(m, dict):
+                        if m.get("role") == "system":
+                            system_content = m.get("content")
+                        else:
+                            filtered_messages.append(m.copy())
+
+                # If we have system content and user messages, prepend to first user message
+                if system_content and filtered_messages:
+                    for i, msg in enumerate(filtered_messages):
+                        if msg.get("role") == "user":
+                            filtered_messages[i]["content"] = f"Acting as {system_content}: {msg['content']}"
+                            break
+            else:
+                # Default to treating as user message
+                return [
+                    {"role": "user", "content": str(prompt)}
+                ]
+        else:
+            # For models that support system messages
+            if isinstance(prompt, str):
+                return [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt}
+                ]
+            elif isinstance(prompt, dict) and all(k in prompt for k in ["system", "user"]):
+                return [
+                    {"role": "system", "content": prompt["system"]},
+                    {"role": "user", "content": prompt["user"]}
+                ]
+            elif isinstance(prompt, list) and all(isinstance(m, dict) for m in prompt):
+                return prompt  # Already in OpenAI format
+            else:
+                # Default to treating as user message
+                return [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": str(prompt)}
+                ]
 
     async def _send_request(self, messages, model, max_tokens, temperature):
-        """Send a request to the OpenAI API."""
-        api_url = "https://api.openai.com/v1/chat/completions"
+        """
+        Send a request to the OpenAI API.
 
-        # Create request payload
-        payload = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
+        Args:
+            messages: List of message objects
+            model: The model to use
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature setting
 
-        # Send the request
+        Returns:
+            API response
+        """
+        base_url = "https://api.openai.com/v1/chat/completions"
+
+        # Prepare headers and data
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
         }
 
-        # Track API call
-        self.api_calls += 1
-        self.last_request_time = time.time()
-
-        # Create cache key
-        message_str = json.dumps([msg.get("content", "") for msg in messages])
-        cache_key = f"{model}:{hash(message_str)}:{max_tokens}:{temperature}"
-
-        # Check cache if enabled
-        if self.cache_enabled and cache_key in self.cache:
-            cache_entry = self.cache[cache_key]
-            if time.time() - cache_entry["timestamp"] < self.cache_ttl:
-                self.cache_hits += 1
-                logger.debug(f"Cache hit for request")
-                # Create a mock response with status code 200
-                from types import SimpleNamespace
-                mock_response = SimpleNamespace(
-                    status_code=200,
-                    json=lambda: cache_entry["response_json"],
-                    text=lambda: json.dumps(cache_entry["response_json"])
-                )
-                return mock_response
-
-        self.cache_misses += 1
-
-        # Make the API call
-        timeout = httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                api_url,
-                json=payload,
-                headers=headers
-            )
-
-            logger.info(f"OpenAI API status code: {response.status_code}")
-
-            # If status code is 200, cache the response
-            if response.status_code == 200 and self.cache_enabled:
-                response_json = response.json()
-                self.cache[cache_key] = CacheEntry(
-                    timestamp=time.time(),
-                    response=response_json,
-                    response_json=None
-                )
-
-            return response
-
-    async def _parse_response(self, response):
-        """Parse the response from OpenAI API."""
-        try:
-            # Extract JSON data from response
-            response_json = response.json()
-
-            # Calculate token usage and cost
-            usage = response_json.get("usage", {})
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            completion_tokens = usage.get("completion_tokens", 0)
-            total_tokens = usage.get("total_tokens", 0)
-
-            # Calculate cost (approximate)
-            model = response_json.get("model", "")
-            cost = self._calculate_cost(model, prompt_tokens, completion_tokens)
-
-            # Extract content from response
-            content = ""
-            choices = response_json.get("choices", [])
-            if choices and len(choices) > 0:
-                message = choices[0].get("message", {})
-                content = message.get("content", "")
-
-                # Preview the content for logging (truncate if too long)
-                content_preview = content[:100]
-                if len(content) > 100:
-                    content_preview += "..."
-                logger.info(f"OpenAI API response content preview: {content_preview}")
-
-            # Create final result with metadata
-            result = {
-                "content": content,
-                "model": model,
-                "usage": {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens
-                },
-                "cost": cost,
-                "id": response_json.get("id", ""),
-                "created": response_json.get("created", 0),
-                "object": response_json.get("object", "")
-            }
-
-            logger.info(f"OpenAI API call successful for {result.get('model', 'unknown')}")
-            return result
-        except Exception as e:
-            logger.error(f"Error parsing OpenAI API response: {e}")
-            raise ValueError(f"Failed to parse OpenAI API response: {e}")
-
-    def _calculate_api_cost(self, model, prompt_tokens, completion_tokens):
-        """
-        Calculate the cost of API usage (renamed from _calculate_cost to avoid duplication).
-
-        Args:
-            model: The model used
-            prompt_tokens: Number of prompt tokens
-            completion_tokens: Number of completion tokens
-
-        Returns:
-            Estimated cost in USD
-        """
-        # GPT-4 costs - these might change over time
-        if model.startswith("gpt-4"):
-            prompt_cost = 0.03 * (prompt_tokens / 1000)  # $0.03 per 1K tokens
-            completion_cost = 0.06 * (completion_tokens / 1000)  # $0.06 per 1K tokens
-            return prompt_cost + completion_cost
-
-        # GPT-3.5 costs
-        elif model.startswith("gpt-3.5"):
-            prompt_cost = 0.0015 * (prompt_tokens / 1000)  # $0.0015 per 1K tokens
-            completion_cost = 0.002 * (completion_tokens / 1000)  # $0.002 per 1K tokens
-            return prompt_cost + completion_cost
-
-        # Other models
-        else:
-            # Default conservative estimate for unknown models
-            prompt_cost = 0.01 * (prompt_tokens / 1000)
-            completion_cost = 0.02 * (completion_tokens / 1000)
-            return prompt_cost + completion_cost
-
-    # Batch processing methods
-    async def _add_to_batch_queue(self, messages, model, max_tokens, temperature):
-        """Add a request to the batch processing queue."""
-        if not hasattr(self, "_request_queue"):
-            self._request_queue = []
-            self._result_dict = {}
-            self._batch_processor_task = None
-
-        # Generate a unique request ID
-        request_id = str(uuid.uuid4())
-
-        # Add request to queue
-        self._request_queue.append({
-            "id": request_id,
-            "messages": messages,
+        # Construct the request body
+        data = {
             "model": model,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "timestamp": time.time()
-        })
-
-        # Start batch processor if not running
-        if not self._batch_processor_task or self._batch_processor_task.done():
-            self._batch_processor_task = asyncio.create_task(self._process_batch_queue())
-
-        # Return the request ID
-        return request_id
-
-    async def _get_from_batch_results(self, request_id):
-        """Get a result from the batch processing results."""
-        # Wait for result (with timeout)
-        start_time = time.time()
-        max_wait_time = 90  # Maximum seconds to wait
-
-        while time.time() - start_time < max_wait_time:
-            if request_id in self._result_dict:
-                result = self._result_dict.pop(request_id)
-                return result
-            await asyncio.sleep(0.1)
-
-        # If timeout, return error
-        logger.error(f"Batch processing timeout for request {request_id}")
-        return {
-            "content": "Error: Batch processing timeout",
-            "model": "unknown",
-            "error": True
+            "messages": messages,
+            "top_p": 1,
+            "presence_penalty": 0,
+            "frequency_penalty": 0
         }
 
-    async def _process_batch_queue(self):
-        """Process the batch queue in the background."""
-        # Implementation for batch processing
+        # Use correct parameter name based on model
+        if model == "o1-preview":
+            data["max_completion_tokens"] = max_tokens
+        else:
+            data["max_tokens"] = max_tokens
+            data["temperature"] = temperature
+
         try:
-            # Process in batches of 5 or when queue reaches certain age
-            while True:
-                if not self._request_queue:
-                    # No requests, sleep briefly
-                    await asyncio.sleep(0.1)
-                    continue
+            # Make the API call with proper error handling
+            await self._ensure_http_client()
 
-                # Take up to 5 requests from the queue
-                batch_size = min(5, len(self._request_queue))
-                batch = self._request_queue[:batch_size]
-                self._request_queue = self._request_queue[batch_size:]
+            if self.http_client is None:
+                error_msg = "HTTP client is not available"
+                logger.error(error_msg)
+                raise OpenAIError(error_msg)
 
-                # Process batch concurrently
-                tasks = []
-                for request in batch:
-                    tasks.append(self._process_single_request(request))
-
-                # Wait for all tasks to complete
-                await asyncio.gather(*tasks)
-        except Exception as e:
-            logger.error(f"Error in batch processor: {e}")
-
-    async def _process_single_request(self, request):
-        """Process a single request from the batch."""
-        try:
-            # Make API call
-            response = await self._send_request(
-                request["messages"],
-                request["model"],
-                request["max_tokens"],
-                request["temperature"]
+            response = await self.http_client.post(
+                base_url,
+                headers=headers,
+                json=data,
+                timeout=90.0  # Extended timeout for potentially long completions
             )
 
-            # Parse response
-            if response.status_code == 200:
-                result = await self._parse_response(response)
-            else:
-                # Handle error
-                error_content = await response.json()
-                error_message = error_content.get("error", {}).get("message", "Unknown API error")
-                result = {
-                    "content": f"Error: {error_message}",
-                    "model": request["model"],
-                    "error": True
-                }
+            # Check for HTTP errors
+            response.raise_for_status()
 
-            # Store result
-            self._result_dict[request["id"]] = result
-        except Exception as e:
-            # Store error
-            self._result_dict[request["id"]] = {
-                "content": f"Error: {str(e)}",
-                "model": request["model"],
-                "error": True
-            }
+            # Parse JSON response
+            result = response.json()
 
-    async def analyze_birth_time_rectification(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Perform astrological birth time rectification analysis using OpenAI.
+            # Update usage metrics
+            if "usage" in result:
+                self.prompt_tokens += result["usage"].get("prompt_tokens", 0)
+                self.completion_tokens += result["usage"].get("completion_tokens", 0)
+                self.total_tokens = self.prompt_tokens + self.completion_tokens
 
-        This method provides a comprehensive astrological analysis for birth time rectification
-        considering questionnaire answers, life events, and the original chart data.
+            return result
 
-        Args:
-            data: Dictionary containing:
-                - birth_data: Birth information
-                - answers: Questionnaire answers
-                - events: Significant life events
-                - original_chart: Original chart data
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP error {e.response.status_code}: {e.response.text}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
-        Returns:
-            Dictionary containing:
-                - time_shift_minutes: Recommended adjustment in minutes
-                - rectified_time: Rectified birth time
-                - confidence_score: Confidence score (0-100)
-                - explanation: Detailed astrological explanation
-                - astrological_factors: Specific astrological factors considered
-        """
-        try:
-            logger.info("Starting AI-assisted birth time rectification analysis")
+        except httpx.ReadTimeout:
+            error_msg = "Request timed out. The server took too long to respond."
+            logger.error(error_msg)
+            raise TimeoutError(error_msg)
 
-            # Extract input data
-            birth_data = data.get("birth_data", {})
-            answers = data.get("answers", [])
-            events = data.get("events", [])
-            original_chart = data.get("original_chart", {})
+        except httpx.ConnectTimeout:
+            error_msg = "Connection timed out. Could not establish connection to the API."
+            logger.error(error_msg)
+            raise ConnectionError(error_msg)
 
-            # Validate required data
-            if not birth_data or not original_chart:
-                raise ValueError("Missing required birth data or original chart for rectification analysis")
+        except httpx.RequestError as e:
+            error_msg = f"Request error: {str(e)}"
+            logger.error(error_msg)
+            raise ConnectionError(error_msg)
 
-            # Extract original birth information
-            birth_date = birth_data.get("birth_date", "")
-            birth_time = birth_data.get("birth_time", "")
-            location = birth_data.get("location", "Unknown")
-
-            # Format birth information for prompt
-            birth_info = f"Date: {birth_date}, Time: {birth_time}, Location: {location}"
-
-            # Format original chart data for analysis
-            formatted_chart = self._format_chart_data_for_rectification(original_chart)
-
-            # Format questionnaire answers for the prompt
-            formatted_answers = self._format_answers_for_rectification(answers)
-
-            # Format life events for analysis
-            formatted_events = self._format_events_for_rectification(events)
-
-            # Create system prompt with precise astrological instructions
-            system_prompt = """
-You are an expert astrological rectification specialist with profound knowledge of both Vedic and Western astrological systems.
-
-Your task is to analyze birth data, questionnaire answers, life events, and original chart positions to determine if the birth time requires rectification and by how many minutes.
-
-Follow these principles:
-1. Use proper astrological techniques including:
-   - Transit analysis of significant life events
-   - Analysis of planetary hour rulers
-   - House cusp sensitivity analysis
-   - Ascendant degree fine-tuning
-   - Nakshatra progression timing
-   - Divisional chart (D9, D10, D60) harmony
-
-2. Consider house placements of planets and their impact on:
-   - Physical appearance and constitution (1st house/Lagna)
-   - Family dynamics (4th house)
-   - Career trajectory (10th house)
-   - Relationship patterns (7th house)
-   - Financial patterns (2nd house)
-   - Children and creativity (5th house)
-
-3. Pay special attention to:
-   - Ascendant degree and nakshatra pada
-   - Moon's exact degree and nakshatra
-   - Position of chart ruler/lord of ascendant
-   - Planets near house cusps (within 2 degrees)
-   - Mutual reception between planets
-   - Planetary yogas formed in the chart
-
-4. For Vedic analysis, consider:
-   - Vimshottari dasha periods aligning with life events
-   - Navamsa (D9) chart alignment and strength
-   - Applicable yogas and doshas
-   - Strength of planets (shadbala)
-
-5. For Western analysis, consider:
-   - Solar arc directions to angles
-   - Secondary progressions, especially Moon
-   - Angular planets and their transits
-   - House ruler placements
-
-Provide a time adjustment in minutes (positive or negative), confidence score (0-100), and detailed astrological justification.
-            """
-
-            # Create user prompt with comprehensive data
-            user_prompt = f"""
-Please analyze this birth time rectification case:
-
-BIRTH INFORMATION:
-{birth_info}
-
-ORIGINAL CHART DATA:
-{formatted_chart}
-
-QUESTIONNAIRE ANSWERS:
-{formatted_answers}
-
-LIFE EVENTS:
-{formatted_events}
-
-Based on sound astrological principles, determine if the birth time requires rectification.
-If rectification is needed, specify:
-1. The exact adjustment in minutes (positive for later, negative for earlier)
-2. The astrological factors supporting this adjustment
-3. A confidence score for the rectification (0-100)
-4. How the adjustment impacts key chart factors (ascendant, houses, planetary placements)
-            """
-
-            # Select the appropriate model for rectification (use most capable model)
-            model = self._select_model("rectification")
-
-            # Prepare messages
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-
-            # Generate completion with appropriate parameters
-            response = await self._call_with_retry(
-                self._send_request,
-                messages=messages,
-                model=model,
-                max_tokens=4000,  # Ensure enough tokens for comprehensive analysis
-                temperature=0.2   # Low temperature for consistent astrological analysis
-            )
-
-            # Process and extract structured data from the response
-            return self._parse_rectification_response(response, birth_data)
+        except json.JSONDecodeError:
+            error_msg = "Invalid JSON response from API"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         except Exception as e:
-            logger.error(f"Error in AI-assisted birth time rectification: {str(e)}")
-            logger.error(traceback.format_exc())
-            # Return a safe fallback with error information
-            return {
-                "time_shift_minutes": 0,
-                "rectified_time": birth_data.get("birth_time", ""),
-                "confidence_score": 0,
-                "explanation": f"Rectification analysis failed: {str(e)}",
-                "astrological_factors": [],
-                "error": str(e)
-            }
+            error_msg = f"Unexpected error in API request: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise
 
-    def _format_chart_data_for_rectification(self, chart_data: Dict[str, Any]) -> str:
-        """
-        Format chart data for rectification analysis.
-
-        Args:
-            chart_data: Original chart data
-
-        Returns:
-            Formatted chart data string for prompt
-        """
-        formatted_output = []
-
-        # Add basic chart information
-        formatted_output.append("CHART POSITIONS:")
-
-        # Add ascendant information
-        ascendant = chart_data.get("angles", {}).get("asc", {})
-        if ascendant:
-            asc_sign = ascendant.get("sign", "Unknown")
-            asc_degree = ascendant.get("longitude", 0) % 30
-            formatted_output.append(f"Ascendant: {asc_sign} {asc_degree:.2f}°")
-
-        # Add planetary positions
-        formatted_output.append("\nPLANETS:")
-        planets = chart_data.get("planets", {})
-        for planet_name, planet_data in planets.items():
-            if isinstance(planet_data, dict):
-                sign = planet_data.get("sign", "Unknown")
-                degree = planet_data.get("longitude", 0) % 30
-                house = planet_data.get("house", "Unknown")
-                retrograde = "R" if planet_data.get("retrograde", False) else ""
-
-                formatted_output.append(f"{planet_name.capitalize()}: {sign} {degree:.2f}° (House {house}) {retrograde}")
-
-        # Add house cusps
-        formatted_output.append("\nHOUSE CUSPS:")
-        houses = chart_data.get("houses", [])
-        if houses:
-            for i, house_deg in enumerate(houses):
-                house_num = i + 1
-                if isinstance(house_deg, (int, float)):
-                    sign_num = int(house_deg / 30) % 12
-                    zodiac_signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-                                   "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-                    sign = zodiac_signs[sign_num]
-                    degree = house_deg % 30
-                    formatted_output.append(f"House {house_num}: {sign} {degree:.2f}°")
-
-        # Add divisional chart information if available
-        if "divisional_charts" in chart_data:
-            formatted_output.append("\nKEY DIVISIONAL CHART POSITIONS:")
-            divisional = chart_data.get("divisional_charts", {})
-            # Add D9 (Navamsa) information
-            if "D9" in divisional:
-                formatted_output.append("Navamsa (D9) Key Positions:")
-                d9_asc = divisional["D9"].get("angles", {}).get("asc", {})
-                if d9_asc:
-                    formatted_output.append(f"D9 Ascendant: {d9_asc.get('sign', 'Unknown')}")
-                # Add Moon and Sun positions in D9
-                d9_planets = divisional["D9"].get("planets", {})
-                for planet in ["Sun", "Moon"]:
-                    if planet.lower() in d9_planets:
-                        p_data = d9_planets[planet.lower()]
-                        formatted_output.append(f"D9 {planet}: {p_data.get('sign', 'Unknown')}")
-
-        return "\n".join(formatted_output)
-
-    def _format_answers_for_rectification(self, answers: List[Dict[str, Any]]) -> str:
-        """
-        Format questionnaire answers for rectification analysis.
-
-        Args:
-            answers: List of questionnaire answers
-
-        Returns:
-            Formatted answers string for prompt
-        """
-        if not answers:
-            return "No questionnaire answers provided."
-
-        formatted_output = []
-        for i, answer in enumerate(answers):
-            question = answer.get("question", "Unknown question")
-            response = answer.get("answer", "No answer")
-            formatted_output.append(f"Q{i+1}: {question}\nA: {response}\n")
-
-        return "\n".join(formatted_output)
-
-    def _format_events_for_rectification(self, events: List[Dict[str, Any]]) -> str:
-        """
-        Format life events for rectification analysis.
-
-        Args:
-            events: List of life events
-
-        Returns:
-            Formatted events string for prompt
-        """
-        if not events:
-            return "No life events provided."
-
-        formatted_output = []
-        for i, event in enumerate(events):
-            event_type = event.get("type", "Unknown")
-            date = event.get("date", "Unknown date")
-            description = event.get("description", "No description")
-            formatted_output.append(f"Event {i+1} - {event_type}: {date}\nDescription: {description}\n")
-
-        return "\n".join(formatted_output)
-
-    def _parse_rectification_response(self, response: Dict[str, Any], birth_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parse the OpenAI response for rectification analysis.
-
-        Args:
-            response: OpenAI API response
-            birth_data: Original birth data
-
-        Returns:
-            Structured rectification data
-        """
-        try:
-            from datetime import datetime, timedelta
-            import re
-
-            # Extract response content
-            content = response.get("content", "")
-
-            # Default values
-            time_shift_minutes = 0
-            confidence_score = 0
-            explanation = "No explanation provided."
-            astrological_factors = []
-
-            # Parse the time adjustment - look for numbers followed by "minute" patterns
-            time_patterns = [
-                r"(\-?\+?\d+)\s*minutes?",
-                r"(\-?\+?\d+)\s*mins",
-                r"time\s*adjustment\s*of\s*(\-?\+?\d+)",
-                r"time\s*shift\s*of\s*(\-?\+?\d+)",
-                r"adjust.*by\s*(\-?\+?\d+)\s*minutes?",
-                r"(\-?\+?\d+)\s*minutes?.*adjustment",
-                r"shift.*by\s*(\-?\+?\d+)\s*minutes?"
-            ]
-
-            # Try each pattern
-            for pattern in time_patterns:
-                matches = re.search(pattern, content, re.IGNORECASE)
-                if matches:
-                    time_shift_str = matches.group(1).replace("+", "")
-                    try:
-                        time_shift_minutes = int(time_shift_str)
-                        break
-                    except ValueError:
-                        continue
-
-            # Parse confidence score - look for numbers followed by % or "confidence"
-            confidence_patterns = [
-                r"confidence\s*score\s*:?\s*(\d+)",
-                r"confidence\s*:?\s*(\d+)",
-                r"(\d+)\s*%\s*confidence",
-                r"confidence.*?(\d+)\s*%",
-                r"confidence.*?(\d+)\/100"
-            ]
-
-            # Try each pattern
-            for pattern in confidence_patterns:
-                matches = re.search(pattern, content, re.IGNORECASE)
-                if matches:
-                    try:
-                        confidence_score = int(matches.group(1))
-                        # Ensure it's in the 0-100 range
-                        confidence_score = max(0, min(100, confidence_score))
-                        break
-                    except ValueError:
-                        continue
-
-            # Extract explanation - use the entire response if no specific segment found
-            explanation_patterns = [
-                r"(?:explanation|justification|reasoning):(.*?)(?:\n\n|\Z)",
-                r"(?:astrological\s*explanation):(.*?)(?:\n\n|\Z)",
-                r"(?:rationale):(.*?)(?:\n\n|\Z)"
-            ]
-
-            for pattern in explanation_patterns:
-                matches = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
-                if matches:
-                    explanation = matches.group(1).strip()
-                    break
-
-            # If no specific explanation section found, use the full response
-            if explanation == "No explanation provided." and content:
-                explanation = content
-
-            # Extract astrological factors
-            factor_patterns = [
-                r"(?:astrological\s*factors|key\s*factors):(.*?)(?:\n\n|\Z)",
-                r"(?:factors\s*supporting|supporting\s*factors):(.*?)(?:\n\n|\Z)"
-            ]
-
-            for pattern in factor_patterns:
-                matches = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
-                if matches:
-                    factors_text = matches.group(1).strip()
-                    factors_list = [f.strip() for f in re.split(r'\n\d+\.|\n-|\n\*', factors_text) if f.strip()]
-                    if factors_list and factors_list[0]:
-                        astrological_factors = factors_list
-                    break
-
-            # If no structured factors found, try to extract bullet points or numbered items
-            if not astrological_factors:
-                factor_items = re.findall(r'\n\d+\.\s*(.*?)(?:\n|$)|\n-\s*(.*?)(?:\n|$)|\n\*\s*(.*?)(?:\n|$)', content)
-                flat_factors = []
-                for item_match in factor_items:
-                    for group in item_match:
-                        if group.strip():
-                            flat_factors.append(group.strip())
-                if flat_factors:
-                    astrological_factors = flat_factors
-
-            # Calculate rectified time based on original time
-            birth_time = birth_data.get("birth_time", "")
-            rectified_time = birth_time
-
-            if birth_time and time_shift_minutes:
-                try:
-                    # Parse original birth time
-                    birth_dt = datetime.strptime(birth_time, "%H:%M:%S")
-
-                    # Apply time shift
-                    rectified_dt = birth_dt + timedelta(minutes=time_shift_minutes)
-
-                    # Format rectified time
-                    rectified_time = rectified_dt.strftime("%H:%M:%S")
-                except Exception as time_error:
-                    logger.error(f"Error calculating rectified time: {str(time_error)}")
-
-            # Return structured rectification results
-            return {
-                "time_shift_minutes": time_shift_minutes,
-                "rectified_time": rectified_time,
-                "confidence_score": confidence_score,
-                "explanation": explanation,
-                "astrological_factors": astrological_factors,
-                "full_response": content
-            }
-
-        except Exception as e:
-            logger.error(f"Error parsing rectification response: {str(e)}")
-            return {
-                "time_shift_minutes": 0,
-                "rectified_time": birth_data.get("birth_time", ""),
-                "confidence_score": 0,
-                "explanation": f"Error parsing response: {str(e)}",
-                "astrological_factors": [],
-                "full_response": response.get("content", "")
-            }
-
-def create_openai_service() -> OpenAIService:
+def get_openai_service() -> Optional[OpenAIService]:
     """
-    Factory function for creating an OpenAI service.
-    This is used by the dependency container.
+    Get the global OpenAI service instance.
 
     Returns:
-        A new OpenAIService instance
-
-    Raises:
-        ValueError: If the service cannot be created
+        OpenAI service instance
     """
-    try:
+    global _openai_service_instance
+
+    if _openai_service_instance is None:
+        # Create a new instance
         api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+        if api_key:
+            _openai_service_instance = OpenAIService(api_key)
 
-        service = OpenAIService(api_key=api_key)
-        return service
-    except Exception as e:
-        logger.error(f"Failed to create OpenAI service: {e}")
-        raise ValueError(f"Failed to create OpenAI service: {e}")
-
-def get_openai_service() -> OpenAIService:
-    """
-    Get the OpenAI service instance from the dependency container or create a new one.
-
-    Returns:
-        An instance of the OpenAI service
-    """
-    from ai_service.utils.dependency_container import get_container
-
-    container = get_container()
-    try:
-        # Try to get the service from the container
-        return container.get("openai_service")
-    except ValueError:
-        # If not registered, create a new instance and register it
-        service = OpenAIService()
-        container.register_service("openai_service", service)
-        return service
+    return _openai_service_instance

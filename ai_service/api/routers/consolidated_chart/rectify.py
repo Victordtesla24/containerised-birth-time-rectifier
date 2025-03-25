@@ -121,14 +121,10 @@ async def rectify_birth_time(
         birth_details = chart_data.get("birth_details", {})
         original_time = birth_details.get("time", "00:00:00")
 
-        # Extract birth date with comprehensive fallback options
-        birth_date = birth_details.get("date",
-                                    birth_details.get("birth_date",
-                                                   birth_details.get("birthDate", "")))
+        # Extract birth_date from birth_details
+        birth_date = birth_details.get("date", "")
 
         # Log the birth details for debugging
-        logger.info(f"Original birth details - date: '{birth_date}', time: '{original_time}'")
-
         latitude = birth_details.get("latitude", 0.0)
         longitude = birth_details.get("longitude", 0.0)
         location = birth_details.get("location", "")

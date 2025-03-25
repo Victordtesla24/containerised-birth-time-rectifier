@@ -1,0 +1,18 @@
+{
+  "name": "birth-time-rectifier-tests",
+  "version": "1.0.0",
+  "description": "Tests for Birth Time Rectifier application",
+  "main": "api_tests.js",
+  "scripts": {
+    "test:api": "node api_tests.js",
+    "test:ui": "node ui_tests.js",
+    "test:health": "node simple_health_check.js",
+    "test:simple": "node test_case.js",
+    "test:all": "./run_all_tests.sh",
+    "test": "npm run test:api && npm run test:simple"
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.7",
+    "puppeteer": "^21.1.0"
+  }
+} 

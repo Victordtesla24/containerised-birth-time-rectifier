@@ -10,149 +10,57 @@ import uuid
 import random
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+from types import SimpleNamespace
 
 # logger initialization
 logger = logging.getLogger(__name__)
 
 from ai_service.api.services.openai.service import OpenAIService
 from ai_service.api.services.questionnaire_service_types import Question, QuestionOption, QUESTION_TYPES
+from ai_service.api.services.questionnaire_service_chart_calculator import chart_calculator
 
-# Question template categories
-QUESTION_TEMPLATES = {
-    "early_life_events": [
-        {
-            "id": "early_life_1",
-            "type": "open_text",
-            "text": "Please describe any significant events from your early childhood that you can recall or that were told to you by family members.",
-            "relevance": "high",
-            "category": "early_life_events"
-        },
-        {
-            "id": "early_life_2",
-            "type": "yes_no",
-            "text": "Were there any health issues or emergencies in your first few years of life?",
-            "relevance": "high",
-            "category": "early_life_events"
-        }
-    ],
-    "personality_traits": [
-        {
-            "id": "personality_1",
-            "type": "multiple_choice",
-            "text": "Which of these traits best describes your personality?",
-            "options": [
-                {"id": "p1_1", "text": "Logical and analytical"},
-                {"id": "p1_2", "text": "Emotional and intuitive"},
-                {"id": "p1_3", "text": "Practical and detail-oriented"},
-                {"id": "p1_4", "text": "Creative and imaginative"}
-            ],
-            "relevance": "medium",
-            "category": "personality_traits"
-        }
-    ],
-    "life_direction": [
-        {
-            "id": "direction_1",
-            "type": "open_text",
-            "text": "What major changes in life direction have you experienced, and at what ages did they occur?",
-            "relevance": "high",
-            "category": "life_direction"
-        }
-    ],
-    "time_of_birth": [
-        {
-            "id": "birth_time_1",
-            "type": "time_event",
-            "text": "If you know your birth time approximately, please specify what time of day you were born.",
-            "relevance": "high",
-            "category": "time_of_birth"
-        }
-    ],
-    "physical_characteristics": [
-        {
-            "id": "physical_1",
-            "type": "multiple_choice",
-            "text": "Which of these best describes your physical appearance?",
-            "options": [
-                {"id": "ph1_1", "text": "Tall and lean"},
-                {"id": "ph1_2", "text": "Medium height with balanced features"},
-                {"id": "ph1_3", "text": "Athletic build"},
-                {"id": "ph1_4", "text": "Shorter with sturdy build"}
-            ],
-            "relevance": "medium",
-            "category": "physical_characteristics"
-        }
-    ]
-}
-
-async def get_initial_questions(birth_details: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _format_chart_data_for_prompt(chart_data: Dict[str, Any]) -> str:
     """
-    Get initial questions for birth time rectification.
+    Format chart data for inclusion in an AI prompt.
 
     Args:
-        birth_details: Dictionary containing birth date, time, and location
+        chart_data: Dictionary with chart data
 
     Returns:
-        List of initial questions
+        Formatted string with chart data
     """
-    # Generate template questions based on birth details
-    template_questions = _generate_template_questions(birth_details)
+    if not chart_data:
+        return "No chart data available."
 
-    # Add unique IDs to each question if not already present
-    for q in template_questions:
-        if "id" not in q:
-            q["id"] = f"q_{uuid.uuid4().hex[:8]}"
+    formatted_text = []
 
-    return template_questions
+    # Add ascendant information
+    ascendant = chart_data.get("ascendant", {})
+    if ascendant:
+        asc_sign = ascendant.get("sign", "Unknown")
+        asc_degree = ascendant.get("degree", 0)
+        formatted_text.append(f"Ascendant: {asc_sign} {asc_degree}°")
 
-def _generate_template_questions(birth_details: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Generate template questions based on birth details.
+    # Add planet information
+    planets = chart_data.get("planets", {})
+    if planets:
+        formatted_text.append("\nPlanets:")
+        for planet, data in planets.items():
+            sign = data.get("sign", "Unknown")
+            degree = data.get("degree", 0)
+            formatted_text.append(f"- {planet}: {sign} {degree}°")
 
-    Args:
-        birth_details: Dictionary containing birth date, time, and location
+    # Add house information
+    houses = chart_data.get("houses", [])
+    if houses:
+        formatted_text.append("\nHouses:")
+        for i, house in enumerate(houses, 1):
+            sign = house.get("sign", "Unknown")
+            formatted_text.append(f"- House {i}: {sign}")
 
-    Returns:
-        List of questions
-    """
-    # Get birth date components
-    try:
-        if isinstance(birth_details.get("birth_date"), str):
-            birth_date_str = birth_details.get("birth_date", "")
-            birth_date = datetime.strptime(birth_date_str, "%Y-%m-%d").date() if birth_date_str else None
-        else:
-            birth_date = birth_details.get("birth_date")
-    except (ValueError, TypeError):
-        birth_date = None
+    return "\n".join(formatted_text)
 
-    # Determine question set based on how much information we have
-    has_time = birth_details.get("birth_time") is not None and birth_details.get("birth_time") != ""
 
-    questions = []
-
-    # Always include time of birth question if no time provided
-    if not has_time:
-        time_questions = QUESTION_TEMPLATES.get("time_of_birth", [])
-        questions.extend(time_questions)
-
-    # Add early life events questions
-    early_life_questions = QUESTION_TEMPLATES.get("early_life_events", [])
-    questions.extend(early_life_questions[:2])  # Limit to 2 questions
-
-    # Add personality questions
-    personality_questions = QUESTION_TEMPLATES.get("personality_traits", [])
-    questions.extend(personality_questions[:1])  # Limit to 1 question
-
-    # Add life direction questions
-    direction_questions = QUESTION_TEMPLATES.get("life_direction", [])
-    questions.extend(direction_questions[:1])  # Limit to 1 question
-
-    # Add physical characteristics questions
-    physical_questions = QUESTION_TEMPLATES.get("physical_characteristics", [])
-    questions.extend(physical_questions[:1])  # Limit to 1 question
-
-    # Make sure we have a limited, manageable set to start with
-    return questions[:5]  # Return maximum 5 initial questions
 
 async def generate_next_question(
     self,
@@ -168,246 +76,332 @@ async def generate_next_question(
 
     Returns:
         Next question
+
+    Raises:
+        ValueError: When an error occurs during question generation or OpenAI service is unavailable
     """
-    try:
-        # Check if we have enough questions for meaningful rectification
-        if len(previous_answers) >= 10:
-            return {
-                "question": None,
-                "complete": True,
-                "message": "Enough information collected for birth time rectification"
-            }
-
-        # Generate an astrologically relevant question
-        next_question = await self._generate_astrologically_relevant_question(
-            birth_details,
-            previous_answers
-        )
-
+    # Check if we have enough questions for meaningful rectification
+    if len(previous_answers) >= 10:
         return {
-            "question": next_question,
-            "complete": False,
-            "progress": {
-                "current": len(previous_answers) + 1,
-                "total_estimated": 10
-            }
+            "question": None,
+            "complete": True,
+            "message": "Enough information collected for birth time rectification"
         }
 
-    except Exception as e:
-        logger.error(f"Error generating next question: {e}")
+    # Generate an astrologically relevant question
+    next_question = await self._generate_astrologically_relevant_question(
+        birth_details,
+        previous_answers
+    )
 
-        # Fallback to a template question if AI generation fails
-        fallback_categories = ["life_direction", "personality_traits", "early_life_events"]
-        available_categories = [cat for cat in fallback_categories if cat in QUESTION_TEMPLATES]
-
-        if available_categories:
-            # Choose a random category and get a question
-            category = random.choice(available_categories)
-            template_questions = QUESTION_TEMPLATES.get(category, [])
-
-            if template_questions:
-                question = random.choice(template_questions).copy()
-                # Add a unique ID
-                question["id"] = f"q_{uuid.uuid4().hex[:8]}"
-
-                return {
-                    "question": question,
-                    "complete": False,
-                    "progress": {
-                        "current": len(previous_answers) + 1,
-                        "total_estimated": 10
-                    }
-                }
-
-        # If all else fails, return a generic question
-        generic_question = {
-            "id": f"q_{uuid.uuid4().hex[:8]}",
-            "type": "open_text",
-            "text": "Please describe any significant life events that might be connected to your astrological chart.",
-            "category": "general",
-            "relevance": "medium"
+    return {
+        "question": next_question,
+        "complete": False,
+        "progress": {
+            "current": len(previous_answers) + 1,
+            "total_estimated": 10
         }
-
-        return {
-            "question": generic_question,
-            "complete": False,
-            "progress": {
-                "current": len(previous_answers) + 1,
-                "total_estimated": 10
-            }
-        }
+    }
 
 async def _generate_astrologically_relevant_question(
     self,
     birth_details: Dict[str, Any],
-    previous_answers: List[Dict[str, Any]]
+    previous_questions: Optional[List[Dict[str, Any]]] = None,
+    previous_answers: Optional[List[Dict[str, Any]]] = None,
+    question_index: int = 0
 ) -> Dict[str, Any]:
     """
-    Generate an astrologically relevant question based on birth details and previous answers.
+    Generate an astrologically relevant question based on the user's birth chart.
 
     Args:
-        birth_details: Dictionary containing birth details
-        previous_answers: List of previous answers
+        birth_details: Dictionary with birth details
+        previous_questions: Previously asked questions
+        previous_answers: Previous answers provided by the user
+        question_index: Current question index
 
     Returns:
-        Astrologically relevant question
+        Dictionary with question data
+
+    Raises:
+        ValueError: When OpenAI service is not available or generation fails
     """
-    # Try to get OpenAI service first
+    # Ensure OpenAI service is available
     openai_service = self.openai_service
     if not openai_service:
         from ai_service.api.services.openai import get_openai_service
         openai_service = get_openai_service()
 
     if not openai_service:
-        # Fallback to template if no OpenAI service available
-        logger.warning("OpenAI service not available for astrological question generation")
-        return self._generate_fallback_question(previous_answers)
+        error_msg = "OpenAI service is required for astrological question generation but is not available"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-    # Extract key information from birth details
-    birth_date = birth_details.get("birth_date", "")
-    birth_time = birth_details.get("birth_time", "Unknown")
-    latitude = birth_details.get("latitude", 0)
-    longitude = birth_details.get("longitude", 0)
-
-    # Prepare previous questions and answers for context
-    qa_context = ""
-    if previous_answers:
-        qa_list = []
-        for idx, ans in enumerate(previous_answers):
-            q_text = ans.get("question", "")
-            a_text = str(ans.get("answer", ""))
-            qa_list.append(f"Q{idx+1}: {q_text}\nA{idx+1}: {a_text}")
-
-        qa_context = "\n\n".join(qa_list)
-
-    # Create system message with astrological knowledge
-    system_message = """
-    You are an expert Vedic astrologer specialized in birth time rectification.
-    Your task is to generate the next astrologically relevant question that will
-    help determine a person's accurate birth time based on their life events,
-    personality traits, and physical characteristics.
-
-    Based on the birth details and previous answers, create a targeted question that would
-    provide information useful for birth time rectification. Focus on aspects
-    that might be influenced by:
-    1. Ascendant sign (physical appearance, personal traits)
-    2. Moon position (emotional patterns)
-    3. House cusps (life areas and timing of events)
-    4. Planetary positions in houses (specific talents and challenges)
-
-    The question should be directly useful for birth time rectification.
-    """
-
-    # Create user message with context
-    user_message = f"""
-    BIRTH DETAILS:
-    Date: {birth_date}
-    Time: {birth_time}
-    Coordinates: {latitude}, {longitude}
-
-    PREVIOUS QUESTIONS AND ANSWERS:
-    {qa_context if qa_context else "No previous questions yet."}
-
-    Based on this information, generate the NEXT single most useful question for birth time rectification.
-    Return your response as a JSON object with the following structure:
-    {{
-      "id": "unique_question_id",
-      "type": "question_type", (one of: yes_no, multiple_choice, open_text, time_event, date_event, slider)
-      "text": "question_text",
-      "category": "question_category",
-      "relevance": "high/medium/low",
-      "options": [
-        {{"id": "option_id", "text": "option_text"}} (include only for multiple_choice questions)
-      ]
-    }}
-    """
 
     try:
-        # Call OpenAI API
+        # Format previous Q&A for the prompt
+        previous_qa = ""
+        if previous_questions and previous_answers:
+            for i, (q, a) in enumerate(zip(previous_questions, previous_answers)):
+                q_text = q.get("text", "")
+                a_text = a.get("answer", "")
+                previous_qa += f"Q{i+1}: {q_text}\nA{i+1}: {a_text}\n\n"
+
+        # Try to calculate birth chart data for more targeted questions
+        try:
+            # Extract the necessary data from birth_details dictionary
+            birth_datetime = datetime.fromisoformat(birth_details.get('birth_date', '') + 'T' + birth_details.get('birth_time', '00:00:00'))
+            geo_pos = SimpleNamespace(
+                lat=float(birth_details.get('latitude', 0)),
+                lon=float(birth_details.get('longitude', 0))
+            )
+            chart_data = chart_calculator.create_chart(birth_datetime, geo_pos)
+            chart_prompt = _format_chart_data_for_prompt(chart_data)
+        except Exception as e:
+            logger.error(f"Failed to calculate chart data for question generation: {e}")
+            chart_prompt = "Chart data is currently unavailable."
+
+        # Create prompt for OpenAI
+        system_prompt = """
+        You are an expert Vedic astrologer specializing in birth time rectification.
+
+        Generate ONE question that will help determine a person's accurate birth time.
+        Focus on life events, physical characteristics, or personality traits that are
+        strongly influenced by birth time (primarily ascendant/lagna and Moon position).
+
+        Format your response as a structured JSON object with these fields:
+        - id: A unique identifier for the question
+        - text: The actual question text
+        - type: The question type (multiple_choice, yes_no, date, time, or text)
+        - options: For multiple_choice questions, an array of option objects with id and text fields
+        - relevance: Brief explanation of how this helps determine birth time
+        - astrological_significance: Which chart factors this question helps determine
+        """
+
+        user_prompt = f"""
+        BIRTH DETAILS:
+        Date: {birth_details.get('birth_date', '')}
+        Approximate Time: {birth_details.get('birth_time', '')}
+        Location: {birth_details.get('birth_place', '')} (Lat: {birth_details.get('latitude', '')}, Lon: {birth_details.get('longitude', '')})
+
+        BIRTH CHART DATA:
+        {chart_prompt}
+
+        PREVIOUS QUESTIONS AND ANSWERS:
+        {previous_qa}
+
+        QUESTION INDEX: {question_index + 1}
+
+        Generate ONE question that would be most helpful for rectifying this person's birth time.
+        Focus on distinct life events or characteristics that change with different birth times.
+        If this is question #{question_index + 1}, it should be more specific than earlier questions.
+        """
+
+        # Call OpenAI service
         response = await openai_service.generate_completion(
             prompt={
                 "messages": [
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
                 ]
             },
-            task_type="question_generation",
-            max_tokens=500,
-            temperature=0.7
+            task_type="questionnaire",
+            max_tokens=1000,
+            temperature=0.4
         )
 
-        # Extract and parse the response
+        # Extract JSON content
         content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-        result = json.loads(content)
 
-        # Validate the required fields
-        if not all(key in result for key in ["id", "type", "text"]):
-            logger.warning("OpenAI response missing required fields for question")
-            return self._generate_fallback_question(previous_answers)
+        try:
+            # Parse the content as JSON
+            question_data = self._extract_json_from_content(content)
 
-        # Validate question type
-        if result.get("type") not in QUESTION_TYPES:
-            result["type"] = "open_text"  # Default to open text if invalid type
+            # Ensure the question has the required fields
+            if not question_data or not isinstance(question_data, dict):
+                error_msg = "Failed to generate a valid question"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
-        # Ensure options are present for multiple choice
-        if result.get("type") == "multiple_choice" and not result.get("options"):
-            result["options"] = [
-                {"id": f"opt_{uuid.uuid4().hex[:8]}", "text": "Yes, significantly"},
-                {"id": f"opt_{uuid.uuid4().hex[:8]}", "text": "Somewhat"},
-                {"id": f"opt_{uuid.uuid4().hex[:8]}", "text": "No, not at all"}
-            ]
+            if "text" not in question_data:
+                error_msg = "Generated question is missing text field"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
-        return result
+            # Assign a unique ID if not present
+            if "id" not in question_data:
+                question_data["id"] = f"q_{str(uuid.uuid4())[:8]}"
+
+            # Assign a type if not present
+            if "type" not in question_data:
+                question_data["type"] = "text"
+
+            return question_data
+
+        except Exception as e:
+            error_msg = f"Failed to parse question data from OpenAI response: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
     except Exception as e:
-        logger.error(f"Error generating question with OpenAI: {e}")
-        return self._generate_fallback_question(previous_answers)
+        error_msg = f"Failed to generate astrologically relevant question: {e}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
-def _generate_fallback_question(self, previous_answers: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _extract_json_from_content(self, content: str) -> Dict[str, Any]:
     """
-    Generate a fallback question when AI generation fails.
+    Extract JSON data from a string that might contain additional text.
 
     Args:
-        previous_answers: List of previous answers
+        content: String that may contain JSON
 
     Returns:
-        Fallback question
+        Extracted JSON data as a dictionary
+
+    Raises:
+        ValueError: If JSON cannot be extracted or parsed
     """
-    # Track which categories we've already used
-    used_categories = set()
-    for ans in previous_answers:
-        question = ans.get("question", {})
-        if isinstance(question, dict):
-            category = question.get("category", "")
-            if category:
-                used_categories.add(category)
+    if not content or not isinstance(content, str):
+        raise ValueError("Invalid content provided for JSON extraction")
 
-    # Find unused categories
-    all_categories = set(QUESTION_TEMPLATES.keys())
-    unused_categories = all_categories - used_categories
+    # Try direct JSON parsing first
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
 
-    if unused_categories:
-        # Use an unused category
-        category = random.choice(list(unused_categories))
-    else:
-        # All categories used, pick a random one
-        category = random.choice(list(all_categories))
+    # Try to extract JSON using regex patterns
+    import re
 
-    # Get questions from this category
-    category_questions = QUESTION_TEMPLATES.get(category, [])
+    # Try to find JSON between triple backticks
+    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
 
-    if category_questions:
-        # Pick a random question from the category
-        question = random.choice(category_questions).copy()
-        # Add a unique ID
-        question["id"] = f"q_{uuid.uuid4().hex[:8]}"
-        return question
+    # Try to find anything that looks like a JSON object
+    json_match = re.search(r'(\{[\s\S]*\})', content)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
 
-    # If all else fails, return a generic question
-    return {
-        "id": f"q_{uuid.uuid4().hex[:8]}",
-        "type": "open_text",
-        "text": "Please describe any significant life events that might be connected to your astrological chart.",
-        "category": "general",
-        "relevance": "medium"
-    }
+    # Final attempt - try to clean up the content
+    cleaned = re.sub(r'[^\{\}\[\]"\':\d,\.\w\s_-]', '', content)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        raise ValueError(f"Failed to extract valid JSON from content: {content[:100]}...")
+
+
+
+async def generate_questionnaire(
+    user_id: str,
+    rectification_type: str,
+    client_data: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Generate a complete questionnaire for birth time rectification.
+
+    Args:
+        user_id: User ID to generate questionnaire for
+        rectification_type: Type of rectification
+        client_data: Optional client data for personalization
+
+    Returns:
+        List of question dictionaries
+    """
+    try:
+        # Log the request
+        logger.info(f"Generating questionnaire for user {user_id}, type: {rectification_type}")
+
+        # Define standard questions based on rectification type
+        questions = []
+
+        # Add universal questions that apply to all rectification types
+        questions.append({
+            "id": f"q_birth_{uuid.uuid4().hex[:8]}",
+            "text": "Do you know if you were born closer to sunrise, midday, sunset, or during the night?",
+            "type": "multiple_choice",
+            "options": [
+                {"value": "sunrise", "text": "Around sunrise (early morning)"},
+                {"value": "midday", "text": "Around midday"},
+                {"value": "sunset", "text": "Around sunset (early evening)"},
+                {"value": "night", "text": "During the night (late evening/early morning)"},
+                {"value": "unknown", "text": "I don't know"}
+            ],
+            "category": "birth_circumstances"
+        })
+
+        questions.append({
+            "id": f"q_life_{uuid.uuid4().hex[:8]}",
+            "text": "What significant life events have occurred that had a major impact on your life path?",
+            "type": "text",
+            "category": "life_events"
+        })
+
+        # Add specialized questions based on rectification type
+        if rectification_type == "precise":
+            questions.append({
+                "id": f"q_precise_{uuid.uuid4().hex[:8]}",
+                "text": "Can you list 3-5 major life events with their exact dates (marriage, career change, etc.)?",
+                "type": "text",
+                "category": "life_events"
+            })
+
+            questions.append({
+                "id": f"q_health_{uuid.uuid4().hex[:8]}",
+                "text": "Have you experienced any significant health events? If so, please provide dates.",
+                "type": "text",
+                "category": "health"
+            })
+
+        elif rectification_type == "general":
+            questions.append({
+                "id": f"q_general_{uuid.uuid4().hex[:8]}",
+                "text": "In which period of your life did you experience the most significant changes?",
+                "type": "multiple_choice",
+                "options": [
+                    {"value": "childhood", "text": "Childhood (0-12 years)"},
+                    {"value": "teens", "text": "Teenage years (13-19)"},
+                    {"value": "early_adulthood", "text": "Early adulthood (20-29)"},
+                    {"value": "adulthood", "text": "Adulthood (30-45)"},
+                    {"value": "mid_life", "text": "Mid-life (46-60)"},
+                    {"value": "senior", "text": "Senior years (61+)"}
+                ],
+                "category": "life_phases"
+            })
+
+        # Personalize questions if client data is available
+        if client_data:
+            birth_details = client_data.get("birth_details", {})
+            if birth_details and "date" in birth_details:
+                birth_year = int(birth_details["date"].split("-")[0])
+                current_year = datetime.now().year
+                age = current_year - birth_year
+
+                # Add age-specific questions
+                if age > 30:
+                    questions.append({
+                        "id": f"q_age30_{uuid.uuid4().hex[:8]}",
+                        "text": "What major life changes occurred around your 30th birthday?",
+                        "type": "text",
+                        "category": "life_events"
+                    })
+
+                if age > 40:
+                    questions.append({
+                        "id": f"q_age40_{uuid.uuid4().hex[:8]}",
+                        "text": "What significant transitions or events occurred in your late 30s or early 40s?",
+                        "type": "text",
+                        "category": "life_events"
+                    })
+
+        return questions
+
+    except Exception as e:
+        logger.error(f"Error generating questionnaire: {e}")
+        # Return empty list instead of None to match return type
+        return []

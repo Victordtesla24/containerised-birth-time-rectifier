@@ -4,14 +4,60 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "start": "python -m ai_service.main",
-    "test": "pytest",
+    "build": "next build",
+    "start": "next start",
+    "test": "jest",
+    "test:watch": "jest --watch",
     "test:integration": "pytest -xvs tests/integration/",
     "test:unit": "pytest -xvs tests/unit/",
     "verify-api": "python tests/utils/verify_api_key.py",
-    "lint": "flake8 ai_service/",
+    "lint": "eslint --ext .js,.jsx,.ts,.tsx src/",
     "clean": "find . -type d -name __pycache__ -exec rm -rf {} +; find . -type d -name .pytest_cache -exec rm -rf {} +; find . -type d -name *.egg-info -exec rm -rf {} +",
     "setup": "pip install -r requirements.txt"
+  },
+  "dependencies": {
+    "events": "^3.3.0",
+    "next": "^14.2.0",
+    "node-mocks-http": "^1.16.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/plugin-transform-runtime": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "@babel/preset-react": "^7.23.3",
+    "@babel/preset-typescript": "^7.23.3",
+    "@babel/runtime": "^7.24.0",
+    "@playwright/test": "^1.51.1",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^14.2.1",
+    "@types/events": "^3.0.3",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.2.67",
+    "@types/react-dom": "^18.2.22",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
+    "babel-jest": "^29.7.0",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.0",
+    "eslint-plugin-react": "^7.34.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.4.2"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "jsdom",
+    "moduleNameMapper": {
+      "^@/(.*)$": "<rootDir>/src/$1"
+    },
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.js"
+    ]
   },
   "license": "UNLICENSED",
   "engines": {
@@ -19,8 +65,5 @@
   },
   "cacheDirectories": [
     ".next/cache"
-  ],
-  "devDependencies": {
-    "@playwright/test": "^1.51.1"
-  }
+  ]
 }

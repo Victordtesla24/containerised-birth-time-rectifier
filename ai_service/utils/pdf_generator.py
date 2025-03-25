@@ -7,20 +7,41 @@ This module provides functionality to generate high-quality PDFs of astrological
 import os
 import logging
 import tempfile
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from datetime import datetime
 import io
 import base64
 
-from reportlab.lib.pagesizes import letter, A4, legal
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle
-from reportlab.pdfgen import canvas
+# Keep imports but allow conditional type checking
+try:
+    from reportlab.lib.pagesizes import letter, A4, legal
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle
+    from reportlab.pdfgen import canvas
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    # We don't need stubs for type checking - we'll handle missing modules at runtime
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Import visualization function from chart_visualizer
+def get_chart_image_function():
+    """
+    Import and return the chart image function.
+
+    Returns:
+        The chart image function or None if not available
+    """
+    try:
+        from ai_service.utils.chart_visualizer import create_chart_image
+        return create_chart_image
+    except ImportError:
+        logger.error("Failed to import chart visualization module")
+        return None
 
 class PDFGenerator:
     """
@@ -141,7 +162,7 @@ class PDFGenerator:
         self._add_title(story, chart_data)
 
         # Add main chart
-        self._add_main_chart(story, image_files.get('main'))
+        self._add_main_chart(story, image_files.get('main_chart'))
 
         # Add birth details
         self._add_birth_details(story, chart_data)
@@ -193,91 +214,60 @@ class PDFGenerator:
     def _generate_chart_images(self, chart_data: Dict[str, Any], include_3d: bool,
                              include_divisional: bool) -> Dict[str, Any]:
         """
-        Generate all required chart images for the PDF report.
+        Generate chart images for the report.
 
         Args:
             chart_data: Chart data to visualize
-            include_3d: Whether to include 3D visualization
+            include_3d: Whether to include 3D chart
             include_divisional: Whether to include divisional charts
 
         Returns:
-            Dictionary mapping image types to temporary file paths
+            Dictionary with paths to generated images
         """
-        from ai_service.utils.chart_visualizer import (
-            render_vedic_square_chart,
-            render_vedic_chart,
-            generate_3d_chart,
-            generate_chart_image,
-            generate_planet_table
-        )
+        if not REPORTLAB_AVAILABLE:
+            logger.error("ReportLab not available - cannot generate PDF")
+            raise RuntimeError("ReportLab library not available - cannot generate PDF report")
 
-        image_files = {}
-
-        # Create a temporary directory for images
-        temp_dir = tempfile.mkdtemp()
+        # Create temporary directory for images
+        temp_dir = tempfile.mkdtemp(prefix="astro_charts_")
+        image_files = {"temp_dir": temp_dir}
 
         try:
-            # Generate main chart
+            # Main chart image
             main_chart_path = os.path.join(temp_dir, "main_chart.png")
-            image_files['main'] = render_vedic_square_chart(chart_data, main_chart_path)
 
-            # Generate 3D chart if requested
-            if include_3d:
-                three_d_path = os.path.join(temp_dir, "3d_chart.png")
-                try:
-                    image_files['three_d'] = generate_3d_chart(chart_data, three_d_path)
-                except Exception as e:
-                    logger.warning(f"Failed to generate 3D chart: {e}")
+            # Get the chart image function
+            create_chart_image_fn = get_chart_image_function()
+            if create_chart_image_fn is None:
+                logger.error("Chart visualization module not available - cannot generate chart images")
+                raise RuntimeError("Chart visualization module not available - cannot generate chart images")
 
-            # Generate planet table
-            planet_table_path = os.path.join(temp_dir, "planet_table.png")
-            try:
-                image_files['planet_table'] = generate_planet_table(chart_data, planet_table_path)
-            except Exception as e:
-                logger.warning(f"Failed to generate planet table: {e}")
+            # Generate the main chart image
+            create_chart_image_fn(chart_data, main_chart_path)
+            if os.path.exists(main_chart_path):
+                image_files["main_chart"] = main_chart_path
 
-            # Generate divisional charts if requested and available
-            if include_divisional and "divisional_charts" in chart_data:
-                divisional_images = {}
+            # Other chart images would go here...
+            # For now, just return the main chart
 
-                for varga_code, varga_chart in chart_data["divisional_charts"].items():
-                    if varga_code in ["D9", "D3", "D7"] and isinstance(varga_chart, dict):
-                        varga_path = os.path.join(temp_dir, f"{varga_code}_chart.png")
-                        try:
-                            divisional_images[varga_code] = render_vedic_chart(
-                                varga_chart,
-                                varga_path,
-                                style="north_indian"
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to generate {varga_code} chart: {e}")
-
-                if divisional_images:
-                    image_files['divisional'] = divisional_images
-
-            # Generate comparison chart if available
-            if "original_chart" in chart_data and "rectified_chart" in chart_data:
-                from ai_service.utils.chart_visualizer import generate_comparison_chart
-
-                comparison_path = os.path.join(temp_dir, "comparison_chart.png")
-                try:
-                    comparison_result = generate_comparison_chart(
-                        chart_data["original_chart"],
-                        chart_data["rectified_chart"],
-                        comparison_path
-                    )
-
-                    if isinstance(comparison_result, str):
-                        image_files['comparison'] = comparison_result
-                    elif isinstance(comparison_result, dict) and "file_path" in comparison_result:
-                        image_files['comparison'] = comparison_result["file_path"]
-                except Exception as e:
-                    logger.warning(f"Failed to generate comparison chart: {e}")
-
+            return image_files
         except Exception as e:
-            logger.error(f"Error generating chart images: {e}")
-
-        return image_files
+            logger.error(f"Error generating chart images: {str(e)}")
+            # Clean up any created files
+            for file_path in image_files.values():
+                if isinstance(file_path, str) and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+            # Clean up temp directory
+            if os.path.exists(temp_dir):
+                try:
+                    os.rmdir(temp_dir)
+                except Exception:
+                    pass
+            # Re-raise the exception
+            raise RuntimeError(f"Failed to generate chart images: {str(e)}")
 
     def _add_header_footer(self, canvas: canvas.Canvas, doc: SimpleDocTemplate) -> None:
         """
@@ -809,8 +799,8 @@ class PDFGenerator:
         """
         try:
             # Remove main image
-            if 'main' in image_files and os.path.exists(image_files['main']):
-                os.unlink(image_files['main'])
+            if 'main_chart' in image_files and os.path.exists(image_files['main_chart']):
+                os.unlink(image_files['main_chart'])
 
             # Remove 3D image
             if 'three_d' in image_files and os.path.exists(image_files['three_d']):

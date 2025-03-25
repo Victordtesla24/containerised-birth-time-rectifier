@@ -15,11 +15,6 @@ const nextConfig = {
     }
     return config;
   },
-  // Enable experimental features as needed
-  experimental: {
-    // Enable app directory
-    appDir: false,
-  },
   // Output standalone builds for containerization
   output: process.env.NODE_ENV === 'production' ? 'standalone' : undefined,
 };

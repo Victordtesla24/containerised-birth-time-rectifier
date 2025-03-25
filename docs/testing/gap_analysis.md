@@ -24,7 +24,7 @@ This document identifies gaps, simulations, and mockups in the backend services 
 
 9. **Session Management**: ✅ The session management is now properly implemented with Redis integration and proper error handling.
 
-10. **WebSocket Implementation**: ⚠️ NEW Real-time updates through WebSocket connections aren't consistently implemented, particularly for rectification progress updates.
+10. **WebSocket Implementation**: ⚠️ Real-time updates through WebSocket connections aren't consistently implemented, particularly for rectification progress updates.
 
 ## Detailed Findings with Code-Level Analysis
 
@@ -602,15 +602,15 @@ def generate_chart_pdf(chart_data, output_path, include_interpretation=True, inc
 | `ai_service/core/rectification/chart_calculator.py` | 98-102 | ⚠️ UNRESOLVED | FALLBACK | Uses fallback coordinates when GeoPos creation fails. |
 | `ai_service/core/rectification/chart_calculator.py` | 148-158 | ⚠️ UNRESOLVED | MOCK | Creates placeholder data for outer planets if missing from ephemeris. |
 | `ai_service/core/rectification/chart_calculator.py` | 251-279 | ⚠️ UNRESOLVED | GAP | Doesn't verify chart accuracy against Vedic astrological standards when requested. |
-| `ai_service/core/rectification.py` | 58-62 | ⚠️ UNRESOLVED | FALLBACK | Mock implementation for OpenAI service when not available. |
-| `ai_service/core/rectification.py` | 269-273 | ⚠️ UNRESOLVED | GAP | If Flatlib is not available, returns original time with very low confidence instead of using alternative calculation. |
-| `ai_service/core/rectification.py` | 278-280 | ⚠️ UNRESOLVED | GAP | Returns original time with low confidence if no answers provided, without attempting alternative rectification methods. |
-| `ai_service/core/rectification.py` | 388-393 | ⚠️ UNRESOLVED | GAP | If no candidate scores found in rectification, returns original time with medium confidence without exploring other techniques. |
-| `ai_service/core/rectification.py` | 403-405 | ⚠️ UNRESOLVED | GAP | If best score is 0, returns original time with medium confidence without alternative analysis. |
-| `ai_service/core/rectification.py` | 468-476 | ⚠️ UNRESOLVED | GAP | If Flatlib is not available, returns original time with very low confidence for transit analysis. |
-| `ai_service/core/rectification.py` | 209-256 | ⚠️ UNRESOLVED | IMPLEMENTATION | MinimalChart implementation provides inaccurate planetary calculations. |
-| `ai_service/core/rectification.py` | 508-562 | ⚠️ UNRESOLVED | INCONSISTENT | AI-assisted rectification doesn't consistently handle API response formats. |
-| `ai_service/core/rectification.py` | 661-699 | ⚠️ UNRESOLVED | GAP | Transit analysis doesn't fully implement proper astrological significance evaluation. |
+| `ai_service/core/rectification/main.py` | 58-62 | ⚠️ UNRESOLVED | FALLBACK | Mock implementation for OpenAI service when not available. |
+| `ai_service/core/rectification/main.py` | 269-273 | ⚠️ UNRESOLVED | GAP | If Flatlib is not available, returns original time with very low confidence instead of using alternative calculation. |
+| `ai_service/core/rectification/main.py` | 278-280 | ⚠️ UNRESOLVED | GAP | Returns original time with low confidence if no answers provided, without attempting alternative rectification methods. |
+| `ai_service/core/rectification/main.py` | 388-393 | ⚠️ UNRESOLVED | GAP | If no candidate scores found in rectification, returns original time with medium confidence without exploring other techniques. |
+| `ai_service/core/rectification/main.py` | 403-405 | ⚠️ UNRESOLVED | GAP | If best score is 0, returns original time with medium confidence without alternative analysis. |
+| `ai_service/core/rectification/main.py` | 468-476 | ⚠️ UNRESOLVED | GAP | If Flatlib is not available, returns original time with very low confidence for transit analysis. |
+| `ai_service/core/rectification/main.py` | 209-256 | ⚠️ UNRESOLVED | IMPLEMENTATION | MinimalChart implementation provides inaccurate planetary calculations. |
+| `ai_service/core/rectification/main.py` | 508-562 | ⚠️ UNRESOLVED | INCONSISTENT | AI-assisted rectification doesn't consistently handle API response formats. |
+| `ai_service/core/rectification/main.py` | 661-699 | ⚠️ UNRESOLVED | GAP | Transit analysis doesn't fully implement proper astrological significance evaluation. |
 
 #### Code-Level Analysis:
 
@@ -648,9 +648,9 @@ if not SWISSEPH_AVAILABLE:
 ```python
 # Import with proper alternative library support
 try:
-    import swisseph as swe
+    import pyswisseph as swe
     SWISSEPH_AVAILABLE = True
-    CALCULATION_ENGINE = "swisseph"
+    CALCULATION_ENGINE = "pyswisseph"
 except ImportError:
     try:
         # Alternative calculation library
@@ -668,4 +668,521 @@ except ImportError:
         raise ImportError("Required astrological libraries (swisseph or flatlib) are not available")
 
 # Update the calculate_chart function to use alternative implementations
-def calculate_chart(birth_dt, latitude, longitude, timezone_str, house_system
+def calculate_chart(birth_dt, latitude, longitude, timezone_str, house_system='P'):
+    """
+    Calculate an astrological chart.
+
+    Args:
+        birth_dt: Birth date and time
+        latitude: Birth latitude
+        longitude: Birth longitude
+        timezone_str: Timezone string
+        house_system: House system to use
+
+    Returns:
+        Chart data dictionary
+
+    Raises:
+        ImportError: If no calculation libraries are available
+        ValueError: If calculation fails
+    """
+    if not CALCULATION_ENGINE:
+        raise ImportError("No astrological calculation libraries available")
+
+    try:
+        if CALCULATION_ENGINE == "pyswisseph":
+            return _calculate_chart_swisseph(birth_dt, latitude, longitude, timezone_str, house_system)
+        elif CALCULATION_ENGINE == "flatlib":
+            return _calculate_chart_flatlib(birth_dt, latitude, longitude, timezone_str, house_system)
+        else:
+            raise ImportError("No valid calculation engine available")
+    except Exception as e:
+        logger.error(f"Chart calculation failed: {e}")
+        logger.error(traceback.format_exc())
+        # Provide clear error with details instead of dummy data
+        raise ValueError(f"Failed to calculate chart: {str(e)}")
+```
+
+**Verification Criteria:**
+1. Function must fail with clear error messages when dependencies are missing
+2. Alternative calculation methods should be properly implemented
+3. Error handling should be consistent across all calculation paths
+4. No dummy data should be returned in error cases
+5. Tests should verify behavior with and without required libraries
+
+**2. Timezone Finder Fallback Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/core/rectification/chart_calculator.py
+try:
+    from timezonefinder import TimezoneFinder
+    TZ_FINDER_AVAILABLE = True
+except ImportError:
+    TZ_FINDER_AVAILABLE = False
+    logging.warning("timezonefinder not available. Using simplified timezone lookup.")
+
+# Later in the code:
+def get_timezone_from_coordinates(latitude, longitude):
+    if not TZ_FINDER_AVAILABLE:
+        # Returns hardcoded fallback without proper warning
+        return "UTC"
+```
+
+**Issues:**
+1. Code silently falls back to UTC timezone without clear notification
+2. No attempt to use alternative timezone lookup methods
+3. No validation of coordinates before lookup
+4. No proper error handling for lookup failures
+
+**Required Changes:**
+```python
+def get_timezone_from_coordinates(latitude: float, longitude: float) -> str:
+    """
+    Get timezone string from geographic coordinates with robust fallbacks.
+
+    Args:
+        latitude: Latitude in decimal degrees
+        longitude: Longitude in decimal degrees
+
+    Returns:
+        IANA timezone string (e.g., 'America/New_York')
+
+    Raises:
+        ValueError: If timezone cannot be determined
+    """
+    # Validate coordinates
+    if not -90 <= latitude <= 90:
+        raise ValueError(f"Invalid latitude: {latitude} (must be between -90 and 90)")
+    if not -180 <= longitude <= 180:
+        raise ValueError(f"Invalid longitude: {longitude} (must be between -180 and 180)")
+
+    # Try primary method: TimezoneFinder
+    if TZ_FINDER_AVAILABLE:
+        try:
+            tf = TimezoneFinder()
+            timezone_str = tf.timezone_at(lat=latitude, lng=longitude)
+
+            if timezone_str:
+                return timezone_str
+
+            # If exact lookup fails, try with a small radius
+            timezone_str = tf.closest_timezone_at(lat=latitude, lng=longitude, delta_degree=1)
+            if timezone_str:
+                return timezone_str
+        except Exception as e:
+            logger.warning(f"TimezoneFinder lookup failed: {e}")
+
+    # Try alternative method: Geopy with Nominatim
+    try:
+        from geopy.geocoders import Nominatim
+        geolocator = Nominatim(user_agent="birth_time_rectifier")
+        location = geolocator.reverse(f"{latitude}, {longitude}", language="en")
+
+        if location and location.raw.get("address", {}).get("country_code"):
+            country_code = location.raw["address"]["country_code"].upper()
+            # Use country code to estimate timezone
+            import pytz
+            for tz in pytz.all_timezones:
+                if country_code in tz:
+                    logger.info(f"Found timezone {tz} for coordinates using country code")
+                    return tz
+    except Exception as e:
+        logger.warning(f"Geopy timezone lookup failed: {e}")
+
+    # Last resort: Use UTC with clear warning
+    logger.warning(f"Could not determine timezone for coordinates ({latitude}, {longitude}). Using UTC.")
+    return "UTC"
+```
+
+**Verification Criteria:**
+1. Function should try multiple methods to determine timezone
+2. It should validate coordinates before lookup
+3. Clear warnings should be logged when falling back to UTC
+4. Tests should verify behavior with and without TimezoneFinder
+5. Documentation should clearly indicate fallback behavior
+
+**3. Outer Planets Calculation Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/core/rectification/chart_calculator.py
+# When outer planets are missing from ephemeris:
+if planet_name in ["Uranus", "Neptune", "Pluto"] and planet_data is None:
+    # Creates placeholder data with inaccurate positions
+    planet_data = {
+        "longitude": random.uniform(0, 360),  # Random position!
+        "latitude": 0,
+        "distance": 0,
+        "speed": 0
+    }
+```
+
+**Issues:**
+1. Creates completely random positions for missing outer planets
+2. No indication to the user that the data is fabricated
+3. Could lead to completely incorrect astrological interpretations
+4. No attempt to use alternative calculation methods
+
+**Required Changes:**
+```python
+def calculate_outer_planet_position(jd: float, planet_id: int) -> Dict[str, Any]:
+    """
+    Calculate accurate positions for outer planets using Swiss Ephemeris.
+
+    Args:
+        jd: Julian day for calculation
+        planet_id: Swiss Ephemeris planet ID
+
+    Returns:
+        Dictionary with planet position data
+
+    Raises:
+        EphemerisError: If Swiss Ephemeris is not available
+        ValueError: If calculation fails with Swiss Ephemeris
+    """
+    if not SWISSEPH_AVAILABLE:
+        raise EphemerisError("Swiss Ephemeris not available for outer planet calculation")
+
+    try:
+        # Calculate planet positions with high precision
+        result, status = swe.calc_ut(jd, planet_id, swe.FLG_SWIEPH | swe.FLG_SPEED)
+
+        # Extract coordinates
+        longitude = result[0]  # Longitude in degrees
+        latitude = result[1]   # Latitude in degrees
+        distance = result[2]   # Distance in AU
+        speed_lon = result[3]  # Speed in longitude (deg/day)
+
+        # Determine if planet is retrograde
+        retrograde = speed_lon < 0
+
+        # Calculate sign
+        sign_num = int(longitude / 30) % 12
+        signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+        sign = signs[sign_num]
+
+        return {
+            "longitude": longitude,
+            "latitude": latitude,
+            "distance": distance,
+            "speed": speed_lon,
+            "sign": sign,
+            "retrograde": retrograde
+        }
+    except Exception as e:
+        logger.error(f"Error calculating planet position with Swiss Ephemeris: {e}")
+        raise ValueError(f"Failed to calculate planet position: {str(e)}")
+
+# In the main chart calculation function:
+# Replace the random placeholder with:
+if planet_name in ["Uranus", "Neptune", "Pluto"] and planet_data is None:
+    # Instead of random data, raise an error
+    raise EphemerisError(f"Cannot calculate position for {planet_name}. Required ephemeris data is missing.")
+```
+
+**Verification Criteria:**
+1. Function must raise clear errors when ephemeris data is missing
+2. No random or fabricated data should be returned
+3. Error messages should indicate the specific missing planet
+4. Tests should verify behavior with missing ephemeris data
+5. Documentation should clearly indicate requirements for outer planet calculations
+
+**4. Vedic Chart Verification Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/core/rectification/chart_calculator.py
+# Missing implementation for Vedic chart verification
+```
+
+**Issues:**
+1. No verification of chart against Vedic astrological standards
+2. No validation of nakshatra positions
+3. No calculation of Vedic divisional charts
+4. No verification of ayanamsa application
+
+**Required Changes:**
+```python
+async def _verify_vedic_standards(chart_data: Dict[str, Any], birth_dt: datetime) -> Dict[str, Any]:
+    """
+    Verify chart calculations against Vedic astrological standards.
+
+    This checks for:
+    1. Proper nakshatra placements
+    2. Correct rashi (sign) calculations
+    3. Accurate ayanamsa application
+    4. Proper dignities and debilities
+    5. Correct varga (divisional chart) calculations
+
+    Args:
+        chart_data: Chart data to verify
+        birth_dt: Birth datetime
+
+    Returns:
+        Verified chart data with any necessary corrections
+    """
+    try:
+        # Import Vedic-specific modules
+        from ai_service.core.rectification.vedic_calculation import (
+            get_nakshatra_from_longitude,
+            calculate_varga_charts,
+            calculate_planet_dignity,
+            calculate_shadbala,
+            get_ayanamsha_value,
+            verify_vedic_coordinates,
+            calculate_planetary_avasthas,
+            calculate_dasa_periods
+        )
+
+        # Add ayanamsha information with proper calculation
+        ayanamsha_value = get_ayanamsha_value(birth_dt)
+        chart_data["ayanamsha"] = {
+            "value": ayanamsha_value,
+            "type": "Lahiri",  # Default standard for Vedic astrology
+            "verified": True
+        }
+
+        # First, verify that all coordinates are properly adjusted for ayanamsha
+        verified_coords = verify_vedic_coordinates(chart_data, ayanamsha_value)
+        if verified_coords.get("corrections", []):
+            logger.info(f"Applied {len(verified_coords['corrections'])} ayanamsha corrections")
+            # Apply the corrections to the chart data
+            for correction in verified_coords.get("corrections", []):
+                item_type = correction.get("type")
+                item_name = correction.get("name")
+                corrected_longitude = correction.get("corrected_longitude")
+
+                if item_type == "planet" and item_name in chart_data.get("planets", {}):
+                    chart_data["planets"][item_name]["longitude"] = corrected_longitude
+                    chart_data["planets"][item_name]["corrected"] = True
+                elif item_type == "house" and item_name.isdigit():
+                    house_index = int(item_name) - 1
+                    if 0 <= house_index < len(chart_data.get("houses", [])):
+                        chart_data["houses"][house_index]["longitude"] = corrected_longitude
+                        chart_data["houses"][house_index]["corrected"] = True
+                elif item_type == "angle" and item_name in chart_data.get("angles", {}):
+                    chart_data["angles"][item_name]["longitude"] = corrected_longitude
+                    chart_data["angles"][item_name]["corrected"] = True
+
+        # Verify and add nakshatra positions
+        chart_data["nakshatras"] = {}
+        for planet_name, planet_data in chart_data.get("planets", {}).items():
+            longitude = planet_data.get("longitude", 0)
+
+            # Calculate nakshatra
+            nakshatra_info = get_nakshatra_from_longitude(longitude)
+
+            # Store nakshatra information
+            chart_data["nakshatras"][planet_name] = nakshatra_info
+
+            # Add to planet data
+            planet_data["nakshatra"] = nakshatra_info.get("name")
+            planet_data["nakshatra_pada"] = nakshatra_info.get("pada")
+            planet_data["nakshatra_longitude"] = nakshatra_info.get("longitude")
+            planet_data["nakshatra_lord"] = nakshatra_info.get("lord")
+
+        # Calculate and verify varga (divisional) charts - MANDATORY for Vedic astrology
+        varga_charts = calculate_varga_charts(chart_data)
+        chart_data["varga_charts"] = varga_charts
+
+        # Verify all required divisional charts are present
+        required_vargas = ["D1", "D9", "D3", "D7", "D10", "D12"]
+        missing_vargas = [v for v in required_vargas if v not in varga_charts]
+
+        if missing_vargas:
+            missing_vargas_str = ', '.join(missing_vargas)
+            logger.error(f"Missing critical divisional charts: {missing_vargas_str}")
+            raise ValueError(f"Vedic verification failed: Missing required divisional charts: {missing_vargas_str}")
+
+        # Calculate dasa periods (Vimshottari dasa)
+        chart_data["dasa_periods"] = calculate_dasa_periods(
+            birth_dt=birth_dt,
+            moon_longitude=chart_data.get("planets", {}).get("moon", {}).get("longitude", 0),
+            ayanamsha=ayanamsha_value
+        )
+
+        # Verify overall chart integrity
+        chart_data["verification_details"] = {
+            "verified_against": "vedic_standards",
+            "verified_at": datetime.now().isoformat(),
+            "verification_status": "verified",
+            "ayanamsha": ayanamsha_value,
+            "ayanamsha_type": "Lahiri"
+        }
+
+        return chart_data
+
+    except ImportError as ie:
+        logger.error(f"Error importing Vedic calculation modules: {ie}")
+        # Don't fall back to simplified implementation - raise the error for proper handling
+        raise ValueError(f"Vedic calculation modules not available: {str(ie)}")
+    except Exception as e:
+        logger.error(f"Error during Vedic verification: {e}")
+        logger.error(traceback.format_exc())
+        # Don't return unverified chart - raise the error for proper handling
+        raise ValueError(f"Vedic verification failed: {str(e)}")
+```
+
+**Verification Criteria:**
+1. Function must properly verify all aspects of Vedic chart calculation
+2. It should calculate and validate all required divisional charts
+3. Nakshatra positions should be accurately calculated and verified
+4. Ayanamsha application should be properly verified
+5. Tests should verify behavior with various birth data inputs
+
+**5. WebSocket Implementation Issue:**
+
+**Current Implementation:**
+```python
+# In ai_service/services/websocket_service.py
+# Missing implementation for real-time rectification progress updates
+```
+
+**Issues:**
+1. WebSocket service exists but isn't used for rectification progress updates
+2. No real-time feedback during long-running rectification process
+3. Client has no way to know the current status of rectification
+4. No error handling for WebSocket connection failures
+
+**Required Changes:**
+```python
+# In ai_service/core/rectification/main.py
+# Add progress reporting to rectification process:
+
+async def comprehensive_rectification(
+    birth_dt: datetime,
+    latitude: float,
+    longitude: float,
+    timezone: str,
+    answers: List[Dict[str, Any]],
+    events: Optional[List[Dict[str, Any]]] = None,
+    chart_id: Optional[str] = None,
+    options: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None  # Add session_id parameter
+) -> Dict[str, Any]:
+    """
+    Perform comprehensive birth time rectification with real-time progress updates.
+    """
+    # Initialize options
+    if options is None:
+        options = {}
+
+    # Get WebSocket manager for progress updates if session_id is provided
+    websocket_manager = None
+    if session_id:
+        from ai_service.services.websocket_service import get_websocket_manager
+        websocket_manager = get_websocket_manager()
+
+    # Generate unique rectification ID
+    rectification_id = f"rect_{uuid.uuid4().hex[:10]}"
+
+    # Report initial progress
+    if websocket_manager and session_id:
+        await websocket_manager.emit_rectification_progress(
+            session_id=session_id,
+            progress=5,
+            message="Starting rectification process",
+            chart_id=chart_id or "unknown",
+            rectification_id=rectification_id,
+            status="processing",
+            details={
+                "start_time": datetime.now()
+            }
+        )
+
+    try:
+        # Verify ephemeris files
+        if websocket_manager and session_id:
+            await websocket_manager.emit_rectification_progress(
+                session_id=session_id,
+                progress=10,
+                message="Verifying astronomical data",
+                chart_id=chart_id or "unknown",
+                rectification_id=rectification_id
+            )
+
+        verified = await verify_ephemeris_files()
+        if not verified:
+            raise ValueError("Swiss Ephemeris files not available for rectification")
+
+        # Calculate original chart
+        if websocket_manager and session_id:
+            await websocket_manager.emit_rectification_progress(
+                session_id=session_id,
+                progress=20,
+                message="Calculating initial chart",
+                chart_id=chart_id or "unknown",
+                rectification_id=rectification_id
+            )
+
+        original_chart = calculate_chart(birth_dt, latitude, longitude, timezone)
+
+        # Execute primary rectification method
+        if websocket_manager and session_id:
+            await websocket_manager.emit_rectification_progress(
+                session_id=session_id,
+                progress=40,
+                message="Analyzing questionnaire answers",
+                chart_id=chart_id or "unknown",
+                rectification_id=rectification_id,
+                details={
+                    "techniques": ["Questionnaire analysis", "Event correlation"]
+                }
+            )
+
+        # ... existing rectification code ...
+
+        # Report AI analysis progress
+        if websocket_manager and session_id:
+            await websocket_manager.emit_rectification_progress(
+                session_id=session_id,
+                progress=70,
+                message="Performing AI-assisted analysis",
+                chart_id=chart_id or "unknown",
+                rectification_id=rectification_id,
+                details={
+                    "techniques": ["AI pattern recognition", "Astrological validation"]
+                }
+            )
+
+        # ... more rectification code ...
+
+        # Report completion
+        if websocket_manager and session_id:
+            await websocket_manager.emit_rectification_complete(
+                session_id=session_id,
+                chart_id=chart_id or "unknown",
+                rectification_id=rectification_id,
+                result={
+                    "rectified_time": rectified_time.isoformat(),
+                    "confidence_score": confidence,
+                    "time_shift_minutes": int((rectified_time - birth_dt).total_seconds() / 60)
+                }
+            )
+
+        # Return result
+        return result
+
+    except Exception as e:
+        # Report error through WebSocket
+        if websocket_manager and session_id:
+            await websocket_manager.emit_rectification_error(
+                session_id=session_id,
+                chart_id=chart_id or "unknown",
+                rectification_id=rectification_id,
+                error_message=str(e),
+                error_code="RECTIFICATION_ERROR"
+            )
+
+        # Re-raise the exception
+        raise
+```
+
+**Verification Criteria:**
+1. WebSocket updates should be sent at key points in the rectification process
+2. Progress percentage should accurately reflect the current stage
+3. Error handling should properly report failures through WebSocket
+4. Client should receive completion notification with results
+5. Tests should verify WebSocket message sequence and content

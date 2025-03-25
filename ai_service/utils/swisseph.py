@@ -5,7 +5,8 @@ This module forwards all imports to the installed swisseph package.
 
 import logging
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -122,119 +123,298 @@ FLG_SIDEREAL = SEFLG_SIDEREAL
 # Set ephemeris path from environment
 EPHE_PATH = os.environ.get("SWISSEPH_PATH", "/app/ephemeris")
 
-# Try to import the real Swiss Ephemeris library
+# Attempt to import Swiss Ephemeris
 try:
-    # Try the standard import first
-    import swisseph as swe
+    import pyswisseph as swe
+    # Verify that the module has the required attributes
+    required_attributes = ['julday', 'calc', 'calc_ut', 'houses', 'set_ephe_path', 'SUN']
 
-    logger.info(f"Using swisseph package with Moshier theory calculations")
+    for attr in required_attributes:
+        if not hasattr(swe, attr):
+            raise AttributeError(f"Swiss Ephemeris module missing required attribute: {attr}")
 
-    # Initialize the ephemeris path just in case files are available
-    swe.set_ephe_path(EPHE_PATH)
-
-    # Always use Moshier mode (built-in) since ephemeris files might not be available
-    # This ensures we always get real calculations, not fallbacks
-    def calc(jd, planet, iflag=0):
-        iflag |= SEFLG_MOSEPH  # Always use Moshier theory
-        return swe.calc(jd, planet, iflag)
-
-    def calc_ut(jd, planet, iflag=0):
-        iflag |= SEFLG_MOSEPH  # Always use Moshier theory
-        return swe.calc_ut(jd, planet, iflag)
-
-    # Export other functions directly
-    julday = swe.julday
-    houses = swe.houses
-    houses_ex = swe.houses_ex
-    set_ephe_path = swe.set_ephe_path
-    set_sid_mode = swe.set_sid_mode
-    get_ayanamsa_ut = swe.get_ayanamsa_ut
-    get_ayanamsa_name = swe.get_ayanamsa_name
-    set_topo = swe.set_topo
-
+    SWISS_EPHEMERIS_AVAILABLE = True
+    logger.info("Swiss Ephemeris successfully imported with all required attributes")
 except (ImportError, AttributeError) as e:
-    # If import fails, try alternative pyswisseph
     try:
-        import pyswisseph as swe  # type: ignore
+        # Fall back to swisseph if pyswisseph is not available (for backward compatibility)
+        import swisseph as swe
+        required_attributes = ['julday', 'calc', 'calc_ut', 'houses', 'set_ephe_path', 'SUN']
 
-        logger.info(f"Using pyswisseph package with Moshier theory calculations")
+        for attr in required_attributes:
+            if not hasattr(swe, attr):
+                raise AttributeError(f"Swiss Ephemeris module missing required attribute: {attr}")
 
-        # Initialize the ephemeris path just in case files are available
-        swe.set_ephe_path(EPHE_PATH)
+        SWISS_EPHEMERIS_AVAILABLE = True
+        logger.warning("Using swisseph instead of pyswisseph. Consider upgrading to pyswisseph.")
+    except (ImportError, AttributeError) as e2:
+        logger.error(f"Failed to import Swiss Ephemeris (pyswisseph/swisseph) or missing required attributes: {e2}")
+        SWISS_EPHEMERIS_AVAILABLE = False
 
-        # Always use Moshier mode (built-in) since ephemeris files might not be available
-        swe.set_ephe_path(None)  # This forces Moshier mode
+# Set ephemeris path if available
+if SWISS_EPHEMERIS_AVAILABLE:
+    # Check for ephemeris path in environment variable
+    ephe_path = os.environ.get('EPHEMERIS_PATH')
 
-        # Define functions with Moshier flag always set
-        def calc(jd, planet, iflag=0):
-            iflag |= SEFLG_MOSEPH  # Always use Moshier theory
-            return swe.calc(jd, planet, iflag)
+    # If not in environment, check common locations
+    if not ephe_path:
+        possible_paths = [
+            # Check current directory
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ephe'),
+            # Check parent directory
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ephe'),
+            # Check root directory
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ephe'),
+        ]
 
-        def calc_ut(jd, planet, iflag=0):
-            iflag |= SEFLG_MOSEPH  # Always use Moshier theory
-            return swe.calc_ut(jd, planet, iflag)
+        for path in possible_paths:
+            if os.path.exists(path):
+                ephe_path = path
+                break
 
-        # Export other functions directly
-        julday = swe.julday
-        houses = swe.houses
-        houses_ex = swe.houses_ex
-        set_ephe_path = swe.set_ephe_path
-        set_sid_mode = swe.set_sid_mode
-        get_ayanamsa_ut = swe.get_ayanamsa_ut
-        get_ayanamsa_name = swe.get_ayanamsa_name
-        set_topo = swe.set_topo
+    # Set the ephemeris path if found
+    if ephe_path:
+        try:
+            # Use safe attribute checking
+            set_ephe_path_fn = getattr(swe, 'set_ephe_path', None)
+            if set_ephe_path_fn and callable(set_ephe_path_fn):
+                set_ephe_path_fn(ephe_path)
+                logger.info(f"Set Swiss Ephemeris path to: {ephe_path}")
+            else:
+                logger.warning("set_ephe_path function not available in swisseph module")
+        except Exception as e:
+            logger.warning(f"Failed to set Swiss Ephemeris path: {e}")
+    else:
+        logger.warning("No ephemeris files found. Swiss Ephemeris will use internal planets only.")
 
-    except ImportError:
-        # Create a fallback module if pyswisseph is not available
-        logger.warning("Swiss Ephemeris (pyswisseph) is not available. Using fallback implementation.")
+class SwissEphError(Exception):
+    """Exception raised for Swiss Ephemeris errors."""
+    pass
 
-        # Create a dummy module for the SwissEph functions to prevent crashes
-        class DummySwe:
-            """Fallback implementation for SwissEph when the library is not available."""
+def initialize_swiss_ephemeris():
+    """
+    Initialize the Swiss Ephemeris library.
 
-            def set_ephe_path(self, path):
-                logger.warning("SwissEph not available - set_ephe_path has no effect")
-                return 0
+    Raises:
+        SwissEphError: If Swiss Ephemeris is not available
+    """
+    if not SWISS_EPHEMERIS_AVAILABLE:
+        raise SwissEphError("Swiss Ephemeris (swisseph) is required but not available")
 
-            def set_sid_mode(self, mode, t0=0, ayan_t0=0):
-                logger.warning("SwissEph not available - set_sid_mode has no effect")
-                return 0
+    logger.info("Swiss Ephemeris initialized successfully")
+    return True
 
-            def get_ayanamsa_ut(self, jd_ut):
-                logger.warning("SwissEph not available - returning default ayanamsa 23.0")
-                return 23.0
+def verify_ephemeris_files() -> bool:
+    """
+    Verify that ephemeris files are available.
 
-            def get_ayanamsa_name(self, ayanamsa_flag):
-                return "SwissEph Not Available"
+    This function checks if the Swiss Ephemeris library can calculate planetary positions,
+    which requires ephemeris files for accurate results.
 
-            def set_topo(self, lon, lat, alt):
-                logger.warning("SwissEph not available - set_topo has no effect")
-                return 0
+    Returns:
+        True if ephemeris files are available, False otherwise
 
-            def calc(self, jd, planet, iflag=0):
-                logger.warning(f"SwissEph not available - returning default position for planet {planet}")
-                return [(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)], 0
+    Raises:
+        SwissEphError: If Swiss Ephemeris is not available
+    """
+    if not SWISS_EPHEMERIS_AVAILABLE:
+        raise SwissEphError("Swiss Ephemeris (swisseph) is required but not available")
 
-            def calc_ut(self, jd, planet, iflag=0):
-                logger.warning(f"SwissEph not available - returning default position for planet {planet}")
-                return [(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)], 0
+    # Try to calculate a simple planetary position
+    try:
+        # Check if necessary functions exist using safe attribute access
+        julday_fn = getattr(swe, 'julday', None)
+        if not julday_fn or not callable(julday_fn):
+            logger.error("julday function not available in swisseph module")
+            return False
 
-            def houses_ex(self, jd_ut, lat, lon, hsys):
-                logger.warning("SwissEph not available - returning default houses")
-                return [[0.0] * 13, [0.0] * 13, [0.0] * 13, [0.0] * 13, [0.0] * 13, 0.0]
+        calc_fn = getattr(swe, 'calc', None)
+        if not calc_fn or not callable(calc_fn):
+            logger.error("calc function not available in swisseph module")
+            return False
 
-            def julday(self, year, month, day, hour):
-                import datetime
-                dt = datetime.datetime(year, month, day, int(hour), int((hour % 1) * 60))
-                # Simple calculation of Julian day
-                a = (14 - month) // 12
-                y = year + 4800 - a
-                m = month + 12 * a - 3
-                jdn = day + (153 * m + 2) // 5 + 365 * y + y // 4 - y // 100 + y // 400 - 32045
-                return jdn + (hour - 12) / 24
+        # Current Julian day using safe function access
+        jd = julday_fn(2023, 1, 1, 0)
 
-            def houses(self, jd_ut, lat, lon, hsys):
-                logger.warning("SwissEph not available - returning default houses")
-                return [[0.0] * 13, [0.0] * 13, 0.0]
+        # Try to calculate Sun's position
+        SUN = getattr(swe, 'SUN', 0)  # Default to 0 if not defined
+        res, flags = calc_fn(jd, SUN)
 
-        swe = DummySwe()
+        # If we got a result, ephemeris files are available
+        return True
+    except Exception as e:
+        logger.error(f"Failed to verify ephemeris files: {e}")
+        return False
+
+def calculate_chart(birth_dt: datetime, latitude: float, longitude: float, house_system: str = 'P') -> Dict[str, Any]:
+    """
+    Calculate a full astrological chart.
+
+    Args:
+        birth_dt: Birth date and time
+        latitude: Birth latitude in decimal degrees
+        longitude: Birth longitude in decimal degrees
+        house_system: House system to use ('P' for Placidus, etc.)
+
+    Returns:
+        Dictionary with chart data
+
+    Raises:
+        SwissEphError: If Swiss Ephemeris is not available or calculation fails
+    """
+    if not SWISS_EPHEMERIS_AVAILABLE:
+        raise SwissEphError("Swiss Ephemeris (swisseph) is required but not available")
+
+    try:
+        # Get Julian day using safe function access
+        julday_fn = getattr(swe, 'julday', None)
+        if not julday_fn or not callable(julday_fn):
+            raise SwissEphError("julday function not available in swisseph module")
+
+        jd = julday_fn(
+            birth_dt.year,
+            birth_dt.month,
+            birth_dt.day,
+            birth_dt.hour + birth_dt.minute / 60.0 + birth_dt.second / 3600.0
+        )
+
+        # Calculate houses using safe function access
+        houses_fn = getattr(swe, 'houses', None)
+        if not houses_fn or not callable(houses_fn):
+            raise SwissEphError("houses function not available in swisseph module")
+
+        houses_result = houses_fn(jd, latitude, longitude, bytes(house_system, 'utf-8'))
+
+        # Calculate planets using safe function access
+        calc_ut_fn = getattr(swe, 'calc_ut', None)
+        if not calc_ut_fn or not callable(calc_ut_fn):
+            raise SwissEphError("calc_ut function not available in swisseph module")
+
+        # Calculate planet positions
+        planets = {}
+        for planet_name, planet_id in get_planets_list().items():
+            try:
+                # Calculate planet position
+                result, flags = calc_ut_fn(jd, planet_id)
+
+                # Get zodiac sign and house
+                sign = get_zodiac_sign(result[0])
+                house = get_house_position(houses_result, result[0])
+
+                # Store planet data
+                planets[planet_name] = {
+                    'longitude': result[0],
+                    'latitude': result[1],
+                    'distance': result[2],
+                    'speed': result[3],
+                    'sign': sign,
+                    'house': house
+                }
+            except Exception as e:
+                logger.error(f"Error calculating position for {planet_name}: {e}")
+                raise SwissEphError(f"Failed to calculate {planet_name} position: {e}")
+
+        # Build chart data
+        chart_data = {
+            'planets': planets,
+            'houses': {i+1: houses_result[i+1] for i in range(12)},
+            'ascendant': houses_result[0],
+            'midheaven': houses_result[1],
+            'birth_details': {
+                'birth_date': birth_dt.strftime('%Y-%m-%d'),
+                'birth_time': birth_dt.strftime('%H:%M:%S'),
+                'latitude': latitude,
+                'longitude': longitude
+            },
+            'house_system': house_system
+        }
+
+        return chart_data
+
+    except Exception as e:
+        error_msg = f"Chart calculation failed: {str(e)}"
+        logger.error(error_msg)
+        raise SwissEphError(error_msg) from e
+
+def get_planets_list() -> Dict[str, int]:
+    """
+    Get a dictionary of planets and their IDs.
+
+    Returns:
+        Dictionary mapping planet names to Swiss Ephemeris IDs
+
+    Raises:
+        SwissEphError: If Swiss Ephemeris is not available
+    """
+    if not SWISS_EPHEMERIS_AVAILABLE:
+        raise SwissEphError("Swiss Ephemeris is required for astrological calculations")
+
+    return {
+        'Sun': swe.SUN,
+        'Moon': swe.MOON,
+        'Mercury': swe.MERCURY,
+        'Venus': swe.VENUS,
+        'Mars': swe.MARS,
+        'Jupiter': swe.JUPITER,
+        'Saturn': swe.SATURN,
+        'Uranus': swe.URANUS,
+        'Neptune': swe.NEPTUNE,
+        'Pluto': swe.PLUTO,
+        'North Node': swe.MEAN_NODE,
+        'Chiron': swe.CHIRON
+    }
+
+def get_zodiac_sign(longitude: float) -> str:
+    """
+    Get the zodiac sign for a given longitude.
+
+    Args:
+        longitude: Longitude in degrees
+
+    Returns:
+        Zodiac sign name
+    """
+    # Normalize to 0-360 range
+    longitude = longitude % 360
+
+    # Define zodiac signs
+    signs = [
+        'Aries', 'Taurus', 'Gemini', 'Cancer',
+        'Leo', 'Virgo', 'Libra', 'Scorpio',
+        'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
+    ]
+
+    # Calculate sign index (each sign is 30 degrees)
+    sign_index = int(longitude / 30)
+
+    return signs[sign_index]
+
+def get_house_position(houses: List[float], longitude: float) -> int:
+    """
+    Get the house position for a given longitude.
+
+    Args:
+        houses: List of house cusps
+        longitude: Longitude in degrees
+
+    Returns:
+        House number (1-12)
+    """
+    # Normalize to 0-360 range
+    longitude = longitude % 360
+
+    # Check each house
+    for i in range(12):
+        house_start = houses[i+1]
+        house_end = houses[(i+2) % 12]
+
+        # Handle case where house crosses 0 degrees
+        if house_end < house_start:
+            if longitude >= house_start or longitude < house_end:
+                return i + 1
+        else:
+            if house_start <= longitude < house_end:
+                return i + 1
+
+    # If we get here, we couldn't find the house (shouldn't happen)
+    return 1

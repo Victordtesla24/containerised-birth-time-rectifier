@@ -18,11 +18,12 @@ async def ai_assisted_rectification(
     longitude: float,
     timezone: str,
     openai_service: Any,
-    answers: Optional[List[Dict[str, Any]]] = None,
+    time_indicators: Optional[List[Dict[str, Any]]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
+    swisseph_proxy: Optional[Any] = None,
     max_retries: int = 3,
     retry_delay: float = 1.0
-) -> Tuple[datetime, float]:
+) -> Dict[str, Any]:
     """
     Perform birth time rectification using AI analysis of answers and events.
 
@@ -32,13 +33,18 @@ async def ai_assisted_rectification(
         longitude: Birth longitude in decimal degrees
         timezone: Timezone string (e.g., 'America/New_York')
         openai_service: OpenAI service instance for AI analysis
-        answers: Optional list of questionnaire answers
+        time_indicators: Optional list of birth time indicators from questionnaire
         events: Optional list of life events
+        swisseph_proxy: Swiss Ephemeris proxy for astrological calculations
         max_retries: Maximum number of OpenAI API retries
         retry_delay: Delay between retries in seconds
 
     Returns:
-        Tuple of (rectified_datetime, confidence_score)
+        Dictionary with rectification results including rectified time and confidence
+
+    Raises:
+        ValueError: If required parameters are missing
+        RuntimeError: If rectification process fails
     """
     # Validate required inputs
     if not openai_service:
@@ -103,16 +109,16 @@ async def ai_assisted_rectification(
 
     # Format answers for the prompt
     formatted_answers = []
-    if answers:
-        for answer in answers:
-            question = answer.get("question", "")
-            response = answer.get("answer", "")
+    if time_indicators:
+        for indicator in time_indicators:
+            question = indicator.get("question", "")
+            response = indicator.get("response", "")
 
-            if not question and "text" in answer:
-                question = answer.get("text", "")
+            if not question and "text" in indicator:
+                question = indicator.get("text", "")
 
-            if not response and "response" in answer:
-                response = answer.get("response", "")
+            if not response and "response" in indicator:
+                response = indicator.get("response", "")
 
             if question and response:
                 formatted_answers.append({
@@ -211,7 +217,11 @@ async def ai_assisted_rectification(
         logger.info(f"AI rectification suggests time adjustment of {minutes_diff:.1f} minutes")
         logger.info(f"Rectified time: {rectified_time.strftime('%H:%M:%S')}, confidence: {confidence_score:.1f}")
 
-        return rectified_time, confidence_score
+        return {
+            "rectified_time": rectified_time.strftime("%H:%M:%S"),
+            "confidence": confidence_score,
+            "explanation": result.get("explanation", "No explanation provided")
+        }
 
     except Exception as e:
         logger.error(f"Error processing AI rectification result: {e}")
