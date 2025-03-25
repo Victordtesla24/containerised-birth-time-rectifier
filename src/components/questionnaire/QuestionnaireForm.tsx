@@ -112,7 +112,7 @@ const QuestionnaireForm: React.FC<QuestionnaireFormProps> = ({
 
   // State for questionnaire progress
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [questions, setQuestions] = useState<Question[]>(initialQuestions);
+  const [questions] = useState<Question[]>(initialQuestions);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [currentAnswer, setCurrentAnswer] = useState<string | number | boolean>('');
   const [confidenceScore, setConfidenceScore] = useState(20); // Start with 20%
@@ -175,7 +175,8 @@ const QuestionnaireForm: React.FC<QuestionnaireFormProps> = ({
     }
   }, [answers, currentQuestionIndex, confidenceScore, sessionId, saveProgressToLocalStorage, localStorageKey]);
 
-  // Function to check for contradictory answers
+  // Function to check for contradictions
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const checkForContradictions = useCallback((newAnswer: Answer): boolean => {
     // Simple contradiction check based on metadata
     const contradictions = answersRef.current.filter(prevAnswer => {

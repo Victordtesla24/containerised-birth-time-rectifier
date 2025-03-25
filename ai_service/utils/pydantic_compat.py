@@ -38,7 +38,9 @@ def configure_pydantic_compat():
         else:
             _apply_v1_patches()
     except ImportError:
-        logger.warning("Pydantic not found, skipping compatibility configuration")
+        logger.error("Pydantic not installed, skipping compatibility patches")
+    except Exception as e:
+        logger.error(f"Error configuring Pydantic compatibility: {e}")
 
 def _apply_v1_patches():
     """Apply patches for Pydantic v1.x compatibility."""
@@ -49,12 +51,9 @@ def _apply_v1_patches():
         logger.error(f"Error applying Pydantic v1 patches: {e}")
 
 def _apply_v2_patches():
-    """Apply patches for Pydantic v2.x compatibility."""
+    """Apply patches for Pydantic v2 compatibility with v1 code."""
     try:
-        # Import v2-specific modules
         from pydantic import BaseModel
-
-        # Add patches for v1 compatibility if not already present
 
         # Add dict method if not present
         if not hasattr(BaseModel, "dict"):
@@ -68,9 +67,15 @@ def _apply_v2_patches():
         # Add parse_obj method if not present
         if not hasattr(BaseModel, "parse_obj"):
             @classmethod
-            def parse_obj_wrapper(cls: Type[T], obj: Any) -> T:
+            def parse_obj_wrapper(cls, obj: Any):
                 """Parse a Python object into a model instance."""
-                return cls.model_validate(obj)
+                if hasattr(cls, "model_validate"):
+                    return cls.model_validate(obj)
+                else:
+                    # Raise error if model_validate is not available
+                    raise NotImplementedError(
+                        f"Class {cls.__name__} must implement model_validate for Pydantic v2 compatibility"
+                    )
 
             # Add the classmethod to the class
             setattr(BaseModel, "parse_obj", parse_obj_wrapper)
@@ -79,9 +84,15 @@ def _apply_v2_patches():
         # Add construct method if not present
         if not hasattr(BaseModel, "construct"):
             @classmethod
-            def construct_wrapper(cls: Type[T], _fields_set: Optional[set] = None, **values: Any) -> T:
+            def construct_wrapper(cls, _fields_set: Optional[set] = None, **values: Any):
                 """Create a model without validation."""
-                return cls.model_construct(_fields_set=_fields_set or set(), **values)
+                if hasattr(cls, "model_construct"):
+                    return cls.model_construct(_fields_set=_fields_set, **values)
+                else:
+                    # Raise error if model_construct is not available
+                    raise NotImplementedError(
+                        f"Class {cls.__name__} must implement model_construct for Pydantic v2 compatibility"
+                    )
 
             # Add the classmethod to the class
             setattr(BaseModel, "construct", construct_wrapper)
@@ -90,13 +101,23 @@ def _apply_v2_patches():
         # Add from_orm method if not present
         if not hasattr(BaseModel, "from_orm"):
             @classmethod
-            def from_orm_wrapper(cls: Type[T], obj: Any) -> T:
-                """Create a model from an ORM object."""
-                return cls.model_validate(obj)
+            def from_orm_wrapper(cls, obj: Any):
+                """Create a model instance from an ORM object."""
+                if hasattr(cls, "model_validate"):
+                    return cls.model_validate(obj, from_attributes=True)
+                else:
+                    # Raise error if model_validate is not available
+                    raise NotImplementedError(
+                        f"Class {cls.__name__} must implement model_validate for Pydantic v2 compatibility"
+                    )
 
             # Add the classmethod to the class
             setattr(BaseModel, "from_orm", from_orm_wrapper)
             logger.debug("Added from_orm() method to BaseModel for v2 compatibility")
 
+        logger.info("Applied Pydantic v2 compatibility patches")
+    except ImportError:
+        logger.warning("Pydantic not available, skipping v2 patches")
     except Exception as e:
         logger.error(f"Error applying Pydantic v2 patches: {e}")
+        raise

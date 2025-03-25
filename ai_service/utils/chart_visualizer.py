@@ -54,16 +54,16 @@ from reportlab.pdfgen import canvas  # type: ignore
 import matplotlib.font_manager as fm  # type: ignore
 from PIL import Image as PILImage  # type: ignore # noqa
 
-from ai_service.core.chart_calculator import normalize_longitude
+from ai_service.core.rectification.chart_calculator import normalize_longitude
 # Import the planets list from constants
 from ai_service.core.rectification.constants import PLANETS_LIST
+from ai_service.services.chart_service_verification import get_zodiac_sign
 
-from ai_service.utils.logger import get_logger
+# Configure logger
+logger = logging.getLogger(__name__)
+
 from ai_service.utils.formatting import format_degree, format_longitude, format_time
 from ai_service.services.chart_service_visualization import render_chart_in_subplot
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 # Constants for chart visualization
 ZODIAC_SIGNS = [
@@ -116,11 +116,9 @@ PLANET_COLORS = {
     "Pluto": "#A52A2A",
     "Rahu": "#708090",
     "Ketu": "#808000",
-    "Ascendant": "#000000" # Black
+    "Ascendant": "#000000"  # Black
 }
 
-# Remove duplicate type definition
-# Axes3DType = plt.Axes  # type: ignore
 
 def render_vedic_square_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
     """
@@ -256,6 +254,7 @@ def render_vedic_square_chart(chart_data: Dict[str, Any], output_path: Optional[
             plt.close(fig)
             return tmp.name
 
+
 def render_vedic_chart(chart_data: Dict[str, Any], output_path: Optional[str] = None, style: str = "north_indian") -> str:
     """
     Render a Vedic chart with enhanced options for different styles.
@@ -279,6 +278,7 @@ def render_vedic_chart(chart_data: Dict[str, Any], output_path: Optional[str] = 
     else:
         logger.warning(f"Unknown Vedic chart style: {style}, defaulting to North Indian")
         return render_vedic_square_chart(chart_data, output_path)
+
 
 def render_vedic_south_indian(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
     """
@@ -412,6 +412,7 @@ def render_vedic_south_indian(chart_data: Dict[str, Any], output_path: Optional[
             plt.close(fig)
             return tmp.name
 
+
 def render_vedic_east_indian(chart_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
     """
     Render an East Indian style Vedic chart (circular layout).
@@ -534,6 +535,7 @@ def render_vedic_east_indian(chart_data: Dict[str, Any], output_path: Optional[s
             plt.close(fig)
             return tmp.name
 
+
 def generate_multiple_charts(chart_data: Dict[str, Any], output_dir: str) -> Dict[str, str]:
     """
     Generate multiple chart visualizations from the same data.
@@ -558,6 +560,277 @@ def generate_multiple_charts(chart_data: Dict[str, Any], output_dir: str) -> Dic
     # Add more chart types here as needed
 
     return results
+
+
+def generate_vedic_chart(chart_data, output_path=None, style="north_indian"):
+    """
+    Generate a Vedic chart visualization with proper export integration.
+
+    Args:
+        chart_data: Chart data to visualize
+        output_path: Path to save the generated image
+        style: Chart style ('north_indian' or 'south_indian')
+
+    Returns:
+        Dictionary with path and metadata about the generated chart
+    """
+    try:
+        # Create directory if it doesn't exist
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        else:
+            # Create a temporary file if no path provided
+            output_dir = tempfile.gettempdir()
+            chart_id = chart_data.get("chart_id", f"chart_{uuid.uuid4().hex[:8]}")
+            output_path = os.path.join(output_dir, f"{chart_id}_{style}_vedic_chart.png")
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Validate chart data
+        required_fields = ["planets", "houses", "angles"]
+        for field in required_fields:
+            if field not in chart_data:
+                raise ValueError(f"Missing required field '{field}' in chart data")
+
+        # Generate the chart based on style
+        if style == "north_indian":
+            fig = _render_north_indian_chart(chart_data)
+        elif style == "south_indian":
+            fig = _render_south_indian_chart(chart_data)
+        else:
+            raise ValueError(f"Unsupported Vedic chart style: {style}")
+
+        # Save the chart with proper quality settings
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+
+        # Verify the file was created successfully
+        if not os.path.exists(output_path):
+            raise FileNotFoundError(f"Failed to create chart image at {output_path}")
+
+        # Get file size and modification time for verification
+        file_stats = os.stat(output_path)
+
+        # Return metadata for export integration
+        return {
+            "file_path": output_path,
+            "chart_style": style,
+            "chart_type": "vedic",
+            "file_size": file_stats.st_size,
+            "created_at": datetime.fromtimestamp(file_stats.st_mtime).isoformat(),
+            "verified": True
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating Vedic chart: {e}")
+        logger.error(traceback.format_exc())
+        raise
+
+def _render_north_indian_chart(chart_data):
+    """
+    Render a North Indian (square) style Vedic astrological chart.
+
+    Args:
+        chart_data: Dictionary containing chart data including planets, houses, and angles
+
+    Returns:
+        Matplotlib figure object with the rendered chart
+    """
+    # Create figure
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111)
+
+    # Draw the basic square chart structure
+    # Outer square
+    outer_square = patches.Rectangle((0, 0), 10, 10, fill=False, linewidth=2)
+    ax.add_patch(outer_square)
+
+    # Draw the diagonal lines to create the 8 triangular houses
+    plt.plot([0, 10], [0, 10], 'k-', linewidth=1.5)  # Diagonal from bottom-left to top-right
+    plt.plot([0, 10], [10, 0], 'k-', linewidth=1.5)  # Diagonal from top-left to bottom-right
+
+    # Draw the central square
+    central_square = patches.Rectangle((3.5, 3.5), 3, 3, fill=False, linewidth=1.5)
+    ax.add_patch(central_square)
+
+    # Draw the house divisions
+    # Horizontal lines
+    plt.plot([0, 3.5], [5, 5], 'k-', linewidth=1.5)  # Left horizontal
+    plt.plot([6.5, 10], [5, 5], 'k-', linewidth=1.5)  # Right horizontal
+
+    # Vertical lines
+    plt.plot([5, 5], [0, 3.5], 'k-', linewidth=1.5)  # Bottom vertical
+    plt.plot([5, 5], [6.5, 10], 'k-', linewidth=1.5)  # Top vertical
+
+    # Place planets in their respective houses
+    planets = chart_data.get("planets", {})
+    houses = chart_data.get("houses", {})
+
+    # Define house positions for text placement
+    house_positions = {
+        1: (7.5, 7.5),  # Top right
+        2: (5, 8.5),    # Top middle
+        3: (2.5, 7.5),  # Top left
+        4: (1.5, 5),    # Middle left
+        5: (2.5, 2.5),  # Bottom left
+        6: (5, 1.5),    # Bottom middle
+        7: (7.5, 2.5),  # Bottom right
+        8: (8.5, 5),    # Middle right
+        9: (5, 5),      # Center
+        10: (5, 6.5),   # Top center
+        11: (6.5, 5),   # Right center
+        12: (3.5, 5)    # Left center
+    }
+
+    # Place planets in houses
+    for planet, data in planets.items():
+        house = data.get("house", 1)
+        pos = house_positions.get(house, (5, 5))
+
+        # Add some random offset to prevent overlapping
+        x_offset = random.uniform(-0.5, 0.5)
+        y_offset = random.uniform(-0.5, 0.5)
+
+        # Place planet symbol and degree
+        plt.text(pos[0] + x_offset, pos[1] + y_offset,
+                 f"{planet}\n{data.get('longitude', 0):.1f}°",
+                 ha='center', va='center', fontsize=8)
+
+    # Add house numbers
+    for house_num, pos in house_positions.items():
+        if house_num != 9:  # Skip center
+            plt.text(pos[0], pos[1] + 0.8, f"H{house_num}",
+                    ha='center', va='center', fontsize=9, color='blue')
+
+    # Add ascendant and other angles
+    angles = chart_data.get("angles", {})
+    if "ascendant" in angles:
+        asc_deg = angles["ascendant"]
+        plt.text(8.5, 8.5, f"Asc: {asc_deg:.1f}°",
+                ha='center', va='center', fontsize=10, color='red')
+
+    # Set equal aspect ratio and remove axes
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # Set title
+    if "birth_details" in chart_data:
+        birth_details = chart_data["birth_details"]
+        name = birth_details.get("name", "")
+        date = birth_details.get("date", "")
+        time = birth_details.get("time", "")
+        title = f"North Indian Vedic Chart\n{name}\n{date} {time}"
+        plt.title(title)
+    else:
+        plt.title("North Indian Vedic Chart")
+
+    return fig
+
+def _render_south_indian_chart(chart_data):
+    """
+    Render a South Indian style Vedic astrological chart.
+
+    Args:
+        chart_data: Dictionary containing chart data including planets, houses, and angles
+
+    Returns:
+        Matplotlib figure object with the rendered chart
+    """
+    # Create figure
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111)
+
+    # Draw the basic square chart structure
+    # Outer square
+    outer_square = patches.Rectangle((0, 0), 12, 12, fill=False, linewidth=2)
+    ax.add_patch(outer_square)
+
+    # Draw the inner squares
+    inner_square1 = patches.Rectangle((2, 2), 8, 8, fill=False, linewidth=1.5)
+    ax.add_patch(inner_square1)
+
+    inner_square2 = patches.Rectangle((4, 4), 4, 4, fill=False, linewidth=1.5)
+    ax.add_patch(inner_square2)
+
+    # Define the 12 houses in South Indian style
+    houses = {
+        1: (4, 8, 4, 4),    # Top middle
+        2: (8, 8, 4, 4),    # Top right
+        3: (8, 4, 4, 4),    # Middle right
+        4: (8, 0, 4, 4),    # Bottom right
+        5: (4, 0, 4, 4),    # Bottom middle
+        6: (0, 0, 4, 4),    # Bottom left
+        7: (0, 4, 4, 4),    # Middle left
+        8: (0, 8, 4, 4),    # Top left
+        9: (2, 8, 2, 2),    # Inner top left
+        10: (4, 8, 2, 2),   # Inner top middle
+        11: (6, 8, 2, 2),   # Inner top right
+        12: (8, 8, 2, 2)    # Inner right top
+    }
+
+    # Place planets in their respective houses
+    planets = chart_data.get("planets", {})
+
+    # Define house centers for text placement
+    house_centers = {
+        1: (6, 10),    # Top middle
+        2: (10, 10),   # Top right
+        3: (10, 6),    # Middle right
+        4: (10, 2),    # Bottom right
+        5: (6, 2),     # Bottom middle
+        6: (2, 2),     # Bottom left
+        7: (2, 6),     # Middle left
+        8: (2, 10),    # Top left
+        9: (3, 9),     # Inner top left
+        10: (5, 9),    # Inner top middle
+        11: (7, 9),    # Inner top right
+        12: (9, 9)     # Inner right top
+    }
+
+    # Place house numbers
+    for house_num, center in house_centers.items():
+        plt.text(center[0], center[1] + 0.8, f"H{house_num}",
+                ha='center', va='center', fontsize=9, color='blue')
+
+    # Place planets in houses
+    for planet, data in planets.items():
+        house = data.get("house", 1)
+        center = house_centers.get(house, (6, 6))
+
+        # Add some random offset to prevent overlapping
+        x_offset = random.uniform(-0.5, 0.5)
+        y_offset = random.uniform(-0.5, 0.5)
+
+        # Place planet symbol and degree
+        plt.text(center[0] + x_offset, center[1] + y_offset,
+                 f"{planet}\n{data.get('longitude', 0):.1f}°",
+                 ha='center', va='center', fontsize=8)
+
+    # Add ascendant and other angles
+    angles = chart_data.get("angles", {})
+    if "ascendant" in angles:
+        asc_deg = angles["ascendant"]
+        asc_house = 1  # Ascendant is always in the 1st house in Vedic astrology
+        center = house_centers.get(asc_house, (6, 10))
+        plt.text(center[0], center[1] - 0.8, f"Asc: {asc_deg:.1f}°",
+                ha='center', va='center', fontsize=10, color='red')
+
+    # Set equal aspect ratio and remove axes
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    # Set title
+    if "birth_details" in chart_data:
+        birth_details = chart_data["birth_details"]
+        name = birth_details.get("name", "")
+        date = birth_details.get("date", "")
+        time = birth_details.get("time", "")
+        title = f"South Indian Vedic Chart\n{name}\n{date} {time}"
+        plt.title(title)
+    else:
+        plt.title("South Indian Vedic Chart")
+
+    return fig
+
 
 def generate_comparison_chart(
     original_chart: Dict[str, Any],
@@ -643,6 +916,7 @@ def generate_comparison_chart(
         plt.close(fig)
 
         return error_img_path
+
 
 def _render_comparison_chart(ax: Axes, chart_data: Dict[str, Any], chart_type: str = "Chart") -> None:
     """
@@ -1102,9 +1376,6 @@ def generate_3d_chart(chart_data: Dict[str, Any], output_path: Optional[str] = N
             ax.text(x, y, z + 0.5, str(planet_name), fontsize=8, ha='center', va='center',
                    color=color, fontweight='bold')
 
-            # Create a custom legend entry
-            planet_legend_entries.append((planet_name, color))
-
         # Connect planets with aspects
         aspects = chart_data.get("aspects", [])
 
@@ -1556,16 +1827,6 @@ def generate_planet_table(chart_data: Dict[str, Any], output_path: str) -> str:
         logger.error(f"Error generating planet table: {e}")
         logger.error(traceback.format_exc())
 
-        # Create fallback simple image
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ax.text(0.5, 0.5, f"Planet table generation failed: {str(e)}",
-                ha='center', va='center', fontsize=12)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis('off')
-
-        plt.savefig(output_path, dpi=100, bbox_inches='tight')
-        plt.close(fig)
 
         return output_path
 
@@ -1649,374 +1910,164 @@ def generate_3d_comparison(chart1: Dict[str, Any], chart2: Dict[str, Any], outpu
         logger.error(f"Error generating 3D comparison: {e}")
         logger.error(traceback.format_exc())
 
-        # Create fallback simple image
-        fig, ax = plt.subplots(figsize=(10, 8))
-        ax.text(0.5, 0.5, f"3D comparison generation failed: {str(e)}",
-                ha='center', va='center', fontsize=12)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis('off')
-
-        plt.savefig(output_path, dpi=100, bbox_inches='tight')
-        plt.close(fig)
-
         return output_path
 
-def save_chart_as_pdf(chart_data: Dict[str, Any], output_path: str,
-                     include_interpretation: bool = True,
-                     paper_size: str = "letter") -> str:
+def save_chart_as_pdf_report(
+    chart_data: Dict[str, Any],
+    output_path: str,
+    title: Optional[str] = None,
+    include_aspects: bool = True,
+    include_report: bool = True,
+    width: int = 11,
+    height: float = 8.0
+) -> str:
     """
-    Generate a professionally formatted PDF with the chart visualization.
-
-    Args:
-        chart_data: Dictionary containing chart data
-        output_path: Path to save the PDF
-        include_interpretation: Whether to include astrological interpretation
-        paper_size: PDF paper size (letter, a4, legal)
-
-    Returns:
-        Path to the saved PDF file
-    """
-    try:
-        from ai_service.utils.pdf_generator import PDFGenerator
-        import shutil
-
-        # Create temporary directory to work in
-        temp_dir = tempfile.mkdtemp(prefix="chart_pdf_")
-        temp_output = os.path.join(temp_dir, os.path.basename(output_path))
-
-        # Create PDF generator instance
-        pdf_generator = PDFGenerator()
-
-        # Make sure the output directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-
-        # Generate the PDF with proper integration of all chart types
-        result_path = pdf_generator.generate_full_report(
-            chart_data=chart_data,
-            interpretation=chart_data.get("interpretation") if include_interpretation else None,
-            include_divisional=True,
-            include_3d=True,
-            output_path=temp_output,
-            paper_size=paper_size
-        )
-
-        # Verify the file was created successfully
-        if not os.path.exists(result_path):
-            raise FileNotFoundError(f"Failed to generate PDF at {result_path}")
-
-        # Verify file is not empty
-        if os.path.getsize(result_path) == 0:
-            raise ValueError(f"Generated PDF is empty: {result_path}")
-
-        # Test if PDF is valid by opening it
-        try:
-            import PyPDF2
-            with open(result_path, 'rb') as test_file:
-                pdf_reader = PyPDF2.PdfReader(test_file)
-                page_count = len(pdf_reader.pages)
-                logger.info(f"Generated PDF with {page_count} pages")
-        except ImportError:
-            # If PyPDF2 is not available, just verify the file size
-            file_size = os.path.getsize(result_path)
-            logger.info(f"Generated PDF with size {file_size} bytes")
-            if file_size < 1024:
-                logger.warning(f"Generated PDF is suspiciously small: {file_size} bytes")
-        except Exception as pdf_error:
-            logger.warning(f"PDF validation warning: {pdf_error}")
-
-        # Copy the file to the final destination
-        shutil.copy2(result_path, output_path)
-
-        # Verify the final file exists and is readable
-        if not os.path.exists(output_path):
-            raise FileNotFoundError(f"Failed to copy PDF to final destination: {output_path}")
-
-        if os.path.getsize(output_path) == 0:
-            raise ValueError(f"Final PDF is empty: {output_path}")
-
-        # Test if we can read the file
-        try:
-            with open(output_path, 'rb') as test_file:
-                test_file.read(10)
-        except Exception as io_error:
-            raise IOError(f"Cannot read the generated PDF file: {io_error}")
-
-        # Clean up temporary directory
-        try:
-            shutil.rmtree(temp_dir)
-        except Exception as cleanup_error:
-            logger.warning(f"Failed to clean up temporary directory: {cleanup_error}")
-
-        return output_path
-    except Exception as e:
-        logger.error(f"Error generating PDF: {e}")
-        logger.error(traceback.format_exc())
-
-        # Create a fallback PDF with error information
-        try:
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.pagesizes import letter, A4, legal
-
-            # Map paper size
-            page_size = {
-                "letter": letter,
-                "a4": A4,
-                "legal": legal
-            }.get(paper_size.lower(), letter)
-
-            # Create a PDF with error information
-            c = canvas.Canvas(output_path, pagesize=page_size)
-            c.setFont("Helvetica", 14)
-            c.drawString(72, page_size[1] - 108, "Error Generating Astrological Chart PDF")
-            c.setFont("Helvetica", 10)
-            c.drawString(72, page_size[1] - 144, f"Error: {str(e)}")
-            c.drawString(72, page_size[1] - 160, "Please try again or contact support.")
-
-            # Add basic chart info if available
-            if isinstance(chart_data, dict):
-                c.setFont("Helvetica-Bold", 12)
-                c.drawString(72, page_size[1] - 200, "Chart Information:")
-
-                y_pos = page_size[1] - 220
-                c.setFont("Helvetica", 10)
-
-                # Add birth details if available
-                birth_details = chart_data.get("birth_details", {})
-                if birth_details:
-                    birth_date = birth_details.get("birth_date", "Unknown")
-                    birth_time = birth_details.get("birth_time", "Unknown")
-                    c.drawString(72, y_pos, f"Birth Date: {birth_date}")
-                    y_pos -= 16
-                    c.drawString(72, y_pos, f"Birth Time: {birth_time}")
-                    y_pos -= 16
-
-                # Add chart ID if available
-                chart_id = chart_data.get("chart_id", "Unknown")
-                c.drawString(72, y_pos, f"Chart ID: {chart_id}")
-
-            c.save()
-
-            # Verify the fallback file was created
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                logger.info(f"Created fallback PDF with error information at {output_path}")
-                return output_path
-        except Exception as fallback_error:
-            logger.error(f"Failed to create fallback PDF: {fallback_error}")
-
-        # If all else fails, re-raise the original error
-        raise
-
-def generate_chart_image(chart_data: Dict[str, Any], output_path: str, include_3d: bool = False,
-                       include_traditional: bool = True, chart_style: str = "north_indian") -> str:
-    """
-    Generate comprehensive chart images including 2D, 3D and traditional chart visualizations.
+    Save chart as a PDF report.
 
     Args:
         chart_data: Chart data dictionary
-        output_path: Path to save the output image
-        include_3d: Whether to include 3D visualization
-        include_traditional: Whether to include traditional Vedic chart
-        chart_style: Style for Vedic chart rendering ('north_indian', 'south_indian', 'east_indian')
+        output_path: Path to save the PDF
+        title: Optional title for the PDF
+        include_aspects: Include aspect analysis
+        include_report: Include detailed report
+        width: PDF width in inches
+        height: PDF height in inches
 
     Returns:
-        Path to the generated chart image
+        Path to the generated PDF file
+
+    Raises:
+        ValueError: If chart data is invalid or empty
+        RuntimeError: If PDF generation fails for any reason
     """
+    if not chart_data:
+        raise ValueError("No chart data provided")
+
+    if not isinstance(chart_data, dict):
+        raise ValueError(f"Chart data must be a dictionary, got {type(chart_data)}")
+
+    # Generate a chart image for the PDF
     try:
-        chart_type = chart_data.get("calculation_details", {}).get("chart_type", "vedic").lower()
+        # Import necessary modules
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        # Create temp directory for images if needed
+        import tempfile
+        import os
+        temp_dir = tempfile.mkdtemp()
+        chart_image_path = os.path.join(temp_dir, "chart.png")
 
-        # For multi-chart output, create a larger figure
-        if include_3d or include_traditional:
-            num_charts = 1 + (1 if include_3d else 0) + (1 if include_traditional else 0)
-            fig_width = 8 * min(num_charts, 2)
-            fig_height = 8 * ((num_charts + 1) // 2)
+        # Generate the chart image
+        from ai_service.utils.chart_visualizer import create_chart_image
+        create_chart_image(chart_data, chart_image_path)
 
-            fig, axes = plt.subplots(
-                (num_charts + 1) // 2,
-                min(num_charts, 2),
-                figsize=(fig_width, fig_height)
-            )
+        # Create a PDF document
+        doc = SimpleDocTemplate(output_path, pagesize=(width*72, height*72))
 
-            # Convert to list if there's only one subplot
-            if num_charts == 1:
-                axes = [axes]
-            elif num_charts <= 2:
-                axes = axes.flatten()
+        # Container for document elements
+        elements = []
 
-            # Render main chart (Western/Tropical or circular Vedic)
-            if chart_type == "vedic":
-                title = "Vedic/Sidereal Chart"
-            else:
-                title = "Western/Tropical Chart"
+        # Add title
+        styles = getSampleStyleSheet()
+        if not title:
+            title = "Astrological Chart Analysis"
 
-            current_ax = 0
-            render_chart_in_subplot(axes[current_ax], chart_data)
-            axes[current_ax].set_title(title)
-            current_ax += 1
+        elements.append(Paragraph(title, styles['Title']))
+        elements.append(Spacer(1, 12))
 
-            # Render 3D chart if requested
-            if include_3d and current_ax < len(axes):
-                try:
-                    _render_3d_chart_in_subplot(axes[current_ax], chart_data)
-                    axes[current_ax].set_title("3D Planetary Positions")
-                    current_ax += 1
-                except Exception as e:
-                    logger.warning(f"Failed to render 3D chart: {e}")
-                    # Add error message to the plot
-                    axes[current_ax].text(0.5, 0.5, f"3D chart rendering failed: {str(e)}",
-                                  ha='center', va='center', fontsize=10, wrap=True)
-                    axes[current_ax].set_title("3D Planetary Positions (Error)")
-                    current_ax += 1
+        # Add chart information
+        chart_info = []
+        if "birth_details" in chart_data:
+            birth = chart_data["birth_details"]
+            chart_info.append(Paragraph(f"Date: {birth.get('birth_date', 'Unknown')}", styles['Normal']))
+            chart_info.append(Paragraph(f"Time: {birth.get('birth_time', 'Unknown')}", styles['Normal']))
+            chart_info.append(Paragraph(f"Location: {birth.get('location', 'Unknown')}", styles['Normal']))
 
-            # Render traditional Vedic chart if requested
-            if include_traditional and current_ax < len(axes) and chart_type == "vedic":
-                try:
-                    # Use a temporary file for the Vedic chart
-                    temp_vedic_file = render_vedic_chart(chart_data, None, style=chart_style)
+        elements.extend(chart_info)
+        elements.append(Spacer(1, 24))
 
-                    # Verify temp file exists and is valid
-                    if not os.path.exists(temp_vedic_file) or os.path.getsize(temp_vedic_file) == 0:
-                        raise FileNotFoundError(f"Vedic chart temporary file not created or empty: {temp_vedic_file}")
-
-                    # Load the image into the subplot
-                    vedic_img = plt.imread(temp_vedic_file)
-                    axes[current_ax].imshow(vedic_img)
-                    axes[current_ax].set_title(f"Traditional Vedic Chart ({chart_style.replace('_', ' ').title()})")
-                    axes[current_ax].axis('off')
-
-                    # Remove the temporary file
-                    if os.path.exists(temp_vedic_file):
-                        os.unlink(temp_vedic_file)
-
-                    current_ax += 1
-                except Exception as e:
-                    logger.warning(f"Failed to render traditional Vedic chart: {e}")
-                    # Add error message to the plot
-                    axes[current_ax].text(0.5, 0.5, f"Traditional Vedic chart rendering failed: {str(e)}",
-                                  ha='center', va='center', fontsize=10, wrap=True)
-                    axes[current_ax].set_title("Traditional Vedic Chart (Error)")
-                    current_ax += 1
-
-            # Add birth details as a shared title
-            birth_details = chart_data.get("birth_details", {})
-            if birth_details:
-                birth_date = birth_details.get("birth_date", "")
-                birth_time = birth_details.get("birth_time", "")
-                title = f"Astrological Chart for {birth_date} {birth_time}"
-                fig.suptitle(title, fontsize=16)
-
-            # Save the chart image
-            plt.tight_layout(rect=(0, 0.03, 1, 0.95))  # Adjust for suptitle
-
-            # Use higher DPI for better quality
-            plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            plt.close(fig)
-        else:
-            # Single chart output - just the main chart
-            plt.figure(figsize=(10, 10))
-            render_chart_in_subplot(plt.gca(), chart_data)
-
-            # Add birth details as title
-            birth_details = chart_data.get("birth_details", {})
-            if birth_details:
-                birth_date = birth_details.get("birth_date", "")
-                birth_time = birth_details.get("birth_time", "")
-                title = f"Astrological Chart for {birth_date} {birth_time}"
-                plt.suptitle(title, fontsize=16)
-
-            plt.tight_layout(rect=(0, 0, 1, 0.95))  # Adjust for title
-            plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            plt.close()
-
-        # Verify the file was created
-        if not os.path.exists(output_path):
-            raise FileNotFoundError(f"Chart image was not created at {output_path}")
-
-        # Verify file is not empty
-        if os.path.getsize(output_path) == 0:
-            raise ValueError(f"Generated chart image is empty: {output_path}")
-
-        # Test if image is valid by opening it
-        try:
-            from PIL import Image
-            with Image.open(output_path) as img:
-                width, height = img.size
-                logger.info(f"Generated chart image with dimensions {width}x{height}")
-                if width < 100 or height < 100:
-                    logger.warning(f"Chart image dimensions are suspiciously small: {width}x{height}")
-        except ImportError:
-            # If PIL is not available, just verify the file size
-            file_size = os.path.getsize(output_path)
-            logger.info(f"Generated chart image with size {file_size} bytes")
-            if file_size < 10240:  # 10KB
-                logger.warning(f"Chart image is suspiciously small: {file_size} bytes")
-        except Exception as img_error:
-            logger.warning(f"Image validation warning: {img_error}")
+        # Build the PDF document
+        doc.build(elements)
 
         return output_path
 
     except Exception as e:
-        logger.error(f"Error generating chart image: {e}")
-        logger.error(traceback.format_exc())
-
-        # Create fallback image with error information
-        try:
-            fig, ax = plt.subplots(figsize=(10, 8))
-            ax.text(0.5, 0.6, "Error Generating Astrological Chart",
-                   ha='center', va='center', fontsize=16)
-            ax.text(0.5, 0.5, f"Error: {str(e)}",
-                   ha='center', va='center', fontsize=12)
-
-            # Add basic chart info if available
-            if isinstance(chart_data, dict):
-                birth_details = chart_data.get("birth_details", {})
-                if birth_details:
-                    birth_date = birth_details.get("birth_date", "Unknown")
-                    birth_time = birth_details.get("birth_time", "Unknown")
-                    chart_info = f"Birth Date: {birth_date}\nBirth Time: {birth_time}"
-                    ax.text(0.5, 0.4, chart_info,
-                           ha='center', va='center', fontsize=10)
-
-            ax.text(0.5, 0.3, "Please try again or contact support.",
-                   ha='center', va='center', fontsize=10)
-
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
-            ax.axis('off')
-
-            plt.savefig(output_path, dpi=100)
-            plt.close(fig)
-
-            # Verify the fallback file was created
-            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                logger.info(f"Created fallback chart image with error information at {output_path}")
-                return output_path
-        except Exception as fallback_error:
-            logger.error(f"Failed to create fallback chart image: {fallback_error}")
-
-        # If all else fails, re-raise the original error
-        raise
+        # Raise an exception rather than falling back to a simpler PDF
+        raise RuntimeError(f"Failed to create PDF report: {e}")
 
 def _calculate_arc_difference(longitude1: float, longitude2: float) -> float:
     """
-    Calculate the smallest arc difference between two zodiacal longitudes.
+    Calculate the minimum arc difference between two longitude values.
 
     Args:
-        longitude1: First longitude in degrees
-        longitude2: Second longitude in degrees
+        longitude1: First longitude value
+        longitude2: Second longitude value
 
     Returns:
-        Smallest arc difference in degrees (0-180)
+        Minimum arc difference in degrees
     """
-    # Normalize longitudes to 0-360 range
-    lon1 = normalize_longitude(longitude1)
-    lon2 = normalize_longitude(longitude2)
-
-    # Calculate direct difference
-    diff = abs(lon1 - lon2)
-
-    # Return the smaller arc (direct or complement)
+    diff = abs(longitude1 - longitude2)
     return min(diff, 360 - diff)
+
+def get_sign_from_longitude(longitude: float) -> str:
+    """
+    Get the zodiac sign for a longitude value.
+
+    Args:
+        longitude: Position in degrees (0-360)
+
+    Returns:
+        Zodiac sign name
+    """
+    # Normalize longitude to 0-360 range
+    longitude = longitude % 360
+
+    # Define zodiac sign boundaries (0° = start of Aries)
+    signs = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    # Each sign occupies 30 degrees
+    sign_index = int(longitude / 30)
+    return signs[sign_index]
+
+def create_chart_image(chart_data: Dict[str, Any], output_path: str, dpi: int = 300) -> str:
+    """
+    Create a chart image from chart data.
+
+    Args:
+        chart_data: Chart data to visualize
+        output_path: Path to save the image
+        dpi: Resolution in dots per inch
+
+    Returns:
+        Path to the created image
+    """
+    try:
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(10, 10))
+
+        # Render chart
+        render_chart_in_subplot(ax, chart_data)
+
+        # Set title
+        birth_details = chart_data.get("birth_details", {})
+        birth_date = birth_details.get("birth_date", "Unknown")
+        birth_time = birth_details.get("birth_time", "Unknown")
+        title = f"Chart for {birth_date} {birth_time}"
+        ax.set_title(title)
+
+        # Save figure
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=dpi)
+        plt.close(fig)
+
+        return output_path
+    except Exception as e:
+        logger.error(f"Failed to create chart image: {e}")
+        raise RuntimeError(f"Failed to create chart image: {e}")

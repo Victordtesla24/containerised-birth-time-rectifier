@@ -1,0 +1,56 @@
+{
+  "cities": [
+    {
+      "name": "Paris, France",
+      "latitude_range": [48.0, 49.0],
+      "longitude_range": [2.0, 3.0],
+      "expected_timezone": "Europe/Paris"
+    },
+    {
+      "name": "Pune, India",
+      "latitude_range": [18.0, 19.0],
+      "longitude_range": [73.0, 74.0],
+      "expected_timezone": "Asia/Kolkata"
+    },
+    {
+      "name": "New York, USA",
+      "latitude_range": [40.0, 41.0],
+      "longitude_range": [-74.5, -73.5],
+      "expected_timezone": "America/New_York"
+    },
+    {
+      "name": "Tokyo, Japan",
+      "latitude_range": [35.0, 36.0],
+      "longitude_range": [139.0, 140.0],
+      "expected_timezone": "Asia/Tokyo"
+    },
+    {
+      "name": "Sydney, Australia",
+      "latitude_range": [-34.0, -33.0],
+      "longitude_range": [151.0, 152.0],
+      "expected_timezone": "Australia/Sydney"
+    }
+  ],
+  "invalid_locations": [
+    "XYZ123NonExistentPlace",
+    "Invalid$$Location##",
+    "NowhereVille, MadeUpCountry"
+  ],
+  "timezone_test_coordinates": [
+    {
+      "latitude": 0.0,
+      "longitude": -179.9,
+      "name": "West of Date Line"
+    },
+    {
+      "latitude": 0.0,
+      "longitude": 179.9,
+      "name": "East of Date Line"
+    },
+    {
+      "latitude": 0.0,
+      "longitude": 0.0,
+      "name": "Null Island"
+    }
+  ]
+}

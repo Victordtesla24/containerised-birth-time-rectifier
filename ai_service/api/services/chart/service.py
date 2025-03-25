@@ -246,13 +246,14 @@ class ChartService:
             assert isinstance(main_chart_service, MainChartService)
 
             # Call the main chart service implementation with proper parameters
-            chart_data = await main_chart_service.calculate_chart(
+            chart_data = main_chart_service.calculate_chart(
                 birth_date=birth_date,
                 birth_time=birth_time,
                 latitude=latitude,
                 longitude=longitude,
-                location_name=location,
                 timezone=timezone,
+                chart_type="vedic",
+                house_system="placidus",
                 verify_with_openai=verify_with_openai
             )
 

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Local imports
 from ai_service.utils.env_loader import load_env_file
-from ai_service.app_startup import initialize_application
+from ai_service.app_startup import initialize_application, lifespan
 
 # Load environment variables
 load_env_file()
@@ -39,7 +39,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json"
+    openapi_url="/api/v1/openapi.json",
+    lifespan=lifespan  # Use the lifespan function for proper resource management
 )
 
 # Root path handler
@@ -50,19 +51,20 @@ async def root():
 # Add a direct health endpoint for the healthcheck
 # This endpoint is not used by the wrapper but kept for compatibility
 @app.get("/health")
-async def health_check():
-    """
-    Simple health check endpoint for the healthcheck mechanism.
-    Note: This is a fallback. Health checks should go through the ASGI wrapper.
+def health_check():
+    """Check the health of the application directly.
+
+    Note: This endpoint should not be used directly. Health checks should be made through the ASGI wrapper.
     """
     return {
-        "status": "healthy",
+        "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "service": "ai_service",
-        "wrapper_bypassed": True
+        "direct_access": True
     }
 
-# Initialize app on startup
+# Initialize app on startup - this will be phased out in favor of lifespan
+# but is kept for backward compatibility
 @app.on_event("startup")
 async def startup_event():
     try:

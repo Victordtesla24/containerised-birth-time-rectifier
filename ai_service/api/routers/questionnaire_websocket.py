@@ -13,7 +13,7 @@ from datetime import datetime
 import traceback
 
 from ai_service.api.websocket_events import emit_event, EventType
-from ai_service.api.services.questionnaire_service import get_questionnaire_service, DynamicQuestionnaireService
+from ai_service.api.services.questionnaire_service import get_questionnaire_service, QuestionnaireService
 from ai_service.api.services.chart import get_chart_service
 
 # Configure logging
@@ -70,8 +70,8 @@ async def start_questionnaire(
         # Get chart ID from request
         chart_id = request.chart_id
 
-        # Get the questionnaire service - use DynamicQuestionnaireService specifically
-        questionnaire_service = DynamicQuestionnaireService()
+        # Get the questionnaire service
+        questionnaire_service = get_questionnaire_service()
         chart_service = get_chart_service()
 
         # Get chart data
@@ -142,11 +142,11 @@ async def answer_question(
         question_id = request.question_id
         answer = request.answer
 
-        # Get the questionnaire service - use DynamicQuestionnaireService specifically
-        questionnaire_service = DynamicQuestionnaireService()
+        # Get the questionnaire service
+        questionnaire_service = get_questionnaire_service()
 
         # Process the answer and get the next question
-        response_data = await questionnaire_service.get_next_question(
+        response_data = await questionnaire_service.process_answer_and_get_next_question(
             session_id=questionnaire_id,
             question_id=question_id,
             answer=answer
@@ -215,10 +215,10 @@ async def answer_question(
         if service_confidence is not None:
             current_confidence = service_confidence
         else:
-            # Fallback calculation if service doesn't provide confidence
-            base_confidence = 30.0
-            progress_confidence = (current_question / total_questions) * 50.0
-            current_confidence = min(95.0, base_confidence + progress_confidence)
+            # If service doesn't provide confidence, raise an error
+            # This ensures the service implementation properly handles confidence calculation
+            logger.error(f"Questionnaire service did not provide confidence value in response: {response_data}")
+            raise RuntimeError("Questionnaire service failed to provide required confidence value")
 
         # Return the response with the next question
         return {
@@ -249,8 +249,8 @@ async def complete_questionnaire(
         # Get questionnaire ID from request
         questionnaire_id = request.questionnaire_id
 
-        # Get the questionnaire service - use DynamicQuestionnaireService specifically
-        questionnaire_service = DynamicQuestionnaireService()
+        # Get the questionnaire service
+        questionnaire_service = get_questionnaire_service()
 
         # Complete the questionnaire and get the results
         completion_result = await questionnaire_service.complete_questionnaire(questionnaire_id)

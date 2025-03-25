@@ -4,9 +4,12 @@ Chart calculation functionality for chart service.
 This module provides functions for calculating astrological charts.
 """
 
+import os
+import json
+import asyncio
+import traceback
 import logging
 import uuid
-import traceback
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
 
@@ -213,27 +216,37 @@ def calculate_chart(birth_date: str, birth_time: str, latitude: float, longitude
             verification_result = None
 
             try:
-                # Use asyncio to handle the async OpenAI verification
-                import asyncio
-
-                # Check if we're in an event loop
+                # Try to get event loop
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
-                        # If we're already in a running event loop, create a task
-                        verified_chart_data = asyncio.run_coroutine_threadsafe(
+                        # If event loop is running, use run_coroutine_threadsafe
+                        # with a reasonable timeout
+                        logger.info("Using running event loop for verification")
+                        future = asyncio.run_coroutine_threadsafe(
                             _async_verify_with_openai(chart_data),
                             loop
-                        ).result()
+                        )
+                        # Add a timeout of 20 seconds to prevent hanging
+                        verified_chart_data = future.result(timeout=20)
                     else:
-                        # If not in a running event loop, use asyncio.run
-                        verified_chart_data = asyncio.run(_async_verify_with_openai(chart_data))
-                except RuntimeError:
-                    # If we can't get an event loop, create a new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    verified_chart_data = loop.run_until_complete(_async_verify_with_openai(chart_data))
-                    loop.close()
+                        # If not in a running event loop, use asyncio.run with timeout
+                        logger.info("Using asyncio.run for verification")
+                        # Create a task with timeout
+                        async def run_with_timeout():
+                            return await asyncio.wait_for(_async_verify_with_openai(chart_data), timeout=20)
+
+                        verified_chart_data = asyncio.run(run_with_timeout())
+                except (RuntimeError, asyncio.TimeoutError) as e:
+                    # If we have a timeout or runtime error, log and continue without verification
+                    logger.warning(f"Verification timed out or runtime error: {e}")
+                    verified_chart_data = None
+                    verification_result = {
+                        "verified": False,
+                        "confidence": 0,
+                        "status": "timeout",
+                        "message": f"Verification timed out: {str(e)}"
+                    }
 
                 # If verification succeeded, update our chart data
                 if verified_chart_data is not None:
@@ -265,15 +278,6 @@ def calculate_chart(birth_date: str, birth_time: str, latitude: float, longitude
                     "status": "error",
                     "message": f"Verification error: {str(retry_error)}"
                 }
-        else:
-            # If verification not requested, set default verification info
-            verification_result = {
-                "verified_with_ai": False,
-                "verification_date": datetime.now().isoformat(),
-                "status": "skipped",
-                "message": "OpenAI verification not requested",
-                "confidence": 0
-            }
 
         # Add verification data to chart
         chart_data["verification"] = verification_result
@@ -296,8 +300,36 @@ async def _async_verify_with_openai(chart_data: Dict[str, Any]) -> Optional[Dict
     Returns:
         Verified chart data or None if verification failed
     """
+    try:
+        # Import only when needed
+        from ai_service.services.chart_service_verification import verify_chart_with_openai
+
+        # Add a timeout to prevent hanging
+        result = await asyncio.wait_for(
+            asyncio.create_task(_do_verification(chart_data)),
+            timeout=15  # 15 second timeout for verification
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.warning("OpenAI verification timed out after 15 seconds")
+        return None
+    except Exception as e:
+        logger.error(f"Error during OpenAI verification: {e}")
+        return None
+
+async def _do_verification(chart_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Perform the actual verification without timeouts.
+    This allows proper separation of concerns for error handling.
+
+    Args:
+        chart_data: Chart data to verify
+
+    Returns:
+        Verified chart data or None if verification failed
+    """
     from ai_service.services.chart_service_verification import verify_chart_with_openai
-    return verify_chart_with_openai(chart_data)
+    return await verify_chart_with_openai(chart_data)
 
 def cross_validate_calculations(charts_data: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, Any]:
     """

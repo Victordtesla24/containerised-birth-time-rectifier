@@ -1,7 +1,7 @@
 """
-Database initialization utilities for Birth Time Rectifier.
+Database initialization module.
 
-This module handles database schema creation and verification.
+This module provides functions for initializing and verifying the application's database schema.
 """
 
 import logging
@@ -9,89 +9,85 @@ import asyncpg
 from typing import Optional, Dict, Any
 
 from ai_service.core.config import settings
+from ai_service.database.connection import acquire_pool
 
 logger = logging.getLogger(__name__)
 
 async def initialize_database(db_pool: Optional[asyncpg.Pool] = None) -> bool:
     """
-    Initialize the database schema if it doesn't exist.
+    Initialize the database schema.
+
+    This function creates the necessary tables if they don't exist.
 
     Args:
         db_pool: Optional database connection pool
 
     Returns:
-        True if initialization was successful
+        True if initialization succeeds
+
+    Raises:
+        RuntimeError: If database initialization fails
     """
+    connection_to_close = False
+
     try:
-        # Create connection if not provided
-        connection_to_close = False
+        # Get database pool if not provided
         if not db_pool:
-            from ai_service.database.connection import acquire_pool
-            try:
-                db_pool = await acquire_pool()
-                connection_to_close = True
-            except Exception as e:
-                logger.error(f"Failed to connect to database for initialization: {e}")
-                return False
+            connection_to_close = True
+            db_pool = await acquire_pool()
 
+        # Ensure we have a valid connection
         if not db_pool:
-            logger.error("No database pool available for initialization")
-            return False
+            raise RuntimeError("Failed to acquire database connection pool")
 
-        # Create tables if they don't exist
+        # Create charts table
         await db_pool.execute('''
             CREATE TABLE IF NOT EXISTS charts (
-                id TEXT PRIMARY KEY,
-                data JSONB NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                chart_id TEXT PRIMARY KEY,
+                birth_date TEXT NOT NULL,
+                birth_time TEXT NOT NULL,
+                latitude DECIMAL NOT NULL,
+                longitude DECIMAL NOT NULL,
+                timezone TEXT NOT NULL,
+                chart_data JSONB NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         ''')
 
+        # Create rectifications table
         await db_pool.execute('''
             CREATE TABLE IF NOT EXISTS rectifications (
-                id TEXT PRIMARY KEY,
-                chart_id TEXT REFERENCES charts(id),
-                original_chart_id TEXT REFERENCES charts(id),
-                data JSONB NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                rectification_id TEXT PRIMARY KEY,
+                chart_id TEXT REFERENCES charts(chart_id),
+                original_birth_time TEXT NOT NULL,
+                rectified_birth_time TEXT NOT NULL,
+                confidence_score DECIMAL NOT NULL,
+                rectification_data JSONB NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         ''')
 
+        # Create users table (simplified version)
         await db_pool.execute('''
-            CREATE TABLE IF NOT EXISTS comparisons (
-                id TEXT PRIMARY KEY,
-                chart1_id TEXT REFERENCES charts(id),
-                chart2_id TEXT REFERENCES charts(id),
-                data JSONB NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            )
-        ''')
-
-        await db_pool.execute('''
-            CREATE TABLE IF NOT EXISTS exports (
-                id TEXT PRIMARY KEY,
-                chart_id TEXT REFERENCES charts(id),
-                data JSONB NOT NULL,
-                file_path TEXT,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                expires_at TIMESTAMP WITH TIME ZONE
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         ''')
 
         logger.info("Database schema initialized successfully")
+        return True
 
-        # Close the connection if we created it
+    except Exception as e:
+        error_msg = f"Database initialization failed: {e}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    finally:
+        # Close connection if we opened it here
         if connection_to_close and db_pool is not None:
             await db_pool.close()
-
-        return True
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-        return False
 
 async def verify_schema_integrity(db_pool: Optional[asyncpg.Pool] = None) -> bool:
     """
@@ -102,52 +98,52 @@ async def verify_schema_integrity(db_pool: Optional[asyncpg.Pool] = None) -> boo
 
     Returns:
         True if schema is valid
-    """
-    try:
-        # Create connection if not provided
-        connection_to_close = False
-        if not db_pool:
-            from ai_service.database.connection import acquire_pool
-            try:
-                db_pool = await acquire_pool()
-                connection_to_close = True
-            except Exception as e:
-                logger.error(f"Failed to connect to database for schema verification: {e}")
-                return False
 
+    Raises:
+        RuntimeError: If schema verification fails
+    """
+    connection_to_close = False
+
+    try:
+        # Get database pool if not provided
         if not db_pool:
-            logger.error("No database pool available for schema verification")
-            return False
+            connection_to_close = True
+            db_pool = await acquire_pool()
+
+        # Ensure we have a valid connection
+        if not db_pool:
+            raise RuntimeError("Failed to acquire database connection pool")
 
         # Check if required tables exist
-        required_tables = ["charts", "rectifications", "comparisons", "exports"]
+        required_tables = ["charts", "rectifications", "users"]
         for table in required_tables:
             result = await db_pool.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
                 table
             )
             if not result:
-                logger.error(f"Required table '{table}' does not exist")
-                return False
+                raise RuntimeError(f"Required table '{table}' does not exist")
 
         # Verify charts table columns
         charts_columns = await db_pool.fetch(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'charts'"
         )
         charts_column_names = [row['column_name'] for row in charts_columns]
-        required_charts_columns = ["id", "data", "created_at", "updated_at"]
+        required_charts_columns = ["chart_id", "birth_date", "birth_time", "latitude", "longitude", "timezone", "chart_data"]
+
         for column in required_charts_columns:
             if column not in charts_column_names:
-                logger.error(f"Required column '{column}' missing from charts table")
-                return False
+                raise RuntimeError(f"Required column '{column}' missing from charts table")
 
         logger.info("Database schema verification successful")
+        return True
 
-        # Close the connection if we created it
+    except Exception as e:
+        error_msg = f"Schema verification failed: {e}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    finally:
+        # Close connection if we opened it here
         if connection_to_close and db_pool is not None:
             await db_pool.close()
-
-        return True
-    except Exception as e:
-        logger.error(f"Schema verification failed: {e}")
-        return False

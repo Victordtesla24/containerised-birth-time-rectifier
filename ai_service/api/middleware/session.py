@@ -13,6 +13,7 @@ from typing import Dict, Optional, Any, Callable
 import time
 import sys
 from starlette.middleware.base import BaseHTTPMiddleware
+from ai_service.core.config import settings
 
 # Try to import Redis
 try:
@@ -37,6 +38,11 @@ REDIS_CONNECTION_POOL = None
 REDIS_MAX_RETRIES = 3
 REDIS_RETRY_DELAY = 0.5  # seconds
 REDIS_FALLBACK_NOTIFICATIONS = 0  # Counter to avoid excessive logging
+
+# Custom exception for session-related errors
+class SessionError(Exception):
+    """Exception raised for session-related errors."""
+    pass
 
 def get_redis_client():
     """
@@ -206,44 +212,33 @@ def persist_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool
     return True  # In-memory store update succeeded
 
 class SimpleSessionMiddleware(BaseHTTPMiddleware):
-    """
-    A simplified middleware for handling session management.
-    This is the main middleware class that should be used with FastAPI.
-    """
+    """Middleware for handling sessions in FastAPI."""
 
     async def dispatch(self, request: Request, call_next):
-        """Process a request and handle session management."""
-        # Extract session ID from request headers
-        session_id = request.headers.get("X-Session-ID")
+        """Process request, handling session state."""
+        # Initialize session state
+        request.state.session = {}
+        request.state.session_id = None
+        request.state.new_session = True
 
-        # Check if this is a session initialization request
-        is_session_init = request.url.path.endswith("/session/init")
-
-        # For non-session-init requests, validate the session
-        if not is_session_init and session_id:
-            # Get session data
-            session_data = retrieve_session(session_id)
-
-            # If session doesn't exist or is expired, we'll still proceed
-            # but log a warning - the endpoint can decide how to handle it
-            if not session_data:
-                logger.warning(f"Invalid or expired session ID: {session_id}")
-
-            # Store session in request state for handlers to access
-            request.state.session_id = session_id
-            request.state.session_data = session_data or {}
+        # Get or create session
+        try:
+            session_data = await get_session(request)
+            request.state.session = session_data
+        except SessionError as e:
+            logger.error(f"Failed to get session: {e}")
+            # Initialize empty session on error
+            request.state.session = {}
 
         # Process the request
         response = await call_next(request)
 
-        # If this is a session initialization request, get the new session ID
-        # from the request state (set by the session init handler)
-        if is_session_init and hasattr(request.state, "new_session_id"):
-            session_id = request.state.new_session_id
-            # Add session ID to response headers
-            response.headers["X-Session-ID"] = session_id
+        # Save session after request
+        try:
+            await save_session(request, response, request.state.session)
+        except SessionError as e:
+            logger.error(f"Failed to save session: {e}")
 
-        # Return the response
         return response
 
 # Utility functions for session management
@@ -256,7 +251,7 @@ def get_session_id(request: Request) -> Optional[str]:
     # Check if session ID is in headers
     return request.headers.get("X-Session-ID")
 
-def save_session(session_id: str, session_data: Dict) -> bool:
+def persist_session_data(session_id: str, session_data: Dict) -> bool:
     """Save session data for a given session ID."""
     try:
         # Store session data in memory store and delegate to the full implementation
@@ -279,16 +274,111 @@ async def create_session(session_id: Optional[str] = None) -> str:
     }
 
     # Save session
-    save_session(session_id, session_data)
+    persist_session_data(session_id, session_data)
 
     return session_id
 
 # Export the middleware class directly - SIMPLIFIED VERSION FOR FASTAPI COMPATIBILITY
 session_middleware = SimpleSessionMiddleware
 
-def get_session(session_id: str) -> Optional[Dict]:
+async def get_session(request: Request) -> Dict[str, Any]:
     """
-    Get session data for a given session ID.
-    This function is an alias for retrieve_session for backwards compatibility.
+    Get the session data for the request.
+
+    Args:
+        request: The FastAPI request
+
+    Returns:
+        Session data dictionary
+
+    Raises:
+        SessionError: If session cannot be retrieved
     """
-    return retrieve_session(session_id)
+    session_id = request.cookies.get("session_id")
+
+    if not session_id:
+        # Generate a new session ID if not present
+        session_id = str(uuid.uuid4())
+        request.state.new_session = True
+        request.state.session_id = session_id
+        return {}
+
+    # Store session ID in request state
+    request.state.session_id = session_id
+    request.state.new_session = False
+
+    # Get session from Redis
+    redis_client = request.app.state.redis
+    if not redis_client:
+        error_msg = "Redis client is not available"
+        logger.error(error_msg)
+        raise SessionError(error_msg)
+
+    try:
+        # Get session data from Redis
+        session_data_json = await redis_client.get(f"session:{session_id}")
+
+        if not session_data_json:
+            # Session expired or doesn't exist
+            request.state.new_session = True
+            return {}
+
+        # Parse session data
+        return json.loads(session_data_json)
+
+    except json.JSONDecodeError as e:
+        error_msg = f"Failed to decode session data: {str(e)}"
+        logger.error(error_msg)
+        raise SessionError(error_msg)
+
+    except Exception as e:
+        error_msg = f"Failed to retrieve session: {str(e)}"
+        logger.error(error_msg)
+        raise SessionError(error_msg)
+
+async def save_session(request: Request, response: Response, session_data: Dict[str, Any]) -> None:
+    """
+    Save session data for the request.
+
+    Args:
+        request: The FastAPI request
+        response: The FastAPI response
+        session_data: Session data to save
+
+    Raises:
+        SessionError: If session cannot be saved
+    """
+    session_id = request.state.session_id
+
+    # Set session cookie
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        secure=settings.SECURE_COOKIES,
+        samesite="lax",
+        max_age=settings.SESSION_EXPIRY
+    )
+
+    # Save to Redis
+    redis_client = request.app.state.redis
+    if not redis_client:
+        error_msg = "Redis client is not available"
+        logger.error(error_msg)
+        raise SessionError(error_msg)
+
+    try:
+        # Serialize session data
+        session_data_json = json.dumps(session_data)
+
+        # Save to Redis with expiry
+        await redis_client.set(
+            f"session:{session_id}",
+            session_data_json,
+            expire=settings.SESSION_EXPIRY
+        )
+
+    except Exception as e:
+        error_msg = f"Failed to save session: {str(e)}"
+        logger.error(error_msg)
+        raise SessionError(error_msg)

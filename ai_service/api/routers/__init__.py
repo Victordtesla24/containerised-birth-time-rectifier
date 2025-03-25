@@ -41,6 +41,7 @@ try:
         logger.error(f"Error importing session router: {session_error}")
 
     try:
+        # Import from package to avoid circular dependencies
         from ai_service.api.routers.questionnaire import router as questionnaire_router
         router.include_router(questionnaire_router, prefix="/questionnaire", tags=["questionnaire"])
         logger.info("Questionnaire router loaded successfully")

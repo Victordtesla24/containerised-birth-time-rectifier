@@ -81,38 +81,52 @@ def calculate_swiss_ephemeris_chart(
     """
     try:
         # Convert datetime to Julian day
+        logger.debug("Converting datetime to Julian day")
         jd_ut = convert_datetime_to_jd(birth_dt)
+        logger.debug(f"Julian day: {jd_ut}")
 
         # Set ayanamsa for sidereal calculations
+        ayanamsa = 0
         if is_sidereal:
+            logger.debug(f"Setting sidereal mode with ayanamsa method: {ayanamsa_method}")
             swe.set_sid_mode(ayanamsa_method)
             ayanamsa = swe.get_ayanamsa_ut(jd_ut)
             logger.info(f"Using sidereal zodiac with ayanamsa: {ayanamsa:.6f}°")
 
         # Set topocentric coordinates
+        logger.debug(f"Setting topocentric coordinates: lon={longitude}, lat={latitude}")
         swe.set_topo(longitude, latitude, 0)  # 0 altitude
 
         # Calculate houses and angles
+        logger.debug(f"Calculating houses with system: {house_system}")
         hsys = HOUSE_SYSTEMS.get(house_system.lower(), b'P')  # Default to Placidus
         houses_result = swe.houses_ex(jd_ut, latitude, longitude, hsys)
+        logger.debug(f"Houses result type: {type(houses_result).__name__}, length: {len(houses_result)}")
 
         # Extract house cusps and angles
         house_cusps = houses_result[0]  # Array of 12 house cusps
         angles = houses_result[1]      # Array of angles (Asc, MC, etc.)
+        logger.debug(f"House cusps length: {len(house_cusps)}, Angles length: {len(angles)}")
 
         # Calculate planet positions
+        logger.debug("Calculating planet positions")
         planets_data = calculate_planet_positions(jd_ut, is_sidereal)
+        logger.debug(f"Planets calculated: {len(planets_data)}")
 
         # Calculate house positions for each planet
+        logger.debug("Assigning houses to planets")
         assign_houses_to_planets(planets_data, house_cusps)
 
         # Create formatted houses data
+        logger.debug("Formatting houses data")
         houses_data = format_houses_data(house_cusps)
 
         # Create formatted angles data
+        logger.debug("Formatting angles data")
         angles_data = format_angles_data(angles)
 
         # Combine all data into chart
+        logger.debug("Assembling final chart data")
         chart_data = {
             "chart_id": f"swe_{int(jd_ut)}",
             "calculation_method": "swiss_ephemeris_direct",
@@ -132,6 +146,8 @@ def calculate_swiss_ephemeris_chart(
         return chart_data
     except Exception as e:
         logger.error(f"Error calculating chart: {e}")
+        import traceback
+        logger.error(f"Error traceback: {traceback.format_exc()}")
         raise
 
 def convert_datetime_to_jd(dt: datetime) -> float:
@@ -182,16 +198,23 @@ def calculate_planet_positions(jd_ut: float, is_sidereal: bool = False) -> Dict[
     # Calculate positions for each planet
     for planet_id, planet_name in PLANET_MAP.items():
         try:
-            # Calculate planet position
+            # Calculate planet position - returns a tuple with two elements:
+            # 1. A tuple containing the positions, velocities, etc.
+            # 2. An integer return code
             result = swe.calc_ut(jd_ut, planet_id, flags)
 
-            # Extract data
-            longitude = result[0][0]  # Longitude in degrees
-            latitude = result[0][1]   # Latitude in degrees
-            distance = result[0][2]   # Distance in AU
-            speed_long = result[0][3] # Speed in longitude (deg/day)
-            speed_lat = result[0][4]  # Speed in latitude (deg/day)
-            speed_dist = result[0][5] # Speed in distance (AU/day)
+            # Unpack the result properly
+            positions_tuple = result[0]  # The first element is a tuple with all the planetary data
+
+            # Extract data from the positions tuple
+            longitude = positions_tuple[0]  # Longitude in degrees
+            latitude = positions_tuple[1]   # Latitude in degrees
+            distance = positions_tuple[2]   # Distance in AU
+
+            # The speed values might be zero in some library versions, so handle this safely
+            speed_long = positions_tuple[3] if len(positions_tuple) > 3 else 0.0
+            speed_lat = positions_tuple[4] if len(positions_tuple) > 4 else 0.0
+            speed_dist = positions_tuple[5] if len(positions_tuple) > 5 else 0.0
 
             # Determine zodiac sign
             sign_num = int(longitude / 30) % 12
@@ -230,6 +253,14 @@ def assign_houses_to_planets(planets_data: Dict[str, Dict[str, Any]], house_cusp
     Returns:
         None (modifies planets_data in place)
     """
+    if not planets_data:
+        logger.error("No planet data available to assign houses")
+        raise ValueError("No planet data available to assign houses")
+
+    if not house_cusps or len(house_cusps) < 12:  # Need at least 12 cusps for the 12 houses
+        logger.error(f"Invalid house cusps data for house assignment: {house_cusps}")
+        raise ValueError(f"Invalid house cusps data for house assignment: {house_cusps}")
+
     for planet_name, planet_data in planets_data.items():
         planet_long = planet_data["longitude"]
         house = determine_house(planet_long, house_cusps)
@@ -246,21 +277,26 @@ def determine_house(longitude: float, house_cusps: Tuple) -> int:
     Returns:
         House number (1-12)
     """
+    # Validate inputs
+    if not isinstance(house_cusps, (tuple, list)) or len(house_cusps) < 12:
+        logger.error(f"Invalid house cusps data: {house_cusps}")
+        raise ValueError(f"Invalid house cusps data: {house_cusps}")
+
     # Normalize longitude to 0-360
     lon = longitude % 360
 
     # Check each house
-    for i in range(1, 12):
+    for i in range(0, 11):  # House cusps are now 0-indexed
         cusp1 = house_cusps[i] % 360
-        cusp2 = house_cusps[i+1] % 360
+        cusp2 = house_cusps[(i + 1) % 12] % 360  # Wrap around for the last house
 
         # If house crosses 0°, we need special handling
         if cusp2 < cusp1:
             if lon >= cusp1 or lon < cusp2:
-                return i
+                return i + 1  # Convert to 1-indexed house number
         else:
             if cusp1 <= lon < cusp2:
-                return i
+                return i + 1  # Convert to 1-indexed house number
 
     # If not found in houses 1-11, it must be in house 12
     return 12
@@ -275,10 +311,14 @@ def format_houses_data(house_cusps: Tuple) -> List[Dict[str, Any]]:
     Returns:
         List of house data dictionaries
     """
+    if not house_cusps or len(house_cusps) < 12:  # Need exactly 12 houses
+        logger.error(f"Invalid house cusps data: {house_cusps}")
+        raise ValueError(f"Invalid house cusps data: {house_cusps}")
+
     houses_data = []
 
-    # Start from index 1 to align with conventional house numbering
-    for i in range(1, 13):
+    # House cusps are 0-indexed in the tuple but traditionally 1-indexed in astrology
+    for i in range(0, 12):
         longitude = house_cusps[i]
 
         # Determine sign
@@ -286,7 +326,7 @@ def format_houses_data(house_cusps: Tuple) -> List[Dict[str, Any]]:
         sign = ZODIAC_SIGNS[sign_num]
 
         houses_data.append({
-            "house": i,
+            "house": i + 1,  # Convert to 1-indexed house number
             "longitude": longitude,
             "sign": sign,
             "sign_num": sign_num,
@@ -305,6 +345,10 @@ def format_angles_data(angles: Tuple) -> Dict[str, Dict[str, Any]]:
     Returns:
         Dictionary of angle data
     """
+    if not angles or len(angles) < 2:
+        logger.error(f"Invalid angles data: {angles}")
+        raise ValueError(f"Invalid angles data: {angles}")
+
     # Extract major angles
     asc_lon = angles[0]  # Ascendant longitude
     mc_lon = angles[1]   # Midheaven longitude

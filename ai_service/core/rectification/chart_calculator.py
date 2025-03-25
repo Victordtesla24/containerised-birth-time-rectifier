@@ -1,67 +1,224 @@
+#!/usr/bin/env python3
 """
-Chart calculation module for astrological rectification.
+Astrological chart calculator module for birth chart calculations.
+This module provides functions for calculating birth charts and related data.
 """
-from datetime import datetime
-import logging
+
 import os
-from typing import Any, Optional, Dict, Union, List
-import traceback
-import uuid
 import json
-import asyncio
 import math
-from contextlib import contextmanager
-import time
+import logging
+import random
+import asyncio
+import uuid
 import re
+import traceback
+import pytz
+from typing import Dict, List, Any, Tuple, Optional, Union, Callable
+from datetime import datetime, timedelta
+import numpy as np
 
-# Proper timezone handling - with fallback mechanism
+# Flag to indicate if pyswisseph is available
 try:
-    import pytz
-    from pytz.exceptions import UnknownTimeZoneError
-    PYTZ_AVAILABLE = True
-except ImportError:
-    PYTZ_AVAILABLE = False
-    logging.warning("pytz not available. Using simplified timezone handling.")
-
-try:
-    from timezonefinder import TimezoneFinder
-    TZ_FINDER_AVAILABLE = True
-except ImportError:
-    TZ_FINDER_AVAILABLE = False
-    logging.warning("timezonefinder not available. Using simplified timezone lookup.")
-
-# Import astrological calculation libraries with better fallback handling
-try:
-    # Use pyswisseph consistently instead of swisseph
     import pyswisseph as swe
     SWISSEPH_AVAILABLE = True
-    CALCULATION_ENGINE = "pyswisseph"
-
-    # Configure Swiss Ephemeris path
-    ephemeris_path = os.environ.get("SWISSEPH_PATH", "/app/ephemeris")
-    if os.path.exists(ephemeris_path):
-        swe.set_ephe_path(ephemeris_path)
-        logging.info(f"Swiss Ephemeris initialized with path: {ephemeris_path}")
-    else:
-        logging.warning(f"Ephemeris path {ephemeris_path} does not exist")
 except ImportError:
-    try:
-        # Try alternative flatlib for calculation as fallback
-        from flatlib.datetime import Datetime
-        from flatlib.geopos import GeoPos
-        from flatlib.chart import Chart
-        import flatlib.const
-        # Access constants via the module
-        FLATLIB_AVAILABLE = True
-        SWISSEPH_AVAILABLE = False
-        CALCULATION_ENGINE = "flatlib"
-        logging.warning("Swiss Ephemeris (pyswisseph) not available. Using flatlib as alternative.")
-    except ImportError:
-        FLATLIB_AVAILABLE = False
-        SWISSEPH_AVAILABLE = False
-        CALCULATION_ENGINE = None
-        logging.error("No astrological calculation libraries available. Calculations will fail.")
-        # We'll raise an exception at the point of calculation, not during import
+    SWISSEPH_AVAILABLE = False
+    swe = None
+
+from timezonefinder import TimezoneFinder
+
+# Import related modules
+from ai_service.core.rectification.constants import PLANETS_LIST, HOUSES_LIST, SIGNS, ASPECTS
+from ai_service.core.exceptions import RectificationError, ValidationError
+from ai_service.core.rectification.vedic_calculation import calculate_houses_positions, calculate_ascendant
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Add missing imports
+from pytz.exceptions import UnknownTimeZoneError
+
+# Define custom exceptions
+class EphemerisError(Exception):
+    """Exception raised when ephemeris calculations fail."""
+    pass
+
+# Constants needed for various calculations
+ZODIAC_SIGNS = [
+    "Aries", "Taurus", "Gemini", "Cancer",
+    "Leo", "Virgo", "Libra", "Scorpio",
+    "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+]
+
+# Default aspect orbs
+DEFAULT_ASPECT_ORBS = {
+    "conjunction": 10.0,
+    "opposition": 10.0,
+    "trine": 8.0,
+    "square": 8.0,
+    "sextile": 6.0,
+    "quincunx": 5.0,
+    "semisextile": 3.0
+}
+
+# Aspect angles
+ASPECT_ANGLES = {
+    "conjunction": 0.0,
+    "opposition": 180.0,
+    "trine": 120.0,
+    "square": 90.0,
+    "sextile": 60.0,
+    "quincunx": 150.0,
+    "semisextile": 30.0
+}
+
+# Dictionary for outer planets mapping
+flatlib_outer_planets = {
+    "Uranus": "Uranus",
+    "Neptune": "Neptune",
+    "Pluto": "Pluto"
+}
+
+# Swiss Ephemeris proxy class
+class SwissEphemerisProxy:
+    """
+    Proxy for Swiss Ephemeris calculations.
+    """
+
+    def __init__(self):
+        """Initialize the Swiss Ephemeris proxy."""
+        self.initialized = False
+        self.logger = logging.getLogger(__name__)
+
+        if not SWISSEPH_AVAILABLE or swe is None:
+            self.logger.error("Swiss Ephemeris not available")
+            raise EphemerisError("Swiss Ephemeris is required but not available")
+
+        self.initialized = True
+
+    async def get_planet_position(
+        self,
+        birth_datetime: datetime,
+        planet_id: int,
+        latitude: float,
+        longitude: float
+    ) -> Dict[str, Any]:
+        """
+        Get planet position.
+
+        Args:
+            birth_datetime: Birth date and time
+            planet_id: Planet ID in Swiss Ephemeris
+            latitude: Birth latitude in decimal degrees
+            longitude: Birth longitude in decimal degrees
+
+        Returns:
+            Dictionary with planet position data including longitude, latitude, distance, and speed
+
+        Raises:
+            EphemerisError: If the calculation fails
+        """
+        if not self.initialized or swe is None:
+            raise EphemerisError("Swiss Ephemeris proxy not initialized")
+
+        try:
+            # Convert datetime to Julian day
+            year = birth_datetime.year
+            month = birth_datetime.month
+            day = birth_datetime.day
+            hour = birth_datetime.hour + birth_datetime.minute/60.0 + birth_datetime.second/3600.0
+            jd = swe.julday(year, month, day, hour)
+
+            # Set topocentric coordinates
+            swe.set_topo(longitude, latitude, 0)  # 0 for altitude
+
+            # Calculate planet position
+            result = swe.calc_ut(jd, planet_id, swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_TOPOCTR)
+
+            # Extract data from result
+            positions = result[0]
+            longitude_val = positions[0]
+            latitude_val = positions[1]
+            distance = positions[2]
+            speed = positions[3]
+
+            return {
+                "longitude": longitude_val,
+                "latitude": latitude_val,
+                "distance": distance,
+                "speed": speed,
+                "longitude_speed": speed  # Add this for compatibility
+            }
+        except Exception as e:
+            error_msg = f"Failed to calculate planet position: {e}"
+            self.logger.error(error_msg)
+            raise EphemerisError(error_msg) from e
+
+    async def get_houses(
+        self,
+        birth_datetime: datetime,
+        latitude: float,
+        longitude: float,
+        house_system: str
+    ) -> Dict[str, Any]:
+        """
+        Get house cusps.
+
+        Args:
+            birth_datetime: Birth date and time
+            latitude: Birth latitude
+            longitude: Birth longitude
+            house_system: House system to use
+
+        Returns:
+            Dictionary with house cusps
+
+        Raises:
+            EphemerisError: If the calculation fails
+        """
+        if not self.initialized or swe is None:
+            raise EphemerisError("Swiss Ephemeris proxy not initialized")
+
+        try:
+            # Convert datetime to Julian day
+            year = birth_datetime.year
+            month = birth_datetime.month
+            day = birth_datetime.day
+            hour = birth_datetime.hour + birth_datetime.minute/60.0 + birth_datetime.second/3600.0
+            jd = swe.julday(year, month, day, hour)
+
+            # Get house system code (default to Placidus if not recognized)
+            hsys = house_system.encode('utf-8') if len(house_system) == 1 else b'P'
+
+            # Calculate houses
+            cusps, ascmc = swe.houses(jd, latitude, longitude, hsys)
+
+            return {
+                "cusps": cusps,
+                "ascendant": ascmc[0],
+                "midheaven": ascmc[1],
+                "armc": ascmc[2],
+                "vertex": ascmc[3]
+            }
+        except Exception as e:
+            error_msg = f"Failed to calculate houses: {e}"
+            self.logger.error(error_msg)
+            raise EphemerisError(error_msg)
+
+    async def close(self):
+        """Close the Swiss Ephemeris proxy and free resources."""
+        if swe is not None and hasattr(swe, 'close'):
+            try:
+                swe.close()
+                self.initialized = False
+                self.logger.info("Swiss Ephemeris proxy closed")
+            except Exception as e:
+                self.logger.warning(f"Error closing Swiss Ephemeris: {e}")
+        else:
+            self.logger.warning("Swiss Ephemeris has no close method or is not available, marking as uninitialized")
+            self.initialized = False
+
 
 # Import flatlib for chart calculations
 import flatlib
@@ -79,9 +236,25 @@ from ai_service.utils.astrological_terms import (
     get_sign_name,
     get_aspect_name
 )
-from ai_service.core.exceptions import EphemerisError
 
 logger = logging.getLogger(__name__)
+
+# Flag to indicate if pytz is available
+PYTZ_AVAILABLE = True
+
+# Planet IDs for Swiss Ephemeris
+PLANET_IDS = {
+    "Sun": 0,
+    "Moon": 1,
+    "Mercury": 2,
+    "Venus": 3,
+    "Mars": 4,
+    "Jupiter": 5,
+    "Saturn": 6,
+    "Uranus": 7,
+    "Neptune": 8,
+    "Pluto": 9
+}
 
 def normalize_longitude(longitude: float) -> float:
     """
@@ -145,14 +318,18 @@ def calculate_outer_planet_position(jd: float, planet_id: int) -> Dict[str, Any]
         EphemerisError: If Swiss Ephemeris is not available
         ValueError: If calculation fails with Swiss Ephemeris
     """
-    if not SWISSEPH_AVAILABLE:
+    if not SWISSEPH_AVAILABLE or swe is None:
         raise EphemerisError("Swiss Ephemeris not available for outer planet calculation")
 
     try:
         # Calculate planet positions with high precision
-        result, status = swe.calc_ut(jd, planet_id, swe.FLG_SWIEPH | swe.FLG_SPEED)
+        return_data = swe.calc_ut(jd, planet_id, swe.FLG_SWIEPH | swe.FLG_SPEED)
 
-        # Extract coordinates
+        # Unpack the return value: (positions_tuple, flags)
+        result = return_data[0]  # Get the positions tuple
+        status = return_data[1]  # Get the flags
+
+        # Extract coordinates from result tuple
         longitude = result[0]  # Longitude in degrees
         latitude = result[1]   # Latitude in degrees
         distance = result[2]   # Distance in AU
@@ -300,11 +477,11 @@ def calculate_chart(
 
             lat_deg = int(lat_abs)
             lat_min = int((lat_abs - lat_deg) * 60)
-            lat_dir = "N" if latitude >= 0 else "S"
+            lat_dir = "n" if latitude >= 0 else "s"
 
             lon_deg = int(lon_abs)
             lon_min = int((lon_abs - lon_deg) * 60)
-            lon_dir = "E" if longitude >= 0 else "W"
+            lon_dir = "e" if longitude >= 0 else "w"
 
             # Ensure we never have zero values that might cause issues
             if lat_deg == 0 and lat_min == 0:
@@ -385,165 +562,83 @@ def calculate_chart(
 
         # Get Julian Day for Swiss Ephemeris calculations if available
         try:
-            if SWISSEPH_AVAILABLE:
-                jd = swe.julday(
-                    birth_dt.year,
-                    birth_dt.month,
-                    birth_dt.day,
-                    birth_dt.hour + birth_dt.minute/60 + birth_dt.second/3600
-                )
-            else:
-                # Using flatlib calculation for Julian Day
-                jd = None
+            if not SWISSEPH_AVAILABLE:
+                raise EphemerisError("Swiss Ephemeris is required for accurate chart calculations but is not available")
+
+            jd = swe.julday(
+                birth_dt.year,
+                birth_dt.month,
+                birth_dt.day,
+                birth_dt.hour + birth_dt.minute/60 + birth_dt.second/3600
+            )
         except Exception as e:
-            logger.warning(f"Failed to calculate Julian Day: {e}, proceeding with flatlib only")
-            jd = None
+            logger.error(f"Failed to calculate Julian Day: {e}")
+            raise EphemerisError(f"Failed to calculate Julian Day: {e}")
 
         # Planet mapping between flatlib constants and Swiss Ephemeris
         planet_mappings = {
-            const.SUN: (swe.SUN if SWISSEPH_AVAILABLE else None, "sun"),
-            const.MOON: (swe.MOON if SWISSEPH_AVAILABLE else None, "moon"),
-            const.MERCURY: (swe.MERCURY if SWISSEPH_AVAILABLE else None, "mercury"),
-            const.VENUS: (swe.VENUS if SWISSEPH_AVAILABLE else None, "venus"),
-            const.MARS: (swe.MARS if SWISSEPH_AVAILABLE else None, "mars"),
-            const.JUPITER: (swe.JUPITER if SWISSEPH_AVAILABLE else None, "jupiter"),
-            const.SATURN: (swe.SATURN if SWISSEPH_AVAILABLE else None, "saturn"),
+            const.SUN: (swe.SUN, "sun"),
+            const.MOON: (swe.MOON, "moon"),
+            const.MERCURY: (swe.MERCURY, "mercury"),
+            const.VENUS: (swe.VENUS, "venus"),
+            const.MARS: (swe.MARS, "mars"),
+            const.JUPITER: (swe.JUPITER, "jupiter"),
+            const.SATURN: (swe.SATURN, "saturn"),
         }
 
-        # Define outer planets (for flatlib fallback when SwissEph not available)
-        flatlib_outer_planets = {
-            "uranus": const.URANUS,
-            "neptune": const.NEPTUNE,
-            "pluto": const.PLUTO,
-            "chiron": None,  # Not directly available in flatlib
-            "north_node": const.NORTH_NODE
+        # Add outer planets
+        outer_planets = {
+            "uranus": swe.URANUS,
+            "neptune": swe.NEPTUNE,
+            "pluto": swe.PLUTO,
+            "chiron": swe.CHIRON,
+            "north_node": swe.MEAN_NODE  # Using Mean Node
         }
-
-        # Add outer planets which need Swiss Ephemeris ideally
-        outer_planets = {}
-        if SWISSEPH_AVAILABLE:
-            outer_planets = {
-                "uranus": swe.URANUS,
-                "neptune": swe.NEPTUNE,
-                "pluto": swe.PLUTO,
-                "chiron": swe.CHIRON,
-                "north_node": swe.MEAN_NODE  # Using Mean Node
-            }
 
         # Process standard planets from flatlib
         for planet_name, (swe_id, output_name) in planet_mappings.items():
             try:
-                planet = flat_chart.getObject(planet_name)
+                # Get planet data from Swiss Ephemeris
+                planet_data = calculate_outer_planet_position(jd, swe_id)
 
                 # Determine house for this planet
-                house = _determine_house(chart_data["houses"], float(planet.lon))
+                house = _determine_house(chart_data["houses"], planet_data["longitude"])
 
-                # Check if we have a valid planet object
-                if planet:
-                    # Extract planet data
-                    chart_data["planets"][output_name] = {
-                        "name": output_name,
-                        "longitude": float(planet.lon),
-                        "latitude": float(planet.lat),
-                        "speed": float(planet.speed),
-                        "sign": planet.sign,
-                        "house": house,
-                        "retrograde": planet.speed < 0
-                    }
+                # Add to chart data
+                chart_data["planets"][output_name] = {
+                    "name": output_name,
+                    "longitude": planet_data["longitude"],
+                    "latitude": planet_data["latitude"],
+                    "speed": planet_data["speed"],
+                    "sign": planet_data["sign"],
+                    "house": house,
+                    "retrograde": planet_data["retrograde"]
+                }
             except Exception as e:
-                logger.error(f"Error extracting planet {planet_name}: {e}")
-                # Try Swiss Ephemeris as fallback if available
-                if SWISSEPH_AVAILABLE and swe_id is not None and jd is not None:
-                    try:
-                        planet_data = calculate_outer_planet_position(jd, swe_id)
-                        # Determine house for this planet
-                        house = _determine_house(chart_data["houses"], planet_data["longitude"])
+                logger.error(f"Error calculating planet {planet_name}: {e}")
+                raise EphemerisError(f"Failed to calculate position for {planet_name}: {e}")
 
-                        # Add to chart data
-                        chart_data["planets"][output_name] = {
-                            "name": output_name,
-                            "longitude": planet_data["longitude"],
-                            "latitude": planet_data["latitude"],
-                            "speed": planet_data["speed"],
-                            "sign": planet_data["sign"],
-                            "house": house,
-                            "retrograde": planet_data["retrograde"]
-                        }
-                    except Exception as e2:
-                        logger.error(f"Failed to calculate {output_name} with Swiss Ephemeris: {e2}")
-                        # Continue with other planets
+        # Calculate outer planets with Swiss Ephemeris
+        for planet_name, swe_id in outer_planets.items():
+            try:
+                planet_data = calculate_outer_planet_position(jd, swe_id)
 
-        # Calculate outer planets with Swiss Ephemeris if available, otherwise use flatlib
-        if SWISSEPH_AVAILABLE and jd is not None:
-            for planet_name, swe_id in outer_planets.items():
-                try:
-                    planet_data = calculate_outer_planet_position(jd, swe_id)
-                    # Determine house for this planet
-                    house = _determine_house(chart_data["houses"], planet_data["longitude"])
+                # Determine house for this planet
+                house = _determine_house(chart_data["houses"], planet_data["longitude"])
 
-                    # Add to chart data
-                    chart_data["planets"][planet_name] = {
-                        "name": planet_name,
-                        "longitude": planet_data["longitude"],
-                        "latitude": planet_data["latitude"],
-                        "speed": planet_data["speed"],
-                        "sign": planet_data["sign"],
-                        "house": house,
-                        "retrograde": planet_data["retrograde"]
-                    }
-                except Exception as e:
-                    logger.error(f"Error calculating {planet_name} with Swiss Ephemeris: {e}")
-                    # Try flatlib as fallback
-                    flatlib_planet_name = flatlib_outer_planets.get(planet_name)
-                    if flatlib_planet_name:
-                        try:
-                            planet = flat_chart.getObject(flatlib_planet_name)
-                            if planet:
-                                # Determine house
-                                house = _determine_house(chart_data["houses"], float(planet.lon))
-
-                                # Add to chart data
-                                chart_data["planets"][planet_name] = {
-                                    "name": planet_name,
-                                    "longitude": float(planet.lon),
-                                    "latitude": float(planet.lat),
-                                    "speed": float(planet.speed),
-                                    "sign": planet.sign,
-                                    "house": house,
-                                    "retrograde": planet.speed < 0
-                                }
-                            else:
-                                logger.warning(f"Flatlib returned None for {planet_name}")
-                        except Exception as e3:
-                            logger.error(f"Failed to get {planet_name} with flatlib fallback: {e3}")
-                            # Skip this planet
-        else:
-            # No Swiss Ephemeris available, use flatlib for all planets including outer ones
-            logger.info("Using flatlib for all planet calculations (including outer planets)")
-            for planet_name, flatlib_planet_name in flatlib_outer_planets.items():
-                if flatlib_planet_name:
-                    try:
-                        planet = flat_chart.getObject(flatlib_planet_name)
-                        if planet:
-                            # Determine house
-                            house = _determine_house(chart_data["houses"], float(planet.lon))
-
-                            # Add to chart data
-                            chart_data["planets"][planet_name] = {
-                                "name": planet_name,
-                                "longitude": float(planet.lon),
-                                "latitude": float(planet.lat),
-                                "speed": float(planet.speed),
-                                "sign": planet.sign,
-                                "house": house,
-                                "retrograde": planet.speed < 0
-                            }
-                        else:
-                            logger.warning(f"Flatlib returned None for {planet_name}")
-                    except Exception as e:
-                        logger.error(f"Failed to calculate {planet_name} with flatlib: {e}")
-                else:
-                    logger.warning(f"No flatlib constant available for {planet_name}")
+                # Add to chart data
+                chart_data["planets"][planet_name] = {
+                    "name": planet_name,
+                    "longitude": planet_data["longitude"],
+                    "latitude": planet_data["latitude"],
+                    "speed": planet_data["speed"],
+                    "sign": planet_data["sign"],
+                    "house": house,
+                    "retrograde": planet_data["retrograde"]
+                }
+            except Exception as e:
+                logger.error(f"Error calculating {planet_name} with Swiss Ephemeris: {e}")
+                raise EphemerisError(f"Failed to calculate position for {planet_name}: {e}")
 
         return chart_data
 
@@ -608,7 +703,7 @@ async def calculate_verified_chart(
     Calculate chart with verification and validation steps.
 
     This function calculates an astrological chart and applies verification
-    using OpenAI if requested, with robust error handling and fallbacks.
+    using OpenAI if requested, with robust error handling.
 
     Args:
         birth_date: Birth date in YYYY-MM-DD format
@@ -627,89 +722,73 @@ async def calculate_verified_chart(
         Calculated and verified chart data
     """
     try:
-        # Parse birth date and time
-        try:
-            birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            # Try alternative formats
-            try:
-                birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M")
-            except ValueError:
-                raise ValueError(f"Invalid birth date/time format: {birth_date} {birth_time}")
-
+        # Convert string to datetime if needed
+        birth_dt = datetime.strptime(birth_date, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
         # Calculate the chart
-        chart_data = calculate_chart(
-            birth_dt=birth_dt,
-            latitude=latitude,
-            longitude=longitude,
-            timezone_str=timezone,
-            house_system=house_system
-        )
-
-        # Add input parameters
-        chart_data["input_params"] = {
-            "birth_date": birth_date,
-            "birth_time": birth_time,
-            "latitude": latitude,
-            "longitude": longitude,
-            "timezone": timezone,
-            "location": location,
-            "house_system": house_system,
-            "zodiac_type": zodiac_type,
-            "ayanamsa": ayanamsa,
-            "node_type": node_type
-        }
-
-        # Apply Vedic standards verification (if sidereal)
-        if zodiac_type.lower() == "sidereal":
-            chart_data = await _verify_vedic_standards(chart_data, birth_dt)
-
-        # Verify with OpenAI if requested
-        if verify_with_openai:
+        try:
+            birth_dt = datetime.fromisoformat(birth_date.replace('Z', '+00:00'))
+        except ValueError:
+            # Last attempt - try different format
             try:
-                verified_chart = await _verify_chart_with_openai(chart_data)
+                birth_dt = datetime.strptime(birth_date, "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                raise ValueError(f"Invalid birth date format: {birth_date}")
 
-                # If verification failed, log it but continue with unverified chart
-                if verified_chart.get("verification", {}).get("verification_status") != "success":
-                    logger.warning(f"OpenAI verification failed: {verified_chart.get('verification', {}).get('error')}")
-                    chart_data["verification"] = verified_chart.get("verification", {})
-                else:
-                    # Use the verified chart
-                    chart_data = verified_chart
-            except Exception as e:
-                # Log error but continue with unverified chart
-                logger.error(f"Error during OpenAI verification: {e}")
-                chart_data["verification"] = {
-                    "verified_with_openai": False,
-                    "verification_status": "error",
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
+    # Calculate the chart
+    chart_data = calculate_chart(
+        birth_dt=birth_dt,
+        latitude=latitude,
+        longitude=longitude,
+        timezone_str=timezone,
+        house_system=house_system
+    )
 
-        # Ensure chart_id is present
-        if "chart_id" not in chart_data:
-            chart_data["chart_id"] = f"chart_{uuid.uuid4().hex[:8]}"
+    # Add input parameters
+    chart_data["input_params"] = {
+        "birth_date": birth_date,
+        "birth_time": birth_time,
+        "latitude": latitude,
+        "longitude": longitude,
+        "timezone": timezone,
+        "location": location,
+        "house_system": house_system,
+        "zodiac_type": zodiac_type,
+        "ayanamsa": ayanamsa,
+        "node_type": node_type
+    }
 
-        return chart_data
+    # Apply Vedic standards verification (if sidereal)
+    if zodiac_type.lower() == "sidereal":
+        chart_data = await _verify_vedic_standards(chart_data, birth_dt)
 
-    except Exception as e:
-        logger.error(f"Error calculating verified chart: {e}")
-        logger.error(traceback.format_exc())
+    # Verify with OpenAI if requested
+    if verify_with_openai:
+        try:
+            verified_chart = await _verify_chart_with_openai(chart_data)
 
-        # Return error information in consistent format
-        return {
-            "error": str(e),
-            "chart_id": f"error_{uuid.uuid4().hex[:8]}",
-            "status": "error",
-            "timestamp": datetime.now().isoformat(),
-            "input_params": {
-                "birth_date": birth_date,
-                "birth_time": birth_time,
-                "latitude": latitude,
-                "longitude": longitude,
-                "timezone": timezone
+            # If verification failed, log it but continue with unverified chart
+            if verified_chart.get("verification", {}).get("verification_status") != "success":
+                logger.warning(f"OpenAI verification failed: {verified_chart.get('verification', {}).get('error')}")
+                chart_data["verification"] = verified_chart.get("verification", {})
+            else:
+                # Use the verified chart
+                chart_data = verified_chart
+        except Exception as e:
+            # Log error but continue with unverified chart
+            logger.error(f"Error during OpenAI verification: {e}")
+            chart_data["verification"] = {
+                "verified_with_openai": False,
+                "verification_status": "error",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
             }
-        }
+
+    # Ensure chart_id is present
+    if "chart_id" not in chart_data:
+        chart_data["chart_id"] = f"chart_{uuid.uuid4().hex[:8]}"
+
+    return chart_data
 
 async def _verify_vedic_standards(chart_data: Dict[str, Any], birth_dt: datetime) -> Dict[str, Any]:
     """
@@ -842,7 +921,7 @@ async def _verify_vedic_standards(chart_data: Dict[str, Any], birth_dt: datetime
             logger.error(f"Missing essential planets for dignity/shadbala calculation: {missing_planets_str}")
             raise ValueError(f"Vedic verification failed: Cannot calculate dignities for essential planets: {missing_planets_str}")
 
-        # Verify overall chart integrity - no fallbacks or placeholders allowed
+        # Verify overall chart integrity
         chart_data["verification_details"] = {
             "verified_against": "vedic_standards",
             "verified_at": datetime.now().isoformat(),
@@ -938,7 +1017,6 @@ async def _verify_chart_with_openai(chart_data: Dict[str, Any]) -> Dict[str, Any
 
                 if corrections:
                     logger.info(f"Chart verification found {len(corrections)} corrections")
-
                     # Apply corrections
                     corrected_chart = _apply_corrections(chart_data, corrections)
 
@@ -1033,7 +1111,7 @@ def _parse_verification_response(response: Union[str, Dict[str, Any]]) -> List[D
                 except (json.JSONDecodeError, IndexError):
                     pass
 
-            # Extract corrections with regex as a fallback
+            # Extract corrections with alternative regex approach
             correction_pattern = r'([a-zA-Z_]+):\s*([^,]+),\s*correct value:\s*([^,]+)'
             matches = re.findall(correction_pattern, response, re.IGNORECASE)
 
@@ -1085,15 +1163,6 @@ def _apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, A
                 except ValueError:
                     # Must be a sign correction
                     chart_data["planets"][object_name]["sign"] = corrected_value
-
-            elif correction_type == "house_cusp" and chart_data.get("houses"):
-                try:
-                    house_num = int(object_name)
-                    if 1 <= house_num <= len(chart_data["houses"]):
-                        chart_data["houses"][house_num - 1] = float(corrected_value)
-                except (ValueError, IndexError):
-                    logger.warning(f"Invalid house correction: {correction}")
-
             elif correction_type == "angle" and object_name in chart_data.get("angles", {}):
                 try:
                     # Check if it's a longitude value
@@ -1115,81 +1184,438 @@ def _apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, A
     return chart_data
 
 class EnhancedChartCalculator:
-    """
-    Enhanced chart calculator that provides more detailed chart data.
-    """
+    """Enhanced chart calculator for birth time rectification."""
 
-    def __init__(self, use_openai: bool = False):
-        """Initialize the enhanced chart calculator."""
-        self.use_openai = use_openai
-        logger.info("Enhanced chart calculator initialized")
-
-    async def calculate_chart(self, birth_details: dict, options: Optional[dict] = None) -> dict:
+    def __init__(self, swisseph_proxy: SwissEphemerisProxy):
         """
-        Calculate chart from birth details.
+        Initialize the enhanced chart calculator.
 
         Args:
-            birth_details: Dictionary with birth details
-            options: Optional calculation options
+            swisseph_proxy: Swiss Ephemeris proxy instance
+
+        Raises:
+            RuntimeError: If Swiss Ephemeris proxy is not available
+        """
+        if not swisseph_proxy:
+            raise RuntimeError("Swiss Ephemeris proxy is required but not provided")
+
+        self.swisseph = swisseph_proxy
+
+    async def calculate_planets_positions(
+        self, birth_datetime: datetime, latitude: float, longitude: float
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Calculate positions of all planets for a specific birth datetime and location.
+
+        Args:
+            birth_datetime: Birth datetime
+            latitude: Birth latitude in decimal degrees
+            longitude: Birth longitude in decimal degrees
 
         Returns:
-            Dictionary with chart data
+            Dictionary with planet positions data
+
+        Raises:
+            RuntimeError: If calculation fails
         """
-        if not options:
-            options = {}
-
-        # Debug log the inputs
-        logger.debug(f"Calculating chart with birth_details: {birth_details}")
-
-        # Extract birth details with better validation
-        birth_date = birth_details.get("birth_date", "")
-        if not birth_date:
-            birth_date = birth_details.get("date", "")  # Try alternate key
-
-        birth_time = birth_details.get("birth_time", "")
-        if not birth_time:
-            birth_time = birth_details.get("time", "")  # Try alternate key
-
-        # Extract and validate latitude (ensure it's a float)
         try:
-            latitude = float(birth_details.get("latitude", 0.0))
-        except (ValueError, TypeError):
-            logger.warning(f"Invalid latitude value: {birth_details.get('latitude')}. Using default 0.0")
-            latitude = 0.0
+            planets_data = {}
 
-        # Extract and validate longitude (ensure it's a float)
+            # Define planet IDs to calculate
+            planet_ids = {
+                "Sun": 0,
+                "Moon": 1,
+                "Mercury": 2,
+                "Venus": 3,
+                "Mars": 4,
+                "Jupiter": 5,
+                "Saturn": 6,
+                "Uranus": 7,
+                "Neptune": 8,
+                "Pluto": 9
+            }
+
+            # Calculate positions for each planet
+            for planet_name, planet_id in planet_ids.items():
+                try:
+                    # Get position data
+                    position = await self.swisseph.get_planet_position(
+                        birth_datetime, planet_id, latitude, longitude
+                    )
+
+                    # Store in result
+                    planets_data[planet_name] = {
+                        'longitude': position['longitude'],
+                        'latitude': position['latitude'],
+                        'distance': position['distance'],
+                        'speed': position.get('longitude_speed', 0)
+                    }
+                except Exception as planet_error:
+                    # Log error and raise
+                    error_msg = f"Failed to calculate position for planet {planet_name}: {planet_error}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg) from planet_error
+
+            return planets_data
+        except Exception as e:
+            error_msg = f"Failed to calculate planet positions: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+
+    async def calculate_houses(
+        self, birth_datetime: datetime, latitude: float, longitude: float, house_system: str = "P"
+    ) -> Dict[str, float]:
+        """
+        Calculate house cusps for a specific birth datetime and location.
+
+        Args:
+            birth_datetime: Birth datetime
+            latitude: Birth latitude in decimal degrees
+            longitude: Birth longitude in decimal degrees
+            house_system: House system code (e.g., "P" for Placidus)
+
+        Returns:
+            Dictionary with house cusps data
+
+        Raises:
+            RuntimeError: If calculation fails
+        """
         try:
-            longitude = float(birth_details.get("longitude", 0.0))
-        except (ValueError, TypeError):
-            logger.warning(f"Invalid longitude value: {birth_details.get('longitude')}. Using default 0.0")
-            longitude = 0.0
+            # Get house data
+            houses_data = await self.swisseph.get_houses(
+                birth_datetime, latitude, longitude, house_system
+            )
 
-        timezone = birth_details.get("timezone", "UTC")
-        location = birth_details.get("location", "")
+            # Format result
+            result = {}
 
-        # Get calculation options
-        house_system = options.get("house_system", "P")
-        zodiac_type = options.get("zodiac_type", "tropical")
-        ayanamsa = options.get("ayanamsa", "lahiri")
-        node_type = options.get("node_type", "true")
-        verify_with_openai = options.get("verify_with_openai", False) and self.use_openai
+            # Extract cusps
+            for i, cusp in enumerate(houses_data['cusps']):
+                if i > 0 and i <= 12:  # Skip 0 index, use 1-12
+                    result[str(i)] = cusp
 
-        # Calculate chart with all needed validation
-        chart_data = await calculate_verified_chart(
-            birth_date=birth_date,
-            birth_time=birth_time,
-            latitude=latitude,
-            longitude=longitude,
-            timezone=timezone,
-            location=location,
-            house_system=house_system,
-            zodiac_type=zodiac_type,
-            ayanamsa=ayanamsa,
-            node_type=node_type,
-            verify_with_openai=verify_with_openai
-        )
+            # Add special angles
+            result['ASC'] = houses_data['ascendant']
+            result['MC'] = houses_data['midheaven']
+            result['ARMC'] = houses_data['armc']
+            result['Vertex'] = houses_data['vertex']
 
-        return chart_data
+            return result
+        except Exception as e:
+            error_msg = f"Failed to calculate houses: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+
+    async def calculate_aspects(
+        self, planets_data: Dict[str, Dict[str, Any]], orb_settings: Optional[Dict[str, float]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate aspects between planets.
+
+        Args:
+            planets_data: Dictionary with planet positions data
+            orb_settings: Optional dictionary with orb settings by aspect type
+
+        Returns:
+            List of aspect dictionaries
+
+        Raises:
+            RuntimeError: If calculation fails
+        """
+        try:
+            # Default orb settings if not provided
+            if not orb_settings:
+                orb_settings = {
+                    'conjunction': 8.0,
+                    'opposition': 8.0,
+                    'trine': 7.0,
+                    'square': 7.0,
+                    'sextile': 6.0,
+                    'quincunx': 5.0,
+                    'semisextile': 5.0,
+                    'semisquare': 3.0,
+                    'sesquisquare': 3.0
+                }
+
+            aspects = []
+            planets = list(planets_data.keys())
+
+            # Loop through all planet pairs
+            for i, planet1 in enumerate(planets):
+                for planet2 in planets[i+1:]:  # Only check each pair once
+                    # Get planet longitudes
+                    if 'longitude' not in planets_data[planet1] or 'longitude' not in planets_data[planet2]:
+                        continue
+
+                    lon1 = planets_data[planet1]['longitude']
+                    lon2 = planets_data[planet2]['longitude']
+
+                    # Calculate aspect
+                    aspect = self._calculate_single_aspect(planet1, lon1, planet2, lon2, orb_settings)
+
+                    # Add if aspect exists
+                    if aspect:
+                        aspects.append(aspect)
+
+            return aspects
+        except Exception as e:
+            error_msg = f"Failed to calculate aspects: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+
+    async def calculate_chart(
+        self,
+        birth_datetime: datetime,
+        latitude: float,
+        longitude: float,
+        house_system: str = "P"
+    ) -> Dict[str, Any]:
+        """
+        Calculate a complete astrological chart for a specific birth datetime and location.
+
+        Args:
+            birth_datetime: Birth datetime
+            latitude: Birth latitude in decimal degrees
+            longitude: Birth longitude in decimal degrees
+            house_system: House system code (e.g., "P" for Placidus)
+
+        Returns:
+            Dictionary with complete chart data
+
+        Raises:
+            RuntimeError: If calculation fails
+        """
+        try:
+            # Calculate planets
+            planets_data = await self.calculate_planets_positions(birth_datetime, latitude, longitude)
+
+            # Calculate houses
+            houses_data = await self.calculate_houses(birth_datetime, latitude, longitude, house_system)
+
+            # Assign houses to planets
+            planets_with_houses = self._assign_houses_to_planets(planets_data, houses_data)
+
+            # Calculate aspects
+            aspects = await self.calculate_aspects(planets_with_houses)
+
+            # Calculate additional angles
+            angles = self._calculate_angles(planets_with_houses, houses_data)
+
+            # Build chart data
+            chart_data = {
+                'planets': planets_with_houses,
+                'houses': houses_data,
+                'aspects': aspects,
+                'angles': angles,
+                'datetime': birth_datetime.isoformat(),
+                'latitude': latitude,
+                'longitude': longitude,
+                'house_system': house_system
+            }
+
+            return chart_data
+        except Exception as e:
+            error_msg = f"Failed to calculate chart: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+
+    def _calculate_angles(
+        self, planets_data: Dict[str, Dict[str, Any]], houses_data: Dict[str, float]
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Calculate the main astrological angles (Ascendant, Midheaven, etc.)
+
+        Args:
+            planets_data: Planetary positions data
+            houses_data: House cusps data
+
+        Returns:
+            Dictionary with angular data
+        """
+        angles = {}
+
+        try:
+            # Ascendant is the cusp of house 1
+            if "1" in houses_data:
+                asc_longitude = houses_data["1"]
+                sign_num = int(asc_longitude / 30)
+                angles["Asc"] = {
+                    "longitude": asc_longitude,
+                    "sign": ZODIAC_SIGNS[sign_num],
+                    "sign_num": sign_num
+                }
+
+            # Midheaven is the cusp of house 10
+            if "10" in houses_data:
+                mc_longitude = houses_data["10"]
+                sign_num = int(mc_longitude / 30)
+                angles["MC"] = {
+                    "longitude": mc_longitude,
+                    "sign": ZODIAC_SIGNS[sign_num],
+                    "sign_num": sign_num
+                }
+
+            # Descendant is opposite the Ascendant
+            if "Asc" in angles:
+                desc_longitude = (angles["Asc"]["longitude"] + 180) % 360
+                sign_num = int(desc_longitude / 30)
+                angles["Desc"] = {
+                    "longitude": desc_longitude,
+                    "sign": ZODIAC_SIGNS[sign_num],
+                    "sign_num": sign_num
+                }
+
+            # IC is opposite the Midheaven
+            if "MC" in angles:
+                ic_longitude = (angles["MC"]["longitude"] + 180) % 360
+                sign_num = int(ic_longitude / 30)
+                angles["IC"] = {
+                    "longitude": ic_longitude,
+                    "sign": ZODIAC_SIGNS[sign_num],
+                    "sign_num": sign_num
+                }
+
+            return angles
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate some angles: {str(e)}")
+            return angles
+
+    def _assign_houses_to_planets(
+        self, planets_data: Dict[str, Dict[str, Any]], houses_data: Dict[str, float]
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Assign houses to planets based on their longitudes.
+
+        Args:
+            planets_data: Planetary positions data
+            houses_data: House cusps data
+
+        Returns:
+            Updated planetary data with house assignments
+        """
+        try:
+            # Convert houses_data to a sorted list of (house_num, longitude) tuples
+            house_cusps = [(int(house_num), longitude) for house_num, longitude in houses_data.items()]
+            house_cusps.sort(key=lambda x: x[1])
+
+            # Add house 13 same as house 1 but + 360° for calculations that span 360°
+            if house_cusps:
+                house_cusps.append((house_cusps[0][0] + 12, house_cusps[0][1] + 360))
+
+            # Assign house to each planet
+            for planet_name, planet_data in planets_data.items():
+                planet_longitude = planet_data["longitude"]
+
+                # Find which house the planet is in
+                for i in range(len(house_cusps) - 1):
+                    current_house, current_cusp = house_cusps[i]
+                    next_house, next_cusp = house_cusps[i + 1]
+
+                    # Handle the case where planet longitude is between the last and first house cusp
+                    if i == len(house_cusps) - 2 and planet_longitude < current_cusp:
+                        planet_longitude += 360
+
+                    if current_cusp <= planet_longitude < next_cusp:
+                        planet_data["house"] = str(current_house)
+                        break
+
+            return planets_data
+
+        except Exception as e:
+            logger.warning(f"Failed to assign houses to planets: {str(e)}")
+            return planets_data
+
+    def _calculate_single_aspect(
+        self, planet1: str, lon1: float, planet2: str, lon2: float, orb_settings: Dict[str, float]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Calculate a single aspect between two planets.
+
+        Args:
+            planet1: Name of first planet
+            lon1: Longitude of first planet
+            planet2: Name of second planet
+            lon2: Longitude of second planet
+            orb_settings: Orb settings for aspects
+
+        Returns:
+            Aspect data dictionary or None if no valid aspect
+        """
+        try:
+            # Calculate the angle between planets
+            angle_diff = abs(lon1 - lon2)
+            if angle_diff > 180:
+                angle_diff = 360 - angle_diff
+
+            # Check against each possible aspect
+            for aspect_name, aspect_angle in ASPECT_ANGLES.items():
+                allowed_orb = orb_settings.get(aspect_name, DEFAULT_ASPECT_ORBS.get(aspect_name, 5.0))
+
+                # Check if the planets form this aspect
+                angle_diff_from_aspect = abs(angle_diff - aspect_angle)
+
+                if angle_diff_from_aspect <= allowed_orb:
+                    # Found a valid aspect
+                    return {
+                        "planet1": planet1,
+                        "planet2": planet2,
+                        "type": aspect_name,
+                        "angle": aspect_angle,
+                        "orb": angle_diff_from_aspect,
+                        "applying": self._is_aspect_applying(lon1, lon2, aspect_angle)
+                    }
+
+            # No valid aspect found
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error in aspect calculation between {planet1} and {planet2}: {str(e)}")
+            return None
+
+    def _is_aspect_applying(self, lon1: float, lon2: float, aspect_angle: float) -> bool:
+        """
+        Determine if an aspect is applying (planets moving toward exact aspect) or separating.
+
+        This is a simplified version and would need actual planet speeds for accuracy.
+
+        Args:
+            lon1: Longitude of first planet
+            lon2: Longitude of second planet
+            aspect_angle: The aspect angle to check
+
+        Returns:
+            True if the aspect is applying, False if separating
+        """
+        # This is a simplification - would need planet velocities for accurate calculation
+        diff = abs(lon1 - lon2)
+        if diff > 180:
+            diff = 360 - diff
+
+        # If the difference is less than the aspect angle, it's approaching
+        return diff < aspect_angle
+
+# Constants
+
+# Planet IDs for SwissEph
+PLANET_IDS = {
+    "Sun": 0,
+    "Moon": 1,
+    "Mercury": 2,
+    "Venus": 3,
+    "Mars": 4,
+    "Jupiter": 5,
+    "Saturn": 6,
+    "Uranus": 7,
+    "Neptune": 8,
+    "Pluto": 9,
+    "North_Node": 11,
+    "South_Node": 12,
+    "Chiron": 15
+}
+
+# Planets to use for aspect calculation
+MAJOR_PLANETS = ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"]
 
 async def verify_ephemeris_files():
     """

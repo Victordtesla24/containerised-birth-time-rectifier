@@ -34,6 +34,13 @@ class QuestionnaireCompleteRequest(BaseModel):
     session_id: str = Field(..., description="Session ID for this questionnaire")
     chart_id: str = Field(..., description="Chart ID to associate with rectification")
 
+# Add a new request model for generating questionnaire
+class QuestionnaireGenerateRequest(BaseModel):
+    birth_details: Dict[str, Any] = Field(..., description="Birth details including date, time, and location")
+    previous_answers: Optional[Dict[str, Any]] = Field({}, description="Previous answers from the questionnaire")
+    current_confidence: Optional[float] = Field(0.0, description="Current confidence level from previous answers")
+    session_id: Optional[str] = Field(None, description="Optional session ID to use for this request")
+
 # Helper function to request data from the AI service
 async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: str = "POST") -> Dict[str, Any]:
     """Send a request to the AI service"""
@@ -233,4 +240,44 @@ async def process_rectification(request: Request):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Rectification processing failed: {str(exc)}"
+        )
+
+# Add the generate endpoint
+@router.post("/generate", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+async def generate_questionnaire(request: QuestionnaireGenerateRequest):
+    """
+    Generate questionnaire data based on birth details and previous answers.
+
+    This endpoint creates an AI-powered, personalized questionnaire for
+    birth time rectification based on astrological principles.
+
+    Request body:
+    - birth_details: Birth details including date, time, and location
+    - previous_answers: Previous answers from the questionnaire (optional)
+    - current_confidence: Current confidence level (optional)
+    - session_id: Optional session ID to use
+    """
+    try:
+        logger.info(f"Generating questionnaire with birth details: {request.birth_details}")
+
+        # Prepare request data for the AI service
+        request_data = {
+            "birth_details": request.birth_details,
+            "previous_answers": request.previous_answers,
+            "current_confidence": request.current_confidence
+        }
+
+        # Add session_id if provided
+        if request.session_id:
+            request_data["session_id"] = request.session_id
+
+        # Use the correct endpoint path for the AI service
+        result = await request_ai_service("questionnaire/generate", request_data)
+
+        return result
+    except Exception as exc:
+        logger.error(f"Error generating questionnaire: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Questionnaire generation failed: {str(exc)}"
         )

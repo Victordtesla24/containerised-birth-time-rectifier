@@ -49,12 +49,20 @@ class TransactionIsolation:
 
         if not self.connection:
             # Get a connection from the pool
-            self.connection = await self.db_pool.acquire()
+            if self.db_pool is not None:
+                self.connection = await self.db_pool.acquire()
+            else:
+                logger.error("Database pool is None, cannot acquire connection")
+                raise ValueError("Database pool is None")
 
             # Start a transaction
-            self.transaction = self.connection.transaction()
-            await self.transaction.start()
-            logger.info("Started isolated database transaction")
+            if self.connection is not None:
+                self.transaction = self.connection.transaction()
+                await self.transaction.start()
+                logger.info("Started isolated database transaction")
+            else:
+                logger.error("Failed to acquire database connection")
+                raise ValueError("Failed to acquire database connection")
         else:
             # Create a savepoint if we already have a transaction
             savepoint_name = f"sp_{id(self)}"

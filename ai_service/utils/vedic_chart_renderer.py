@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from matplotlib import path as mpath
+from matplotlib.path import Path
 
 # Configure logging
 logger = logging.getLogger(__name__)

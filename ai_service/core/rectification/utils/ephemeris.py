@@ -382,8 +382,12 @@ class MinimalChart:
                             "degree": south_node_lon % 30,
                             "retrograde": not north_node["retrograde"]
                         }
-                        continue
+                    continue  # Skip the regular calculation for South Node
+            except Exception as e:
+                logger.error(f"Error calculating South Node position: {e}")
+                continue
 
+            try:
                 # Calculate position with high precision
                 flags = swe.FLG_SWIEPH | swe.FLG_SPEED
                 result = swe.calc_ut(self.jd, planet_id, flags)
@@ -418,21 +422,8 @@ class MinimalChart:
                     "degree": longitude % 30,
                     "retrograde": retrograde
                 }
-
             except Exception as e:
-                logger.error(f"Error calculating position for {planet_name}: {e}")
-                # Create placeholder data that clearly indicates an error
-                planet_data[planet_name] = {
-                    "longitude": 0.0,
-                    "latitude": 0.0,
-                    "distance": 0.0,
-                    "speed": 0.0,
-                    "sign": "Unknown",
-                    "sign_num": 0,
-                    "degree": 0.0,
-                    "retrograde": False,
-                    "error": str(e)
-                }
+                logger.error(f"Error calculating position for planet {planet_name}: {e}")
 
         return planet_data
 
@@ -519,18 +510,6 @@ class MinimalChart:
 
         except Exception as e:
             logger.error(f"Error calculating houses and angles: {e}")
-            # Return default values if calculation fails
-            houses = [i * 30.0 for i in range(12)]
-
-            # Create placeholder angle data
-            for name, lon in [("asc", 0), ("mc", 90), ("dsc", 180), ("ic", 270)]:
-                angles[name] = {
-                    "name": name.capitalize(),
-                    "longitude": float(lon),
-                    "sign": "Unknown",
-                    "degree": 0.0,
-                    "error": str(e)
-                }
 
         return houses, angles
 

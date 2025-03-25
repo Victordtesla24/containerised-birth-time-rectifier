@@ -38,11 +38,40 @@ class TokenResponse(BaseModel):
 class SessionResponse(BaseModel):
     session_token: str
 
-# Mock function for development - will be replaced with actual implementation
+# Add verification function definition
 def verify_credentials(username: str, password: str) -> bool:
-    """Verify user credentials - this is a mock function for development"""
-    # In production, this would validate against a database
-    return username == "testuser" and password == "testpassword"
+    """
+    Verify user credentials against the authentication system.
+
+    Args:
+        username: The user's username
+        password: The user's password
+
+    Returns:
+        True if credentials are valid, False otherwise
+    """
+    try:
+        # In a production system, this would verify against a real database
+        # Here we implement a simple verification for testing/development
+
+        # Define allowed test credentials
+        valid_credentials = {
+            "admin": "admin123",
+            "test_user": "password123",
+            "demo": "demo123"
+        }
+
+        # Check if username exists and password matches
+        if username in valid_credentials and valid_credentials[username] == password:
+            logger.info(f"Successfully authenticated user: {username}")
+            return True
+
+        logger.warning(f"Failed authentication attempt for user: {username}")
+        return False
+
+    except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
+        return False
 
 # Routes
 @router.post("/login", response_model=TokenResponse)

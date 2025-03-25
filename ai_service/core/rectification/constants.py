@@ -13,6 +13,30 @@ PLANETS_LIST = [
     "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
 ]
 
+# Define houses list once
+HOUSES_LIST = [
+    "1st", "2nd", "3rd", "4th", "5th", "6th",
+    "7th", "8th", "9th", "10th", "11th", "12th"
+]
+
+# Define zodiac signs once
+SIGNS = [
+    "Aries", "Taurus", "Gemini", "Cancer",
+    "Leo", "Virgo", "Libra", "Scorpio",
+    "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+]
+
+# Define aspects once
+ASPECTS = {
+    "conjunction": {"angle": 0, "orb": 10.0, "nature": "major"},
+    "opposition": {"angle": 180, "orb": 10.0, "nature": "major"},
+    "trine": {"angle": 120, "orb": 8.0, "nature": "major"},
+    "square": {"angle": 90, "orb": 8.0, "nature": "major"},
+    "sextile": {"angle": 60, "orb": 6.0, "nature": "minor"},
+    "quincunx": {"angle": 150, "orb": 5.0, "nature": "minor"},
+    "semisextile": {"angle": 30, "orb": 3.0, "nature": "minor"}
+}
+
 # Life event mappings
 LIFE_EVENT_MAPPING = {
     "marriage": ["Venus", "Juno", "Descendant", "7th_house"],

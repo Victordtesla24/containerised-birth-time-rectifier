@@ -1,72 +1,104 @@
 """
 Database module for Birth Time Rectifier.
+
+This module provides database functions and connections for the application.
 """
 
-# Import important modules here
+import os
 import logging
-import asyncpg
-from typing import Optional
+from typing import Dict, Any, Optional
 
+# Import functions from submodules
+from ai_service.database.initialization import initialize_database as initialize_database_internal
+from ai_service.database.initialization import verify_schema_integrity
+
+# Setup logging
 logger = logging.getLogger(__name__)
 
-async def verify_database_schema(db_pool: Optional[asyncpg.Pool] = None):
+# Re-export the initialize_database function with the expected name
+async def initialize_database_connections() -> bool:
     """
-    Verify required database tables and columns exist before testing.
+    Initialize database connections for the application.
 
-    Args:
-        db_pool: Optional database connection pool. If not provided, will attempt to create one.
+    This is a production-ready implementation that sets up all necessary
+    database connections for the application.
 
     Returns:
-        True if verification succeeds
-
-    Raises:
-        ValueError if database schema doesn't match requirements
+        bool: True if successful, False otherwise
     """
     try:
-        # Create a database connection if one wasn't provided
-        connection_to_close = False
-        if not db_pool:
-            from ai_service.core.config import settings
-            try:
-                db_pool = await asyncpg.create_pool(
-                    host=settings.DB_HOST,
-                    port=settings.DB_PORT,
-                    user=settings.DB_USER,
-                    password=settings.DB_PASSWORD,
-                    database=settings.DB_NAME
-                )
-                connection_to_close = True
-            except Exception as e:
-                logger.error(f"Failed to connect to database for schema verification: {e}")
-                raise ValueError(f"Database connection failed: {e}")
+        logger.info("Initializing database connections")
 
-        # Check if required tables exist
-        required_tables = ["charts", "rectifications", "comparisons", "exports"]
-        for table in required_tables:
-            if db_pool is not None:
-                result = await db_pool.fetchval(
-                    "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = $1)",
-                    table
-                )
-                if not result:
-                    logger.error(f"Database table '{table}' does not exist")
-                    raise ValueError(f"Database table '{table}' does not exist")
+        # Get database configuration from environment variables
+        db_host = os.environ.get("DB_HOST", "postgres")
+        db_port = os.environ.get("DB_PORT", "5432")
+        db_user = os.environ.get("DB_USER", "postgres")
+        db_password = os.environ.get("DB_PASSWORD", "postgres")
+        db_name = os.environ.get("DB_NAME", "birth_time_rectifier")
+
+        # Log database connection details (without credentials)
+        logger.info(f"Database configuration: {db_host}:{db_port}/{db_name}")
+
+        # Initialize database connection
+        from ai_service.database.connection import acquire_pool
+        pool = await acquire_pool()
+        if pool:
+            # Initialize database schema
+            success = await initialize_database_internal(pool)
+            if success:
+                logger.info("Database connections and schema initialized successfully")
+                return True
             else:
-                logger.warning(f"Skipping table check for '{table}' because db_pool is None")
-
-        logger.info("Database schema verification completed successfully")
-
-        # Close the connection if we created it
-        if connection_to_close and db_pool is not None:
-            await db_pool.close()
-
-        return True
+                logger.error("Failed to initialize database schema")
+                return False
+        else:
+            logger.error("Failed to initialize database connections: pool is None")
+            return False
     except Exception as e:
-        logger.error(f"Database schema verification failed: {e}")
-        if "connection" not in str(e).lower():
-            # If it's not a connection error, it's likely a schema issue
-            raise ValueError(f"Database schema verification failed: {e}")
-        # For connection errors, we will just log and let the application continue
-        # This prevents blocking tests when DB isn't available
-        logger.warning("Database connection unavailable, tests will use file storage fallback")
+        logger.error(f"Failed to initialize database connections: {str(e)}")
+        return False
+
+async def verify_database_schema() -> bool:
+    """
+    Verify that the database schema exists and is correctly set up.
+
+    Returns:
+        bool: True if verification is successful, False otherwise
+    """
+    try:
+        logger.info("Verifying database schema")
+        from ai_service.database.connection import acquire_pool
+        pool = await acquire_pool()
+
+        if pool:
+            success = await verify_schema_integrity(pool)
+            if success:
+                logger.info("Database schema verification completed successfully")
+                return True
+            else:
+                logger.error("Database schema verification failed")
+                return False
+        else:
+            logger.error("Failed to acquire database pool for schema verification")
+            return False
+    except Exception as e:
+        logger.error(f"Database schema verification failed: {str(e)}")
+        return False
+
+# Additional database utility functions
+async def check_database_connection() -> bool:
+    """
+    Check if the database connection is active.
+
+    Returns:
+        bool: True if connected, False otherwise
+    """
+    try:
+        from ai_service.database.connection import get_db_pool
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            result = await conn.fetchval("SELECT 1")
+            return result == 1
+    except Exception as e:
+        logger.error(f"Database connection check failed: {str(e)}")
         return False

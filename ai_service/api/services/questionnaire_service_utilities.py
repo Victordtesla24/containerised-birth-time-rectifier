@@ -86,15 +86,6 @@ def _enhance_astrological_analysis(
     # Start with the original analysis
     enhanced = analysis.copy()
 
-    # If analysis is empty, create basic structure
-    if not enhanced:
-        enhanced = {
-            "houses": {},
-            "planets": {},
-            "ascendant": {},
-            "time_indicators": {}
-        }
-
     # Make sure all expected sections exist
     if "houses" not in enhanced:
         enhanced["houses"] = {}

@@ -5,7 +5,7 @@ import os
 import logging
 import json
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,64 @@ class DateTimeEncoder(json.JSONEncoder):
         if isinstance(obj, datetime):
             return obj.isoformat()
         return super().default(obj)
+
+class ChartFileStorage:
+    """
+    File storage implementation for chart data that follows the Storage pattern.
+    Provides consistent access to chart storage locations across the application.
+    """
+    def __init__(self):
+        # Base application directory
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+        # Primary storage location
+        self.file_storage_path = os.path.join(self.base_dir, "data", "charts")
+
+        # Additional storage locations for redundancy
+        self.storage_locations = [
+            self.file_storage_path,
+            os.path.join(self.base_dir, "tests", "test_data_source", "charts")
+        ]
+
+        # Ensure all storage directories exist
+        for path in self.storage_locations:
+            os.makedirs(path, exist_ok=True)
+
+    def get_storage_paths(self) -> List[str]:
+        """Returns all available storage paths for charts"""
+        return self.storage_locations
+
+    def save(self, chart_id: str, chart_data: Dict[str, Any]) -> List[str]:
+        """
+        Saves chart data to all storage locations
+
+        Args:
+            chart_id: Unique identifier for the chart
+            chart_data: Chart data to store
+
+        Returns:
+            List of paths where the chart was stored
+        """
+        saved_paths = []
+
+        for path in self.storage_locations:
+            try:
+                file_path = os.path.join(path, f"{chart_id}.json")
+                with open(file_path, "w") as f:
+                    json.dump(chart_data, f, cls=DateTimeEncoder, indent=2)
+                saved_paths.append(file_path)
+                logger.info(f"Stored chart with ID: {chart_id} at path: {file_path}")
+            except Exception as e:
+                logger.error(f"Failed to store chart at {path}: {e}")
+
+        return saved_paths
+
+    def exists(self, chart_id: str) -> bool:
+        """Check if a chart with the given ID exists in any storage location"""
+        for path in self.storage_locations:
+            if os.path.exists(os.path.join(path, f"{chart_id}.json")):
+                return True
+        return False
 
 async def store_rectified_chart(chart_data: Dict[str, Any], rectification_id: str, birth_dt: datetime, rectified_time_dt: datetime) -> Optional[str]:
     """
@@ -65,57 +123,22 @@ async def store_rectified_chart(chart_data: Dict[str, Any], rectification_id: st
 
         # Always use file storage for redundancy, regardless of repository success
         try:
-            # Use a consistent path for both storing and retrieving charts
-            chart_repo = ChartRepository()
-            data_dir = chart_repo.file_storage_path
-            storage_paths.append(data_dir)
+            # Use the ChartFileStorage class for consistent file storage
+            chart_storage = ChartFileStorage()
+            storage_paths.extend(chart_storage.get_storage_paths())
 
-            # Make sure the directory exists
-            os.makedirs(data_dir, exist_ok=True)
+            # Store the chart in all available locations
+            saved_paths = chart_storage.save(chart_id, chart_data_with_meta)
 
-            # Store in the chart directory
-            file_path = os.path.join(data_dir, f"{chart_id}.json")
-            with open(file_path, "w") as f:
-                json.dump(chart_data_with_meta, f, cls=DateTimeEncoder, indent=2)
-            logger.info(f"Stored rectified chart with ID: {chart_id} at path: {file_path}")
+            if saved_paths:
+                logger.info(f"Chart {chart_id} stored at the following locations: {', '.join(saved_paths)}")
+                return chart_id
+            else:
+                logger.error("Failed to store chart in any location")
+                return None
 
-            # Also store in main app data directory for redundancy
-            app_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "charts")
-            storage_paths.append(app_data_dir)
-            os.makedirs(app_data_dir, exist_ok=True)
-            app_file_path = os.path.join(app_data_dir, f"{chart_id}.json")
-            with open(app_file_path, "w") as f:
-                json.dump(chart_data_with_meta, f, cls=DateTimeEncoder, indent=2)
-            logger.info(f"Stored rectified chart with ID: {chart_id} at additional path: {app_file_path}")
-
-            # Store in test output directory if it exists (helps test find the chart)
-            test_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "tests", "test_data_source", "charts")
-            if not os.path.exists(test_dir):
-                os.makedirs(test_dir, exist_ok=True)
-            storage_paths.append(test_dir)
-            test_file_path = os.path.join(test_dir, f"{chart_id}.json")
-            with open(test_file_path, "w") as f:
-                json.dump(chart_data_with_meta, f, cls=DateTimeEncoder, indent=2)
-            logger.info(f"Stored rectified chart with ID: {chart_id} at test path: {test_file_path}")
-
-            # Log all storage paths for reference
-            logger.info(f"Chart {chart_id} stored at the following locations: {', '.join(storage_paths)}")
-            return chart_id
         except Exception as e:
             logger.error(f"Failed to store chart to file: {e}")
-
-            # Last resort fallback to default directory
-            try:
-                default_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "data", "charts")
-                os.makedirs(default_data_dir, exist_ok=True)
-                file_path = os.path.join(default_data_dir, f"{chart_id}.json")
-                with open(file_path, "w") as f:
-                    json.dump(chart_data_with_meta, f, cls=DateTimeEncoder, indent=2)
-                logger.info(f"Stored rectified chart with ID: {chart_id} at fallback path: {file_path}")
-                return chart_id
-            except Exception as fallback_error:
-                logger.error(f"Final fallback storage failed: {fallback_error}")
-                return None
 
     except Exception as e:
         logger.error(f"Error storing rectified chart: {e}")

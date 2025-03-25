@@ -23,34 +23,38 @@ from ai_service.api.websockets import manager
 logger = logging.getLogger(__name__)
 
 class EventType(Enum):
-    """
-    Enum defining the types of events that can be emitted.
-    """
-    # Session events
-    SESSION_CREATED = auto()
-    SESSION_EXPIRED = auto()
+    """Event types for WebSocket communication"""
+    # Connection events
+    CONNECT = auto()
+    DISCONNECT = auto()
+    MESSAGE = auto()
 
     # Geocoding events
+    GEOCODE_STARTED = auto()
     GEOCODE_COMPLETED = auto()
+    REVERSE_GEOCODE_COMPLETED = auto()
 
     # Chart events
-    VALIDATION_COMPLETED = auto()
-    CHART_GENERATED = auto()
-    CHART_RETRIEVED = auto()
-
-    # Questionnaire events
-    QUESTIONNAIRE_STARTED = auto()
-    QUESTION_ANSWERED = auto()
-    QUESTIONNAIRE_COMPLETED = auto()
+    BIRTH_CHART_STARTED = auto()
+    BIRTH_CHART_COMPLETED = auto()
+    BIRTH_CHART_ERROR = auto()
 
     # Rectification events
     RECTIFICATION_STARTED = auto()
     RECTIFICATION_PROGRESS = auto()
     RECTIFICATION_COMPLETED = auto()
+    RECTIFICATION_ERROR = auto()
 
-    # Export events
-    EXPORT_STARTED = auto()
-    EXPORT_COMPLETED = auto()
+    # Questionnaire events
+    QUESTIONNAIRE_STARTED = auto()
+    QUESTIONNAIRE_COMPLETED = auto()
+    QUESTIONNAIRE_QUESTION = auto()
+    QUESTIONNAIRE_ANSWER = auto()
+    QUESTIONNAIRE_ERROR = auto()
+
+    # General events
+    GENERAL_ERROR = auto()
+    GENERAL_INFO = auto()
 
 class WebSocketManager:
     """Manager for WebSocket connections."""

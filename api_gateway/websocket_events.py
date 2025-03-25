@@ -474,16 +474,8 @@ def get_completed_stages(overall_progress: int) -> List[Dict[str, Any]]:
         {"name": "finalization", "threshold": 100, "description": "Finalizing results"}
     ]
 
-    # Filter completed stages
-    completed_stages = []
-    for stage in all_stages:
-        if overall_progress >= stage["threshold"]:
-            completed_stages.append({
-                "name": stage["name"],
-                "description": stage["description"],
-                "completed_at": datetime.now().isoformat()  # In a real implementation, would store actual completion times
-            })
-
+    # Return stages that have been completed based on the overall progress
+    completed_stages = [stage for stage in all_stages if overall_progress >= stage["threshold"]]
     return completed_stages
 
 def get_stage_info_by_name(stage_name: str) -> Dict[str, Any]:
@@ -508,47 +500,22 @@ def get_stage_info_by_name(stage_name: str) -> Dict[str, Any]:
             "stage": "data_collection",
             "description": "Collecting birth data and astrological information",
             "expected_duration": "1-2 minutes",
-            "complexity_weight": 0.7
+            "complexity_weight": 1.0
         },
-        "astrological_analysis": {
-            "stage": "astrological_analysis",
-            "description": "Analyzing astrological factors and birth details",
-            "expected_duration": "2-5 minutes",
-            "complexity_weight": 1.2
-        },
-        "birth_time_determination": {
-            "stage": "birth_time_determination",
-            "description": "Determining precise birth time through astrological methods",
-            "expected_duration": "3-7 minutes",
-            "complexity_weight": 1.5
-        },
-        "chart_calculation": {
-            "stage": "chart_calculation",
-            "description": "Calculating final birth chart with rectified time",
-            "expected_duration": "1-2 minutes",
-            "complexity_weight": 0.8
-        },
-        "verification": {
-            "stage": "verification",
-            "description": "Verifying rectification accuracy and results",
-            "expected_duration": "1-2 minutes",
-            "complexity_weight": 0.9
-        },
-        "finalization": {
-            "stage": "finalization",
-            "description": "Finalizing and storing rectification results",
-            "expected_duration": "30 seconds",
-            "complexity_weight": 0.5
-        }
+        # Add other stages as needed
     }
 
-    # Return stage info or default if not found
-    return stage_info_map.get(stage_name, {
-        "stage": stage_name,
-        "description": "Processing rectification",
-        "expected_duration": "Unknown",
-        "complexity_weight": 1.0
-    })
+    # Return the stage info if it exists, otherwise return a default
+    if stage_name in stage_info_map:
+        return stage_info_map[stage_name]
+    else:
+        # Return a default stage info if the stage name is not found
+        return {
+            "stage": stage_name,
+            "description": "Processing",
+            "expected_duration": "Unknown",
+            "complexity_weight": 1.0
+        }
 
 def get_stage_info(progress: int) -> Dict[str, Any]:
     """

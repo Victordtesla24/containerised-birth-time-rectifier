@@ -120,24 +120,6 @@ async def download_export(
         # Log download request
         logger.info(f"Downloading export: {export_id} in format: {format}")
 
-        # In a real implementation, this would retrieve the file from storage
-        # For this test implementation, we'll return mock data
-
-        # Return export file based on format
-        if format == "pdf":
-            return "Mock PDF export content"
-        elif format == "png":
-            return "Mock PNG export content"
-        elif format == "svg":
-            return "Mock SVG export content"
-        elif format == "json":
-            return {"data": "Mock JSON export content"}
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported export format: {format}"
-            )
-
     except HTTPException:
         # Pass through HTTP exceptions
         raise

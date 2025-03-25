@@ -5,21 +5,22 @@ from datetime import datetime, timedelta
 import logging
 import json
 import uuid
+import re
 from typing import List, Dict, Any, Tuple, Optional, Union
 import traceback
-import re
 import os
 from pathlib import Path
 import asyncio
 
 # Import sub-modules
 from .event_analysis import extract_life_events_from_answers
-from .chart_calculator import calculate_chart
+from .chart_calculator import calculate_chart, EnhancedChartCalculator
 from .methods.ai_rectification import ai_assisted_rectification
 from .methods.solar_arc import solar_arc_rectification
 from .methods.progressed import progressed_ascendant_rectification
 from .utils.ephemeris import verify_ephemeris_files as verify_ephemeris_files_util
 from .utils.storage import store_rectified_chart
+from .time_indicators import extract_birth_time_indicators
 
 logger = logging.getLogger(__name__)
 
@@ -56,66 +57,39 @@ async def verify_ephemeris_files() -> bool:
 
 async def get_openai_service():
     """
-    Get the OpenAI service with proper error handling.
+    Get or create an instance of the OpenAI service.
 
     Returns:
-        OpenAIService instance or None if service is unavailable
+        OpenAI service instance
+
+    Raises:
+        ValueError: If OpenAI service cannot be initialized
     """
+    # Try to get from dependency container first
     try:
-        # Import here to avoid circular imports
-        from ai_service.api.services.openai import get_openai_service as get_service
-        from ai_service.core.config import settings
-
-        # Get the service (this is a synchronous function according to its definition)
-        service = get_service()
-
-        if not service:
-            logger.error("OpenAI service is not properly initialized")
-
-            # Initialize the service directly as a fallback
-            from ai_service.api.services.openai.service import OpenAIService
-
-            # Check if API key is available
-            api_key = settings.OPENAI_API_KEY
-            if not api_key:
-                logger.error("OpenAI API key is not available in settings")
-                raise ValueError("OpenAI API key not configured. This is required for birth time rectification.")
-
-            # Create service directly
-            try:
-                service = OpenAIService(api_key=api_key)
-                logger.info("Created OpenAI service directly")
-            except Exception as e2:
-                logger.error(f"Failed to create OpenAI service directly: {e2}")
-                raise ValueError(f"Failed to initialize OpenAI service: {str(e2)}")
-
-        # Verify the service is working with a simple test
+        from ai_service.utils.dependency_container import get_container
+        container = get_container()
         try:
-            # Test with a minimal query
-            test_result = await service.generate_completion(
-                prompt="Test connection to OpenAI API.",
-                task_type="test",
-                max_tokens=10
-            )
-
-            if not test_result or "content" not in test_result:
-                logger.warning("OpenAI service test failed: No valid response")
-                raise ValueError("OpenAI service returned invalid response during test")
-
-            logger.info("OpenAI service verified and working")
-            return service
-
-        except Exception as e:
-            logger.error(f"OpenAI service test failed: {e}")
-            raise ValueError(f"OpenAI service test failed: {str(e)}")
-
-    except ImportError as e:
-        logger.error(f"OpenAI service import failed: {e}")
-        raise ValueError(f"OpenAI service import failed: {str(e)}")
-
+            return container.get("openai_service")
+        except ValueError:
+            # Not registered yet
+            pass
     except Exception as e:
-        logger.error(f"Unexpected error getting OpenAI service: {e}")
-        raise ValueError(f"Failed to initialize OpenAI service: {str(e)}")
+        logger.error(f"Error getting container: {e}")
+
+    # Try direct import
+    try:
+        from ai_service.api.services.openai import get_openai_service as get_service
+        service = get_service()
+        if service:
+            return service
+    except Exception as e:
+        logger.error(f"Error importing OpenAI service: {e}")
+
+    # All methods failed
+    error_msg = "Failed to initialize OpenAI service for rectification"
+    logger.error(error_msg)
+    raise ValueError(error_msg)
 
 async def rectify_birth_time(
     birth_dt: datetime,
@@ -213,142 +187,109 @@ async def rectify_birth_time(
     return best_time, best_confidence
 
 async def comprehensive_rectification(
-    birth_dt: datetime,
+    birth_dt: Union[datetime, str],
     latitude: float,
     longitude: float,
     timezone: str,
-    answers: List[Dict[str, Any]],
+    answers: Optional[List[Dict[str, Any]]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
-    chart_id: Optional[str] = None,
     options: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Perform comprehensive birth time rectification using multiple methods.
+    Perform comprehensive birth time rectification.
 
     Args:
-        birth_dt: Birth date and time as datetime object
+        birth_dt: Birth datetime (original estimate)
         latitude: Birth latitude
         longitude: Birth longitude
-        timezone: Timezone string (e.g., 'America/New_York')
-        answers: List of questionnaire answers
-        events: Optional list of life events for analysis
-        chart_id: Optional ID of chart to use
-        options: Optional configuration parameters:
-            - use_openai: Whether to use OpenAI for analysis (default: True)
-            - max_retries: Max retries for OpenAI calls (default: 3)
-            - retry_delay: Delay between retries in seconds (default: 1)
-            - verification_required: Whether verification is required (default: True)
-            - include_details: Whether to include detailed analysis (default: False)
-            - reporting_callback: Callback function for progress reporting (default: None)
+        timezone: Birth timezone name
+        answers: Questionnaire answers (optional)
+        events: Life events data (optional)
+        options: Rectification options
 
     Returns:
-        Dictionary with comprehensive rectification results
+        Dictionary with rectification results
+
+    Raises:
+        ValueError: If parameters are invalid or services unavailable
+        RuntimeError: If rectification fails
     """
-    # Initialize options with defaults if not provided
+    # Validate parameters
+    if not birth_dt:
+        raise ValueError("Birth datetime is required for rectification")
+
+    if not timezone:
+        raise ValueError("Timezone is required for rectification")
+
+    # Normalize the birth_dt to a datetime object if it's a string
+    if isinstance(birth_dt, str):
+        try:
+            birth_dt = datetime.fromisoformat(birth_dt.replace('Z', '+00:00'))
+        except Exception as e:
+            raise ValueError(f"Invalid birth datetime format: {e}")
+
+    # Apply default options if not provided
     if options is None:
         options = {}
 
-    # Set default options
-    use_openai = options.get("use_openai", True)
-    max_retries = options.get("max_retries", 3)
-    retry_delay = options.get("retry_delay", 1.0)
-    verification_required = options.get("verification_required", True)
-    include_details = options.get("include_details", False)
-    reporting_callback = options.get("reporting_callback", None)
+    # Initialize empty lists for None values
+    if answers is None:
+        answers = []
 
-    # Verify ephemeris files are available and generate a unique rectification ID
-    rectification_id = f"rect_{uuid.uuid4().hex[:10]}"
+    if events is None:
+        events = []
+
+    # Create options object to avoid changing the original
+    rectification_opts = options.copy()
+
+    # Get or create the OpenAI service if needed
+    openai_service = None
+    if rectification_opts.get("use_openai", True):
+        try:
+            from ai_service.api.services.openai import get_openai_service
+            openai_service = get_openai_service()
+            if not openai_service:
+                raise ValueError("OpenAI service is required but not available")
+        except Exception as e:
+            raise ValueError(f"Failed to initialize OpenAI service: {e}")
+
+    # Initialize the enhanced chart calculator with a Swiss Ephemeris proxy
     try:
-        verified = await verify_ephemeris_files()
-        if not verified:
-            raise ValueError("Swiss Ephemeris files not available for rectification")
+        # Use the same SwissEphemerisProxy class as used in the chart calculator
+        from ai_service.core.rectification.chart_calculator import SwissEphemerisProxy
+        swisseph = SwissEphemerisProxy()
+        calculator = EnhancedChartCalculator(swisseph)
     except Exception as e:
-        logger.error(f"Ephemeris verification failed: {e}")
-        raise
+        raise ValueError(f"Failed to initialize chart calculator: {e}")
 
-    # Calculate original chart
-    logger.info(f"Calculating original chart for {birth_dt}")
-    original_chart = calculate_chart(birth_dt, latitude, longitude, timezone)
+    try:
+        # Step 1: Analyze questionnaire answers for birth time indicators
+        time_indicators = []
+        if answers:
+            time_indicators = await extract_birth_time_indicators(
+                answers,
+                openai_service=openai_service
+            )
 
-    # Initialize results
-    method_results = []
-    methods_succeeded = []
-
-    # Report progress if callback provided
-    if reporting_callback:
-        await reporting_callback({"status": "calculating", "step": "original_chart"})
-
-    # Execute primary rectification method
-    rectified_time, confidence = await rectify_birth_time(
-        birth_dt=birth_dt,
-        latitude=latitude,
-        longitude=longitude,
-        timezone=timezone,
-        answers=answers,
-        options={"use_openai": use_openai, "max_retries": max_retries}
-    )
-
-    # Add to successful methods
-    method_results.append({
-        "method": "primary",
-        "rectified_time": rectified_time,
-        "confidence": confidence,
-        "time_shift_minutes": int((rectified_time - birth_dt).total_seconds() / 60)
-    })
-    methods_succeeded.append("primary")
-
-    logger.info(f"Primary rectification complete: {rectified_time}, confidence: {confidence}")
-
-    # Report progress if callback provided
-    if reporting_callback:
-        await reporting_callback({
-            "status": "complete",
-            "step": "rectification",
-            "rectified_time": rectified_time.isoformat(),
-            "confidence": confidence
-        })
-
-    # Calculate rectified chart
-    logger.info(f"Calculating rectified chart for {rectified_time}")
-    rectified_chart = calculate_chart(rectified_time, latitude, longitude, timezone)
-
-    # Generate explanation of the rectification
-    explanation = await generate_rectification_explanation(
-        original_time=birth_dt,
-        rectified_time=rectified_time,
-        original_chart=original_chart,
-        rectified_chart=rectified_chart,
-        confidence=confidence,
-        use_openai=use_openai
-    )
-
-    # Prepare result
-    result = {
-        "rectification_id": rectification_id,
-        "chart_id": chart_id,
-        "status": "success",
-        "original_time": birth_dt.isoformat(),
-        "rectified_time": rectified_time.isoformat(),
-        "confidence_score": confidence,
-        "explanation": explanation,
-        "original_chart": original_chart,
-        "rectified_chart": rectified_chart,
-        "method_results": method_results,
-        "methods_succeeded": methods_succeeded
-    }
-
-    # Include detailed analysis if requested
-    if include_details:
-        details = await generate_detailed_analysis(
-            original_chart=original_chart,
-            rectified_chart=rectified_chart,
-            original_time=birth_dt,
-            rectified_time=rectified_time
+        # Step 2: AI-assisted rectification
+        rectification_result = await ai_assisted_rectification(
+            birth_dt=birth_dt,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=timezone,
+            time_indicators=time_indicators,
+            events=events,
+            openai_service=openai_service,
+            swisseph_proxy=swisseph,
+            max_retries=rectification_opts.get("max_retries", 3)
         )
-        result["details"] = details
 
-    logger.info(f"Comprehensive rectification complete with confidence: {confidence}")
-    return result
+        return rectification_result
+
+    except Exception as e:
+        error_msg = f"Comprehensive rectification failed: {e}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
 async def basic_chart_rectification(
     birth_dt: datetime,
@@ -358,9 +299,7 @@ async def basic_chart_rectification(
     chart: Optional[Dict[str, Any]] = None
 ) -> Tuple[datetime, float]:
     """
-    Perform basic chart-based rectification as a fallback method.
-    This analyzes critical degrees, planetary positions, and house placements
-    to suggest potential birth time adjustments.
+
 
     Args:
         birth_dt: Original birth datetime
@@ -601,6 +540,74 @@ async def questionnaire_based_rectification(
     logger.info(f"Questionnaire-based rectification complete: {rectified_time.strftime('%H:%M:%S')}, confidence: {confidence}")
     return rectified_time, confidence
 
+async def _are_compatible_signs(sign1: str, sign2: str) -> bool:
+    """
+    Check if two zodiac signs are compatible.
+
+    Args:
+        sign1: First zodiac sign
+        sign2: Second zodiac sign
+
+    Returns:
+        True if signs are compatible, False otherwise
+    """
+    # Element-based compatibility
+    fire_signs = ["Aries", "Leo", "Sagittarius"]
+    earth_signs = ["Taurus", "Virgo", "Capricorn"]
+    air_signs = ["Gemini", "Libra", "Aquarius"]
+    water_signs = ["Cancer", "Scorpio", "Pisces"]
+
+    # Signs of the same element are compatible
+    if (sign1 in fire_signs and sign2 in fire_signs) or \
+       (sign1 in earth_signs and sign2 in earth_signs) or \
+       (sign1 in air_signs and sign2 in air_signs) or \
+       (sign1 in water_signs and sign2 in water_signs):
+        return True
+
+    # Fire and Air signs are compatible
+    if (sign1 in fire_signs and sign2 in air_signs) or \
+       (sign1 in air_signs and sign2 in fire_signs):
+        return True
+
+    # Earth and Water signs are compatible
+    if (sign1 in earth_signs and sign2 in water_signs) or \
+       (sign1 in water_signs and sign2 in earth_signs):
+        return True
+
+    return False
+
+def _check_aspect(longitude1: float, longitude2: float) -> Optional[str]:
+    """
+    Check if two planetary positions form an aspect.
+
+    Args:
+        longitude1: Longitude of first planet (0-360)
+        longitude2: Longitude of second planet (0-360)
+
+    Returns:
+        Name of the aspect or None if no aspect is formed
+    """
+    # Calculate the angular difference
+    diff = abs(longitude1 - longitude2) % 360
+    if diff > 180:
+        diff = 360 - diff
+
+    # Define aspects with orbs
+    aspects = {
+        0: ("conjunction", 8),    # 0° with 8° orb
+        60: ("sextile", 6),       # 60° with 6° orb
+        90: ("square", 8),        # 90° with 8° orb
+        120: ("trine", 8),        # 120° with 8° orb
+        180: ("opposition", 10)   # 180° with 10° orb
+    }
+
+    # Check for aspects
+    for angle, (aspect_name, orb) in aspects.items():
+        if abs(diff - angle) <= orb:
+            return aspect_name
+
+    return None
+
 async def _score_personality_traits(
     personality_traits: List[Dict[str, Any]],
     chart: Dict[str, Any],
@@ -628,7 +635,54 @@ async def _score_personality_traits(
         moon_sign = chart.get("planets", {}).get("Moon", {}).get("sign", "")
         mercury_sign = chart.get("planets", {}).get("Mercury", {}).get("sign", "")
 
-        # Placeholder for basic chart analysis
+        # Perform basic chart analysis based on sign placements and aspects
+        # Calculate a base score based on astrological factors
+        score_factors = []
+
+        # Sun-Moon compatibility
+        sun_moon_factor = 0
+        if sun_sign == moon_sign:
+            sun_moon_factor = 40  # Perfect match
+        elif _are_compatible_signs(sun_sign, moon_sign):
+            sun_moon_factor = 30  # Good compatibility
+        else:
+            sun_moon_factor = 15  # Basic compatibility
+        score_factors.append(sun_moon_factor)
+
+        # Ascendant-Mercury compatibility (communication)
+        asc_merc_factor = 0
+        if asc_sign == mercury_sign:
+            asc_merc_factor = 30  # Strong communication ability
+        elif _are_compatible_signs(asc_sign, mercury_sign):
+            asc_merc_factor = 20  # Good communication ability
+        else:
+            asc_merc_factor = 10  # Basic communication ability
+        score_factors.append(asc_merc_factor)
+
+        # Check aspects between planets
+        aspect_score = 0
+        planets = chart.get("planets", {})
+        for p1, data1 in planets.items():
+            long1 = data1.get("longitude", 0)
+            for p2, data2 in planets.items():
+                if p1 != p2:
+                    long2 = data2.get("longitude", 0)
+                    aspect = _check_aspect(long1, long2)
+                    if aspect:
+                        # Weight by aspect type
+                        if aspect == "conjunction":
+                            aspect_score += 5
+                        elif aspect in ["trine", "sextile"]:
+                            aspect_score += 3
+                        else:  # square, opposition
+                            aspect_score += 1
+
+        # Normalize aspect score (max 30)
+        aspect_factor = min(30, aspect_score)
+        score_factors.append(aspect_factor)
+
+        # Calculate final base score
+        base_score = sum(score_factors) / len(score_factors)
         return base_score
 
     # Use OpenAI for sophisticated analysis
@@ -660,26 +714,49 @@ async def _score_personality_traits(
         # Call OpenAI
         response = await openai_service.generate_completion(
             prompt=prompt,
-            task_type="chart_analysis",
-            response_format={"type": "json_object"}
+            task_type="chart_analysis"
         )
 
-        # Extract score from response
+        # Extract score from response - handle potential JSON parsing
         try:
             import json
-            result = json.loads(response.get("content", "{}"))
-            score = float(result.get("score", 60.0))
-            reasoning = result.get("reasoning", "")
+            # Extract JSON content - look for JSON object in the response
+            content = response.get("content", "{}")
+            # Try to parse as JSON directly first
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError:
+                # If direct parsing fails, try to extract JSON from text
+                import re
+                json_match = re.search(r'{.*}', content, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group(0))
+                else:
+                    # Raise an exception when no JSON found
+                    error_msg = "Failed to extract JSON from OpenAI response"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+
+            score = result.get("score")
+            if score is None:
+                error_msg = "Response missing required 'score' field"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            score = float(score)
+            reasoning = result.get("reasoning", "No reasoning provided")
 
             logger.info(f"OpenAI personality analysis: score {score}, reason: {reasoning[:100]}...")
             return score
         except Exception as e:
-            logger.error(f"Error parsing OpenAI response: {e}")
-            return 60.0  # Default if parsing fails
+            logger.error(f"Error during personality analysis: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise RuntimeError(f"Personality analysis with OpenAI failed: {str(e)}")
 
     except Exception as e:
         logger.error(f"Error in OpenAI personality analysis: {e}")
-        return 60.0  # Default if OpenAI fails
+        logger.error(traceback.format_exc())
+        raise RuntimeError(f"Personality analysis with OpenAI failed: {str(e)}")
 
 async def _analyze_life_events_transits(
     events: List[Dict[str, Any]],
@@ -702,9 +779,14 @@ async def _analyze_life_events_transits(
 
     Returns:
         Tuple of (confidence score, time shift in minutes)
+
+    Raises:
+        ValueError: If no events are provided
+        RuntimeError: If transit analysis fails
     """
     if not events:
-        return 60.0, 0
+        logger.error("No life events provided for transit analysis")
+        raise ValueError("No life events provided for transit analysis")
 
     # Create a range of candidate birth times to test
     candidate_times = []
@@ -757,7 +839,8 @@ async def _analyze_life_events_transits(
 
     # Get best candidate
     if not candidate_scores:
-        return 60.0, 0
+        logger.error("No valid transit aspects found for candidate birth times")
+        raise RuntimeError("Transit analysis failed: no valid aspects found for any candidate birth times")
 
     # Sort by score (descending)
     candidate_scores.sort(key=lambda x: x[2], reverse=True)
@@ -1009,13 +1092,20 @@ async def _evaluate_chart_improvement(
         response = await openai_service.generate_completion(
             prompt=prompt,
             task_type="chart_evaluation",
-            response_format={"type": "json_object"}
+            max_tokens=500,
+            temperature=0.3
         )
 
         # Extract score from response
         try:
             import json
-            result = json.loads(response.get("content", "{}"))
+            content = response.get("content", "{}")
+            # Attempt to find a JSON object in the response
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(0)
+
+            result = json.loads(content)
             score = float(result.get("score", 0.0))
             explanation = result.get("explanation", "")
 

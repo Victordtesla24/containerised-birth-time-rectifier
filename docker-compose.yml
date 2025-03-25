@@ -4,15 +4,8 @@ services:
       context: .
       dockerfile: frontend.Dockerfile
     container_name: ${CONTAINER_PREFIX:-birth-rectifier}-frontend
-    volumes:
-      - ./src:/app/src
-      - ./public:/app/public
-      - ./node_modules:/app/node_modules
-      - ./node_modules/.bin:/app/node_modules/.bin
-      - node_modules_cache:/app/node_modules
-      - next_cache:/app/.next
     environment:
-      - NODE_ENV=${NODE_ENV:-development}
+      - NODE_ENV=${NODE_ENV:-production}
       - NEXT_PUBLIC_API_URL=http://localhost:9000
       - NEXT_PUBLIC_API_SERVICE_URL=http://localhost:9000
       - NEXT_PUBLIC_WS_URL=ws://localhost:9001/ws
@@ -21,22 +14,15 @@ services:
       - API_URL=http://api_gateway:8000
       - API_SERVICE_URL=http://api_gateway:8000
       - WS_URL=ws://api_gateway:8000/ws
-      - DOCKER_ENV=true
     ports:
       - "3000:3000"
-    command: |
-      bash -c "
-      echo 'Ensuring React dependencies are installed...'
-      npm install --save react@18.2.0 react-dom@18.2.0
-      echo 'Starting Next.js development server...'
-      npm run dev
-      "
+    command: ["npm", "run", "start"]
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"const http = require('http'); const options = { hostname: 'localhost', port: 3000, path: '/api/health', method: 'GET' }; const req = http.request(options, (res) => { if (res.statusCode === 200) { process.exit(0); } else { process.exit(1); } }); req.on('error', () => { process.exit(1); }); req.end();\""]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-15s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-10s}
       retries: ${HEALTH_CHECK_RETRIES:-3}
-      start_period: ${HEALTH_CHECK_START_PERIOD:-40s}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-30s}
     depends_on:
       api_gateway:
         condition: service_healthy
@@ -53,20 +39,14 @@ services:
     build:
       context: .
       dockerfile: api_gateway.Dockerfile
-      target: development
+      target: production
     container_name: ${CONTAINER_PREFIX:-birth-rectifier}-api-gateway
-    volumes:
-      - ./api_gateway:/app/api_gateway
-      - ./requirements.txt:/app/requirements.txt
-      - ./config/env/.env:/app/.env
-      - api_gateway_logs:/app/logs
-      - api_gateway_cache:/app/cache
     environment:
       - PYTHONUNBUFFERED=1
-      - ENVIRONMENT=${APP_ENV:-development}
-      - APP_ENV=${APP_ENV:-development}
+      - ENVIRONMENT=${APP_ENV:-production}
+      - APP_ENV=${APP_ENV:-production}
       - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - AI_SERVICE_URL=http://ai_service:8000
       - AI_SERVICE_WS_URL=ws://ai_service:8000/ws
       - WS_PING_INTERVAL=${WS_PING_INTERVAL:-20}
@@ -76,23 +56,19 @@ services:
       - WS_HEARTBEAT_INTERVAL=${WS_HEARTBEAT_INTERVAL:-30}
       - WS_RETRY_ATTEMPTS=${WS_RETRY_ATTEMPTS:-5}
       - WS_RETRY_DELAY=${WS_RETRY_DELAY:-2}
-      - JWT_SECRET=${JWT_SECRET:-development_secret_key}
+      - JWT_SECRET=${JWT_SECRET}
       - JWT_ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=720
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
     ports:
       - "9000:8000"  # HTTP API
       - "9001:8000"  # WebSocket connections
-    command: |
-      bash -c "
-      sleep 5 && # Wait for Redis to be fully initialized
-      /app/.venv/bin/python -m uvicorn api_gateway.main:app --host 0.0.0.0 --port 8000 --reload --ws-ping-interval ${WS_PING_INTERVAL:-20} --ws-ping-timeout ${WS_PING_TIMEOUT:-20} --ws-max-size ${WS_MAX_SIZE:-16777216}
-      "
+    command: ["python", "-m", "uvicorn", "api_gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-15s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
-      retries: ${HEALTH_CHECK_RETRIES:-10}
-      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+      retries: ${HEALTH_CHECK_RETRIES:-5}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-30s}
     depends_on:
       redis:
         condition: service_healthy
@@ -111,27 +87,15 @@ services:
     build:
       context: .
       dockerfile: ai_service.Dockerfile
-      target: development
     container_name: ${CONTAINER_PREFIX:-birth-rectifier}-ai
-    volumes:
-      - ./ai_service:/app/ai_service
-      - ./scripts:/app/scripts
-      - ./requirements.txt:/app/requirements.txt
-      - ./config/env/.env:/app/.env
-      - ./tests:/app/tests:rw
-      - ai_service_venv:/app/.venv
-      - openai_cache:/app/cache
-      - persistent_ephemeris:/app/ephemeris:rw
-      - persistent_tests:/app/tests_backup:rw
     environment:
       - PYTHONUNBUFFERED=1
-      - ENVIRONMENT=${APP_ENV:-development}
-      - APP_ENV=${APP_ENV:-development}
+      - ENVIRONMENT=${APP_ENV:-production}
+      - APP_ENV=${APP_ENV:-production}
       - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - SWISSEPH_PATH=/app/ephemeris
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_API_KEY_DEV=${OPENAI_API_KEY_DEV:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - API_TIMEOUT=${API_TIMEOUT:-60}
       - CACHE_EXPIRY=${CACHE_EXPIRY:-3600}
       - CACHE_DIR=/app/cache
@@ -146,56 +110,32 @@ services:
       - CACHE_TTL=${CACHE_TTL:-3600}
       - REQUEST_RETRY_ATTEMPTS=${REQUEST_RETRY_ATTEMPTS:-3}
       - REQUEST_RETRY_BACKOFF=${REQUEST_RETRY_BACKOFF:-2}
-      - TIMEZONE_API_KEY=${TIMEZONE_API_KEY:-Tz7kGn1Kf0aQb2cE3pYz8j6X}
-      - GPU_ENABLED=false
+      - TIMEZONE_API_KEY=${TIMEZONE_API_KEY}
+      - GPU_ENABLED=${GPU_ENABLED:-false}
       - WS_PING_INTERVAL=${WS_PING_INTERVAL:-20}
       - WS_PING_TIMEOUT=${WS_PING_TIMEOUT:-20}
       - WS_MAX_SIZE=${WS_MAX_SIZE:-16777216}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=birth_time_rectifier
-      - CHART_OUTPUT_DIR=/app/cache/charts
-      - JWT_SECRET=${JWT_SECRET:-development_secret_key}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DB_NAME=${DB_NAME:-birth_time_rectifier}
+      - JWT_SECRET=${JWT_SECRET}
       - JWT_ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=720
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+      - SKIP_DB_INIT=true
     ports:
       - "8000:8000"
-    command: |
-      bash -c "
-      # Wait for postgres to be ready
-      sleep 3 &&
-
-      # Ensure test directories exist
-      mkdir -p /app/tests/{integration,components,utils} &&
-      touch /app/tests/__init__.py /app/tests/integration/__init__.py /app/tests/components/__init__.py /app/tests/utils/__init__.py &&
-
-      # Ensure ephemeris directory exists
-      mkdir -p /app/ephemeris &&
-
-      # Sync ephemeris data if host directory is empty but backup has data
-      if [ ! \"$(ls -A /app/ephemeris)\" ] && [ \"$(ls -A /app/tests_backup)\" ]; then
-        echo 'Restoring ephemeris files from backup volume...'
-        cp -r /app/tests_backup/* /app/ephemeris/
-      fi &&
-
-      # Keep test_backups in sync with current tests
-      cp -r /app/tests/* /app/tests_backup/ &&
-
-      # Create charts output directory
-      mkdir -p /app/cache/charts &&
-      chmod -R 777 /app/cache/charts &&
-
-      # Start the application
-      exec /app/.venv/bin/python -m uvicorn ai_service.app_wrapper:app_wrapper --host 0.0.0.0 --port 8000 --reload --ws-ping-interval ${WS_PING_INTERVAL:-20} --ws-ping-timeout ${WS_PING_TIMEOUT:-20} --ws-max-size ${WS_MAX_SIZE:-16777216}
-      "
+    volumes:
+      - ./ephemeris:/app/ephemeris:rw  # Mount ephemeris files
+      - ./tests:/app/tests:rw           # Mount test files
+    command: ["python", "-m", "uvicorn", "ai_service.app_wrapper:app_wrapper", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: ${HEALTH_CHECK_INTERVAL:-15s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-15s}
-      retries: ${HEALTH_CHECK_RETRIES:-10}
-      start_period: ${HEALTH_CHECK_START_PERIOD:-60s}
+      retries: ${HEALTH_CHECK_RETRIES:-5}
+      start_period: ${HEALTH_CHECK_START_PERIOD:-30s}
     depends_on:
       redis:
         condition: service_healthy
@@ -218,13 +158,12 @@ services:
     volumes:
       - ./config/docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
       - redis_data:/data
-      - ./logs/redis:/var/log/redis
-    command: ${REDIS_COMMAND:-redis-server /usr/local/etc/redis/redis.conf}
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 5
       start_period: 15s
     restart: always
     deploy:
@@ -239,16 +178,16 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=birth_time_rectifier
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DB_NAME:-birth_time_rectifier}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 5
       start_period: 15s
     restart: always
     deploy:
@@ -257,69 +196,8 @@ services:
           memory: 512M
           cpus: '0.5'
 
-  test-runner:
-    image: mcr.microsoft.com/playwright:v1.40.0-jammy
-    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner
-    profiles:
-      - test
-    volumes:
-      - .:/app
-      - ./.tmp/playwright-cache:/ms-playwright
-      - /tmp:/tmp
-    working_dir: /app
-    environment:
-      - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://frontend:3000
-      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-      - DEBUG=pw:browser*,pw:install,pw:api,pw:protocol
-      - TEST_URL=http://frontend:3000
-      - DOCKER_ENV=true
-      - SHM_SIZE=4g
-    shm_size: 4g
-    networks:
-      - default
-    restart: "no"
-    depends_on:
-      ai_service:
-        condition: service_healthy
-      frontend:
-        condition: service_healthy
-      api_gateway:
-        condition: service_healthy
-    entrypoint: ["/bin/bash", "-c"]
-    command: |
-      set -e
-      echo 'Setting up Playwright environment...'
-      npm ci
-      npx playwright install --with-deps chromium
-      echo 'Checking browser installations:'
-      find /ms-playwright -type f -name 'chrome*' -o -name 'headless*'
-      echo 'Running application flow test...'
-      DEBUG=pw:browser*,pw:api,pw:protocol npx playwright test ${TEST_FLAGS:---verbose -g 'complete astrological chart application flow'}
-    mem_limit: 4g
-
 volumes:
   redis_data:
     driver: local
-  ai_service_venv:
-    driver: local
-  persistent_ephemeris:
-    driver: local
-    name: persistent_ephemeris
-  openai_cache:
-    driver: local
-  api_gateway_logs:
-    driver: local
-  api_gateway_cache:
-    driver: local
-  playwright-browsers:
-    driver: local
-  node_modules_cache:
-    driver: local
-  next_cache:
-    driver: local
-  persistent_tests:
-    driver: local
-    name: persistent_tests
   postgres_data:
     driver: local

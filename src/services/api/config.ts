@@ -21,23 +21,21 @@ export const getBaseApiUrl = (): string => {
 /**
  * Get the base URL for WebSocket connections
  */
-export const getBaseWebSocketUrl = (): string => {
+export function getBaseWebSocketUrl(): string {
+  // Use environment variables if available
   if (typeof window !== 'undefined') {
-    // Check for environment variable
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
     if (wsUrl) return wsUrl;
 
-    // Derive from window location if no explicit URL is provided
+    // Default to constructing URL from window location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-
-    // Use the API gateway WebSocket endpoint
     return `${protocol}//${host}/ws`;
   }
 
-  // Fallback for server-side rendering
-  return 'ws://localhost:9000/ws';
-};
+  // Server-side default
+  return process.env.WS_URL || 'ws://localhost:8000/ws';
+}
 
 /**
  * Get headers for API requests
