@@ -6,7 +6,46 @@ A sophisticated application for astrological birth time rectification using AI a
 
 ## Overview
 
-The Birth Time Rectifier is a comprehensive tool designed to help astrologers and astrology enthusiasts determine more accurate birth times through analysis of significant life events. By leveraging advanced astrological calculations and AI-driven analysis, the application can suggest corrections to uncertain birth times, improving the accuracy of astrological charts and interpretations.
+The Birth Time Rectifier is a comprehensive tool designed to help astrologers and astrology enthusiasts determine more accurate birth times through analysis of significant life events. By leveraging advanced astrological calculations and AI-driven analysis, the application suggests corrections to uncertain birth times, improving the accuracy of astrological charts and interpretations.
+
+## Current Implementation Status
+
+The application consists of three main components in active development:
+
+1. **AI Service (Python/FastAPI)**: Backend service with astrological calculations, OpenAI integration, and chart verification
+   - Session management with Redis integration
+   - Chart generation and verification against Vedic standards
+   - Comprehensive error handling and validation
+   - WebSocket support for real-time updates during rectification
+
+2. **API Gateway (Python/FastAPI)**: Central routing service that handles client requests
+   - Request forwarding to appropriate microservices
+   - Session management and authentication
+   - Error handling and standardization
+   - WebSocket proxy for real-time communication
+
+3. **Frontend (React/TypeScript)**: User interface for interacting with the application
+   - Interactive chart visualization components
+   - Birth data entry and validation
+   - Questionnaire system for life events
+   - Chart comparison views
+
+### Implemented Features
+
+- ✅ Session initialization and management
+- ✅ Location geocoding and timezone detection
+- ✅ Birth data validation and chart generation
+- ✅ OpenAI integration for chart verification against Vedic standards
+- ✅ Interactive chart visualization
+- ✅ Error handling and recovery mechanisms
+- ✅ WebSocket communication for real-time updates
+
+### Features in Progress
+
+- 🔄 Questionnaire system for life event analysis
+- 🔄 AI-powered birth time rectification algorithms
+- 🔄 Chart comparison and difference analysis
+- 🔄 PDF export and sharing options
 
 ## Features
 
@@ -41,12 +80,12 @@ We've provided several scripts to automatically fix these issues:
 ## Technology Stack
 
 ### Backend
-- Python 3.10+
-- FastAPI for API development
+- Python 3.10+ with FastAPI framework
 - Swiss Ephemeris for astrological calculations
-- TensorFlow for AI rectification models
+- OpenAI API for AI verification and rectification
 - Redis for caching and session management
 - PostgreSQL for data storage
+- WebSockets for real-time communication
 
 ### Frontend
 - React with TypeScript
@@ -120,12 +159,24 @@ We've provided several scripts to automatically fix these issues:
 ```
 birth-time-rectifier/
 ├── ai_service/              # Backend FastAPI application
-│   ├── api/                 # API endpoints
-│   ├── core/                # Core functionality
+│   ├── api/                 # API endpoints and routers
+│   ├── core/                # Core functionality and validators
+│   │   └── rectification/   # Birth time rectification algorithms
 │   ├── models/              # Data models
-│   └── services/            # Business logic services
+│   ├── services/            # Business logic services
+│   │   ├── chart_service.py # Chart calculation and management
+│   │   ├── openai_service.py # OpenAI integration
+│   │   └── chart_verification.py # Vedic chart verification
+│   ├── database/            # Database models and connections
+│   └── utils/               # Utility functions
+├── api_gateway/             # API Gateway service
+│   ├── middleware/          # Middleware components
+│   ├── routes/              # Route definitions
+│   ├── main.py              # Gateway application entry point
+│   └── websocket_proxy.py   # WebSocket proxy implementation
 ├── src/                     # Frontend React application
 │   ├── components/          # React components
+│   │   └── charts/          # Chart visualization components
 │   ├── pages/               # Page components
 │   ├── services/            # API services
 │   └── utils/               # Utility functions
@@ -206,6 +257,38 @@ This project is configured for deployment on Vercel. For detailed instructions, 
    - Push to main branch for production deployment
    - Create pull requests for preview deployments
 
+## Environment Setup for OpenAI Integration
+
+This application uses real OpenAI API calls for chart verification and birth time rectification. To ensure the system works correctly, you need to set up your environment variables properly.
+
+### Setting Up Your `.env` File
+
+1. Create a `.env` file in the root directory of the project (or use the provided template)
+2. Add your OpenAI API key to the file:
+
+```
+OPENAI_API_KEY=your_actual_api_key_here
+```
+
+3. Additional configuration can be added to the `.env` file:
+
+```
+# OpenAI Model Configuration
+OPENAI_MODEL=gpt-4-turbo-preview
+OPENAI_TEMPERATURE=0.7
+
+# Enable caching for API calls (reduces costs and improves performance)
+ENABLE_CACHE=true
+CACHE_TTL=3600
+
+# Logging Configuration
+LOG_LEVEL=INFO
+
+# Application Configuration
+PORT=8000
+DEBUG=false
+```
+
 ## Roadmap
 
 - [ ] Mobile application for iOS and Android
@@ -222,7 +305,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgements
 
 - [Swiss Ephemeris](https://www.astro.com/swisseph/) for astrological calculations
-- [TensorFlow](https://www.tensorflow.org/) for AI capabilities
+- [OpenAI](https://openai.com/) for AI capabilities
 - [FastAPI](https://fastapi.tiangolo.com/) for the backend framework
 - [React](https://reactjs.org/) for the frontend framework
 - All contributors who have helped shape this project

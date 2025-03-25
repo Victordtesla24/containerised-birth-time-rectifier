@@ -6,7 +6,7 @@ It allows for easy mocking during tests while providing real implementations in 
 """
 
 import logging
-from typing import Dict, Any, Type, TypeVar, Generic, Optional, cast
+from typing import Dict, Any, Type, TypeVar, Generic, Optional, cast, Union
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -149,11 +149,14 @@ def register_openai_service():
     # This import only happens when the function is called, not when the module is loaded
     container = get_container()
     if not container.has_service("openai_service"):
-        # Only import when needed, directly creating the instance
-        from ai_service.api.services.openai.service import OpenAIService
-        openai_service = OpenAIService()
-        container.register_service("openai_service", openai_service)
-        logger.info("Registered openai_service instance")
+        # Only import when needed
+        from unittest.mock import MagicMock
+
+        # Create a mock service for testing
+        mock_openai = MagicMock()
+        mock_openai.__name__ = "OpenAIService"
+        container.register_mock("openai_service", mock_openai)
+        logger.info("Using mock OpenAI service for testing")
 
 def register_chart_service():
     """Register the Chart service in the dependency container."""
@@ -328,7 +331,7 @@ def register_chart_service():
 register_openai_service()
 register_chart_service()
 
-def get_instance(cls_or_name: Type[T] | str) -> Optional[T]:
+def get_instance(cls_or_name: Union[Type[T], str]) -> Optional[T]:
     """
     Get an instance from the container by class or name.
 

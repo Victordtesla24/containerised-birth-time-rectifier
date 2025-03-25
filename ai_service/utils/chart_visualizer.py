@@ -54,15 +54,102 @@ from reportlab.pdfgen import canvas  # type: ignore
 import matplotlib.font_manager as fm  # type: ignore
 from PIL import Image as PILImage  # type: ignore # noqa
 
-from ai_service.core.rectification.chart_calculator import normalize_longitude
-# Import the planets list from constants
 from ai_service.core.rectification.constants import PLANETS_LIST
 from ai_service.services.chart_service_verification import get_zodiac_sign
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
-from ai_service.utils.formatting import format_degree, format_longitude, format_time
+# Local implementations of formatting functions to avoid circular imports
+def format_degree(degree: float, include_sign: bool = False, include_minutes: bool = True) -> str:
+    """Format a degree value into a human-readable format."""
+    # Normalize degree value to 0-360 range
+    degree = degree % 360
+
+    # Get zodiac sign if requested
+    sign_name = ""
+    if include_sign:
+        signs = [
+            "Aries", "Taurus", "Gemini", "Cancer",
+            "Leo", "Virgo", "Libra", "Scorpio",
+            "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+        ]
+        sign_index = int(degree / 30)
+        sign_name = signs[sign_index] + " "
+
+    # Calculate degrees within sign
+    degree_in_sign = degree % 30
+
+    # Format degrees and minutes
+    degree_part = int(degree_in_sign)
+
+    if include_minutes:
+        minutes_part = int((degree_in_sign - degree_part) * 60)
+        return f"{sign_name}{degree_part}°{minutes_part}'"
+    else:
+        return f"{sign_name}{degree_part}°"
+
+def format_longitude(longitude: float, format_type: str = "full") -> str:
+    """Format a celestial longitude into a human-readable format."""
+    # Normalize longitude value to 0-360 range
+    longitude = longitude % 360
+
+    # Define zodiac signs
+    signs = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    # Get sign and position within sign
+    sign_index = int(longitude / 30)
+    sign_name = signs[sign_index]
+    pos_in_sign = longitude % 30
+
+    # Format based on requested format type
+    if format_type == "sign_only":
+        return sign_name
+    elif format_type == "degree_only":
+        return format_degree(pos_in_sign, include_sign=False)
+    else:  # "full" format
+        degree_part = int(pos_in_sign)
+        minutes_part = int((pos_in_sign - degree_part) * 60)
+        return f"{sign_name} {degree_part}°{minutes_part}'"
+
+def format_time(time_value: Union[str, datetime], include_seconds: bool = True) -> str:
+    """Format a time value into a consistent human-readable format."""
+    # Convert string to datetime if needed
+    if isinstance(time_value, str):
+        # Try different formats
+        formats = [
+            "%H:%M:%S",
+            "%H:%M",
+            "%I:%M:%S %p",
+            "%I:%M %p",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M"
+        ]
+
+        for fmt in formats:
+            try:
+                time_value = datetime.strptime(time_value, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            # If no format matched, return the original string
+            return time_value
+
+    # Format datetime object
+    if isinstance(time_value, datetime):
+        if include_seconds:
+            return time_value.strftime("%H:%M:%S")
+        else:
+            return time_value.strftime("%H:%M")
+
+    # If we couldn't parse the input, return it as is
+    return str(time_value)
+
 from ai_service.services.chart_service_visualization import render_chart_in_subplot
 
 # Constants for chart visualization

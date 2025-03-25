@@ -27,16 +27,16 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
 # For backward compatibility, provide the get_openai_service function
-def get_openai_service():
+async def get_openai_service():
     """
     Get a singleton instance of the OpenAIService.
-    This is a proxy to the actual implementation to avoid circular imports.
+    This is a compatibility wrapper around the main implementation.
 
     Returns:
         OpenAIService: The OpenAI service instance
     """
-    # Import from the actual implementation
+    # Now the imported function is also async so we need to await it
     from ai_service.api.services.openai import get_openai_service as _get_openai_service
-    return _get_openai_service()
+    return await _get_openai_service()
 
 __all__ = ["OpenAIService", "get_openai_service"]

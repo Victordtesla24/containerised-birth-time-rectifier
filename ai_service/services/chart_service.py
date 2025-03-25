@@ -10,6 +10,9 @@ import tempfile
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Union, Tuple
+import asyncio
+import json
+import traceback
 
 # Import modular components
 from ai_service.services.chart_service_utils import calculate_arc_difference, get_sign_from_longitude
@@ -19,6 +22,17 @@ from ai_service.services.chart_service_export import export_chart, get_content_t
 from ai_service.services.chart_service_calculation import calculate_chart, calculate_divisional_charts, cross_validate_calculations
 from ai_service.services.chart_service_verification import verify_chart_with_openai
 from ai_service.services.chart_service_visualization import generate_vedic_kundli_chart, generate_western_chart, render_western_chart, render_chart_in_subplot
+from ai_service.core.rectification.chart_calculator import (
+    calculate_verified_chart,
+    EnhancedChartCalculator
+)
+from ai_service.core.rectification.vedic_calculation import (
+    calculate_ascendant,
+    calculate_houses_positions
+)
+from ai_service.utils.geocoding import get_coordinates
+from ai_service.utils.timezone import get_timezone_for_coordinates
+from ai_service.api.services.openai import get_openai_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +60,40 @@ class ChartService:
         Initialize the chart service.
 
         Args:
-            chart_output_dir: Optional directory for storing generated charts.
-                If not provided, a temporary directory will be used.
+            chart_output_dir: Directory for chart output files
         """
-        self.chart_output_dir = chart_output_dir
+        self.chart_output_dir = chart_output_dir or os.environ.get("CHART_OUTPUT_DIR", "/tmp/charts")
 
-        if not self.chart_output_dir:
-            # Create a stable temporary directory that persists across service restarts
-            temp_base = os.environ.get("CHART_TEMP_DIR", tempfile.gettempdir())
-            self.chart_output_dir = os.path.join(temp_base, "birth_rectifier_charts")
-
-        # Ensure the directory exists
+        # Create output directory if it doesn't exist
         os.makedirs(self.chart_output_dir, exist_ok=True)
-        logger.info(f"Chart output directory: {self.chart_output_dir}")
+
+        # Initialize the enhanced chart calculator
+        self.calculator = None
+
+        # Tracking for generated charts
+        self.generated_charts = {}
+
+    async def initialize(self):
+        """Initialize the chart service with async resources."""
+        from ai_service.core.rectification.chart_calculator import SwissEphemerisProxy
+
+        # Initialize SwissEphemeris proxy for chart calculations
+        try:
+            swiss_ephemeris = SwissEphemerisProxy()
+            self.calculator = EnhancedChartCalculator(swiss_ephemeris)
+            logger.info("Chart calculator initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize Swiss Ephemeris: {e}")
+            logger.error(traceback.format_exc())
+            raise
+
+        # Initialize OpenAI service if needed
+        try:
+            self.openai_service = await get_openai_service()
+            logger.info("OpenAI service initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize OpenAI service: {e}. Chart verification will be limited.")
+            self.openai_service = None
 
     def generate_vedic_kundli_chart(self, chart_data: Dict[str, Any], output_dir: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -400,10 +435,18 @@ class ChartService:
 
         # Verify with OpenAI if requested
         if verify_with_openai:
-            from ai_service.api.services.openai import get_openai_service
-            openai_service = get_openai_service()
-            verification = await openai_service.verify_chart(chart_data)
-            chart_data["verification"] = verification
+            if self.openai_service is not None:
+                verification = await self.openai_service.verify_chart(chart_data)
+                chart_data["verification"] = verification
+            else:
+                logger.warning("OpenAI service not available, skipping chart verification")
+                chart_data["verification"] = {
+                    "status": "verification_skipped",
+                    "message": "OpenAI service not available",
+                    "verified_with_openai": False,
+                    "corrections_applied": False,
+                    "corrections": []
+                }
 
         # Store the chart in repository
         from ai_service.database.repositories import ChartRepository

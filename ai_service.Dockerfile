@@ -43,6 +43,12 @@ RUN pip install --no-cache-dir --upgrade wheel Cython
 RUN pip install --no-cache-dir --upgrade pyswisseph==2.10.3.2 flatlib==0.2.0
 RUN pip install --no-cache-dir --force-reinstall pyswisseph==2.10.3.2
 
+# Install pyswisseph before other dependencies - with no-binary option for proper compilation
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools
+RUN pip install --no-cache-dir --upgrade wheel Cython
+RUN pip install --no-cache-dir --no-binary :all: pyswisseph==2.10.3.2
+RUN pip install --no-cache-dir flatlib==0.2.0
+
 # Verify pyswisseph installation directly in Python
 RUN python -c "import sys; print(sys.path); import flatlib; print(f'flatlib version: {flatlib.__version__}');" || echo "Flatlib import failed"
 RUN python -c "import sys; print(sys.path); import pyswisseph as swe; print(f'pyswisseph version: {swe.__version__}');" || echo "Pyswisseph import failed"

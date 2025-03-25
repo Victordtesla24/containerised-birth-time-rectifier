@@ -54,8 +54,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
 
     # GPU settings
-    # Handle potential comments in environment variables by stripping everything after #
-    GPU_MEMORY_FRACTION: float = float(os.getenv("GPU_MEMORY_FRACTION", "0.7").split('#')[0].strip())
+    GPU_MEMORY_FRACTION: Optional[float] = None
 
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
@@ -69,6 +68,22 @@ class Settings(BaseSettings):
     DEFAULT_HOUSE_SYSTEM: str = os.getenv("DEFAULT_HOUSE_SYSTEM", "P")
     DEFAULT_ZODIAC_TYPE: str = os.getenv("DEFAULT_ZODIAC_TYPE", "sidereal")
     DEFAULT_AYANAMSA: float = float(os.getenv("DEFAULT_AYANAMSA", "23.6647"))
+
+    @validator("GPU_MEMORY_FRACTION", pre=True, always=True)
+    def parse_gpu_memory_fraction(cls, v, values):
+        """Parse GPU memory fraction with comment handling"""
+        if v is not None:
+            return v
+
+        # Get the value from environment or use default
+        raw_value = os.getenv("GPU_MEMORY_FRACTION", "0.7")
+
+        # Handle comments (remove everything after #)
+        if '#' in raw_value:
+            raw_value = raw_value.split('#')[0].strip()
+
+        # Convert to float
+        return float(raw_value)
 
     @validator("DATABASE_URL", pre=True)
     def assemble_db_url(cls, v: Optional[str], values) -> str:
