@@ -722,73 +722,86 @@ async def calculate_verified_chart(
         Calculated and verified chart data
     """
     try:
-        # Convert string to datetime if needed
-        birth_dt = datetime.strptime(birth_date, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        # Calculate the chart
-        try:
-            birth_dt = datetime.fromisoformat(birth_date.replace('Z', '+00:00'))
-        except ValueError:
-            # Last attempt - try different format
+        # Parse birth date/time
+        if " " in birth_date and birth_time is None:
+            # Birth date includes time
+            birth_dt = datetime.strptime(birth_date, "%Y-%m-%d %H:%M:%S")
+        elif birth_time:
+            # Separate birth date and time
+            birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
+        else:
             try:
-                birth_dt = datetime.strptime(birth_date, "%Y-%m-%dT%H:%M:%S")
+                # Try parsing date in ISO format
+                birth_dt = datetime.fromisoformat(birth_date.replace('Z', '+00:00'))
             except ValueError:
-                raise ValueError(f"Invalid birth date format: {birth_date}")
+                # Last attempt - try different format
+                try:
+                    birth_dt = datetime.strptime(birth_date, "%Y-%m-%dT%H:%M:%S")
+                except ValueError:
+                    raise ValueError(f"Invalid birth date format: {birth_date}")
 
-    # Calculate the chart
-    chart_data = calculate_chart(
-        birth_dt=birth_dt,
-        latitude=latitude,
-        longitude=longitude,
-        timezone_str=timezone,
-        house_system=house_system
-    )
+        # Calculate the chart
+        chart_data = calculate_chart(
+            birth_dt=birth_dt,
+            latitude=latitude,
+            longitude=longitude,
+            timezone_str=timezone,
+            house_system=house_system
+        )
 
-    # Add input parameters
-    chart_data["input_params"] = {
-        "birth_date": birth_date,
-        "birth_time": birth_time,
-        "latitude": latitude,
-        "longitude": longitude,
-        "timezone": timezone,
-        "location": location,
-        "house_system": house_system,
-        "zodiac_type": zodiac_type,
-        "ayanamsa": ayanamsa,
-        "node_type": node_type
-    }
+        # Add input parameters
+        chart_data["input_params"] = {
+            "birth_date": birth_date,
+            "birth_time": birth_time,
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone,
+            "location": location,
+            "house_system": house_system,
+            "zodiac_type": zodiac_type,
+            "ayanamsa": ayanamsa,
+            "node_type": node_type
+        }
 
-    # Apply Vedic standards verification (if sidereal)
-    if zodiac_type.lower() == "sidereal":
-        chart_data = await _verify_vedic_standards(chart_data, birth_dt)
+        # Verify chart with OpenAI if requested
+        if verify_with_openai:
+            logger.info("Verifying chart with OpenAI")
+            try:
+                verified_chart = await _verify_chart_with_openai(chart_data)
 
-    # Verify with OpenAI if requested
-    if verify_with_openai:
-        try:
-            verified_chart = await _verify_chart_with_openai(chart_data)
-
-            # If verification failed, log it but continue with unverified chart
-            if verified_chart.get("verification", {}).get("verification_status") != "success":
-                logger.warning(f"OpenAI verification failed: {verified_chart.get('verification', {}).get('error')}")
-                chart_data["verification"] = verified_chart.get("verification", {})
-            else:
-                # Use the verified chart
-                chart_data = verified_chart
-        except Exception as e:
-            # Log error but continue with unverified chart
-            logger.error(f"Error during OpenAI verification: {e}")
+                # If verification failed, log it but continue with unverified chart
+                verification = verified_chart.get("verification", {})
+                if verification.get("verification_status") != "success":
+                    logger.warning(f"OpenAI verification failed: {verification.get('error')}")
+                    chart_data["verification"] = verification
+                else:
+                    # Use the verified chart
+                    chart_data = verified_chart
+                    logger.info("Chart successfully verified with OpenAI")
+            except Exception as e:
+                # Log error but continue with unverified chart
+                logger.error(f"Error during OpenAI verification: {e}")
+                logger.error(traceback.format_exc())
+                chart_data["verification"] = {
+                    "verified_with_openai": False,
+                    "verification_status": "error",
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                }
+        else:
+            logger.info("OpenAI verification skipped as requested")
             chart_data["verification"] = {
                 "verified_with_openai": False,
-                "verification_status": "error",
-                "error": str(e),
+                "verification_status": "skipped",
                 "timestamp": datetime.now().isoformat()
             }
 
-    # Ensure chart_id is present
-    if "chart_id" not in chart_data:
-        chart_data["chart_id"] = f"chart_{uuid.uuid4().hex[:8]}"
+        return chart_data
 
-    return chart_data
+    except Exception as e:
+        logger.error(f"Error calculating verified chart: {e}")
+        logger.error(traceback.format_exc())
+        raise ValueError(f"Verified chart calculation failed: {str(e)}")
 
 async def _verify_vedic_standards(chart_data: Dict[str, Any], birth_dt: datetime) -> Dict[str, Any]:
     """
@@ -956,8 +969,8 @@ async def _verify_chart_with_openai(chart_data: Dict[str, Any]) -> Dict[str, Any
         # Import OpenAI service only when needed
         from ai_service.api.services.openai import get_openai_service
 
-        # Get OpenAI service
-        openai_service = get_openai_service()  # Not async in this implementation
+        # Get OpenAI service - now properly awaiting the async function
+        openai_service = await get_openai_service()
         if not openai_service:
             logger.warning("OpenAI service not available, skipping chart verification")
             return chart_data

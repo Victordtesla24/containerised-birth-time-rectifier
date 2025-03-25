@@ -13,11 +13,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Set up environment variables
 ENV PYTHONPATH="/usr/local/lib/python3.11/site-packages:/app"
+ENV PATH="${PATH}:/usr/local/lib/python3.11/site-packages"
 
 # Install dependencies
 COPY essential_requirements.txt requirements.txt
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt && \
+    pip install pyswisseph==2.10.3.2 --no-cache-dir && \
+    python -c "import sys; print(sys.path)"
+
+# Create a pyswisseph wrapper to fix import issue
+RUN echo "import swisseph" > /usr/local/lib/python3.11/site-packages/pyswisseph.py && \
+    echo "from swisseph import *" >> /usr/local/lib/python3.11/site-packages/pyswisseph.py
 
 # Create a test script to verify imports
 COPY test_imports.py .

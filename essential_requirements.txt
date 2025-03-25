@@ -1,0 +1,51 @@
+# Core libraries
+fastapi==0.100.0
+uvicorn==0.22.0
+pydantic==1.10.12
+PyJWT==2.8.0
+
+# Swiss Ephemeris library
+pyswisseph==2.10.3.2
+flatlib==0.2.0
+
+# Utilities
+python-multipart==0.0.19
+httpx==0.26.0
+python-dotenv==1.0.0
+jsonschema==4.20.0
+timezonefinder==5.2.0
+geopy==2.4.0
+
+# Data handling
+pytz==2023.3
+numpy==1.26.4
+pandas==2.2.1
+requests==2.32.2
+
+# Connection and networking
+aiohttp==3.9.0
+starlette==0.27.0
+websockets==12.0
+
+# Testing and development
+pytest==7.4.3
+pytest-asyncio==0.21.0
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+pytest-env==1.1.3
+pytest-timeout==2.2.0
+
+# Database
+asyncpg==0.29.0
+redis==5.0.1
+
+# Astronomy/Astrological calculations
+ephem==4.1.5
+
+# Visualization
+matplotlib==3.8.3
+Pillow==10.1.0
+reportlab==4.1.0
+
+# Development dependencies
+black==24.3.0

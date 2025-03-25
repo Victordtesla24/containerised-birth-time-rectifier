@@ -42,6 +42,11 @@ def load_env_file(env_file: Optional[str] = None) -> bool:
         project_root = Path(__file__).parent.parent.parent
         env_file = str(project_root / ".env")  # Convert Path to string
 
+    # Check if file exists
+    if not os.path.isfile(env_file):
+        logger.info(f"Env file does not exist: {env_file}")
+        return False
+
     # Load the .env file
     try:
         load_dotenv(env_file)
