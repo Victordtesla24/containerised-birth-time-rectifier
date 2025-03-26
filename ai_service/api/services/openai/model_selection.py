@@ -16,13 +16,16 @@ def get_task_category(task_type: str) -> str:
         task_type: The specific task type string
 
     Returns:
-        Category string: "rectification", "explanation", or "auxiliary"
+        Category string: "rectification", "calculation", "verification", "visualization",
+        "questionnaire", "explanation", or "auxiliary"
     """
     task_lower = task_type.lower()
 
     # Detailed categorization
     if "rectif" in task_lower or "birth time" in task_lower:
         return "rectification"
+    elif "verif" in task_lower or "validate" in task_lower or "check" in task_lower:
+        return "verification"
     elif "chart" in task_lower or "planet" in task_lower or "posit" in task_lower or "calculate" in task_lower:
         return "calculation"
     elif "visual" in task_lower or "render" in task_lower or "3d" in task_lower:
@@ -56,6 +59,7 @@ def select_model(task_type: str) -> str:
     model_env_vars = {
         "rectification": os.environ.get("OPENAI_MODEL_RECTIFICATION", "o1-preview"),
         "calculation": os.environ.get("OPENAI_MODEL_CALCULATION", "o1-preview"),
+        "verification": os.environ.get("OPENAI_MODEL_VERIFICATION", "gpt-4-turbo"),
         "visualization": os.environ.get("OPENAI_MODEL_VISUALIZATION", "gpt-4-turbo"),
         "questionnaire": os.environ.get("OPENAI_MODEL_QUESTIONNAIRE", "gpt-4-turbo"),
         "explanation": os.environ.get("OPENAI_MODEL_EXPLANATION", "gpt-4-turbo"),

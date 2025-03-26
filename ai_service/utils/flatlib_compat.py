@@ -13,8 +13,8 @@ import os
 # Import constants from flatlib
 from flatlib.const import LIST_SIGNS
 
-# Import pyswisseph
-import pyswisseph as swe
+# Import swisseph
+import swisseph as swe
 
 # Set up logging
 logger = logging.getLogger(__name__)

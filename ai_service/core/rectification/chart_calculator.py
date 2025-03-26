@@ -20,7 +20,7 @@ import numpy as np
 
 # Flag to indicate if pyswisseph is available
 try:
-    import pyswisseph as swe
+    import swisseph as swe
     SWISSEPH_AVAILABLE = True
 except ImportError:
     SWISSEPH_AVAILABLE = False
@@ -692,921 +692,500 @@ async def calculate_verified_chart(
     latitude: float,
     longitude: float,
     timezone: str,
-    location: Optional[str] = None,
-    house_system: str = "P",
-    zodiac_type: str = "tropical",
-    ayanamsa: str = "lahiri",
-    node_type: str = "true",
-    verify_with_openai: bool = False
+    verify_with_openai: bool = True
 ) -> Dict[str, Any]:
     """
-    Calculate chart with verification and validation steps.
+    Calculate a chart with verification against Vedic standards.
 
-    This function calculates an astrological chart and applies verification
-    using OpenAI if requested, with robust error handling.
+    This is a backward compatibility wrapper around the EnhancedChartCalculator's
+    calculate_verified_chart method to maintain API consistency.
 
     Args:
-        birth_date: Birth date in YYYY-MM-DD format
-        birth_time: Birth time in HH:MM:SS format
+        birth_date: Birth date (YYYY-MM-DD)
+        birth_time: Birth time (HH:MM:SS)
         latitude: Birth latitude
         longitude: Birth longitude
-        timezone: Timezone string (e.g., 'America/New_York')
-        location: Optional location name
-        house_system: House system (P=Placidus, K=Koch, etc.)
-        zodiac_type: Zodiac type (tropical or sidereal)
-        ayanamsa: Ayanamsa for sidereal calculations
-        node_type: Node type (true or mean)
+        timezone: Timezone string
         verify_with_openai: Whether to verify with OpenAI
 
     Returns:
-        Calculated and verified chart data
+        Verified chart data with verification metadata
+
+    Raises:
+        ValueError: If chart calculation fails
+        RuntimeError: If verification fails in an unrecoverable way
     """
-    try:
-        # Parse birth date/time
-        if " " in birth_date and birth_time is None:
-            # Birth date includes time
-            birth_dt = datetime.strptime(birth_date, "%Y-%m-%d %H:%M:%S")
-        elif birth_time:
-            # Separate birth date and time
-            birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
-        else:
-            try:
-                # Try parsing date in ISO format
-                birth_dt = datetime.fromisoformat(birth_date.replace('Z', '+00:00'))
-            except ValueError:
-                # Last attempt - try different format
-                try:
-                    birth_dt = datetime.strptime(birth_date, "%Y-%m-%dT%H:%M:%S")
-                except ValueError:
-                    raise ValueError(f"Invalid birth date format: {birth_date}")
-
-        # Calculate the chart
-        chart_data = calculate_chart(
-            birth_dt=birth_dt,
-            latitude=latitude,
-            longitude=longitude,
-            timezone_str=timezone,
-            house_system=house_system
-        )
-
-        # Add input parameters
-        chart_data["input_params"] = {
-            "birth_date": birth_date,
-            "birth_time": birth_time,
-            "latitude": latitude,
-            "longitude": longitude,
-            "timezone": timezone,
-            "location": location,
-            "house_system": house_system,
-            "zodiac_type": zodiac_type,
-            "ayanamsa": ayanamsa,
-            "node_type": node_type
-        }
-
-        # Verify chart with OpenAI if requested
-        if verify_with_openai:
-            logger.info("Verifying chart with OpenAI")
-            try:
-                verified_chart = await _verify_chart_with_openai(chart_data)
-
-                # If verification failed, log it but continue with unverified chart
-                verification = verified_chart.get("verification", {})
-                if verification.get("verification_status") != "success":
-                    logger.warning(f"OpenAI verification failed: {verification.get('error')}")
-                    chart_data["verification"] = verification
-                else:
-                    # Use the verified chart
-                    chart_data = verified_chart
-                    logger.info("Chart successfully verified with OpenAI")
-            except Exception as e:
-                # Log error but continue with unverified chart
-                logger.error(f"Error during OpenAI verification: {e}")
-                logger.error(traceback.format_exc())
-                chart_data["verification"] = {
-                    "verified_with_openai": False,
-                    "verification_status": "error",
-                    "error": str(e),
-                    "timestamp": datetime.now().isoformat()
-                }
-        else:
-            logger.info("OpenAI verification skipped as requested")
-            chart_data["verification"] = {
-                "verified_with_openai": False,
-                "verification_status": "skipped",
-                "timestamp": datetime.now().isoformat()
-            }
-
-        return chart_data
-
-    except Exception as e:
-        logger.error(f"Error calculating verified chart: {e}")
-        logger.error(traceback.format_exc())
-        raise ValueError(f"Verified chart calculation failed: {str(e)}")
-
-async def _verify_vedic_standards(chart_data: Dict[str, Any], birth_dt: datetime) -> Dict[str, Any]:
-    """
-    Verify chart calculations against Vedic astrological standards.
-
-    This checks for:
-    1. Proper nakshatra placements
-    2. Correct rashi (sign) calculations
-    3. Accurate ayanamsa application
-    4. Proper dignities and debilities
-    5. Correct varga (divisional chart) calculations
-
-    Args:
-        chart_data: Chart data to verify
-        birth_dt: Birth datetime
-
-    Returns:
-        Verified chart data with any necessary corrections
-    """
-    try:
-        # Import Vedic-specific modules
-        from ai_service.core.rectification.vedic_calculation import (
-            get_nakshatra_from_longitude,
-            calculate_varga_charts,
-            calculate_planet_dignity,
-            calculate_shadbala,
-            get_ayanamsha_value,
-            verify_vedic_coordinates,
-            calculate_planetary_avasthas,
-            calculate_dasa_periods
-        )
-
-        # Add ayanamsha information with proper calculation
-        ayanamsha_value = get_ayanamsha_value(birth_dt)
-        chart_data["ayanamsha"] = {
-            "value": ayanamsha_value,
-            "type": "Lahiri",  # Default standard for Vedic astrology
-            "verified": True
-        }
-
-        # First, verify that all coordinates are properly adjusted for ayanamsha
-        verified_coords = verify_vedic_coordinates(chart_data, ayanamsha_value)
-        if verified_coords.get("corrections", []):
-            logger.info(f"Applied {len(verified_coords['corrections'])} ayanamsha corrections")
-            # Apply the corrections to the chart data
-            for correction in verified_coords.get("corrections", []):
-                item_type = correction.get("type")
-                item_name = correction.get("name")
-                corrected_longitude = correction.get("corrected_longitude")
-
-                if item_type == "planet" and item_name in chart_data.get("planets", {}):
-                    chart_data["planets"][item_name]["longitude"] = corrected_longitude
-                    chart_data["planets"][item_name]["corrected"] = True
-                elif item_type == "house" and item_name.isdigit():
-                    house_index = int(item_name) - 1
-                    if 0 <= house_index < len(chart_data.get("houses", [])):
-                        chart_data["houses"][house_index]["longitude"] = corrected_longitude
-                        chart_data["houses"][house_index]["corrected"] = True
-                elif item_type == "angle" and item_name in chart_data.get("angles", {}):
-                    chart_data["angles"][item_name]["longitude"] = corrected_longitude
-                    chart_data["angles"][item_name]["corrected"] = True
-
-        # Verify and add nakshatra positions
-        chart_data["nakshatras"] = {}
-        for planet_name, planet_data in chart_data.get("planets", {}).items():
-            longitude = planet_data.get("longitude", 0)
-
-            # Calculate nakshatra
-            nakshatra_info = get_nakshatra_from_longitude(longitude)
-
-            # Store nakshatra information
-            chart_data["nakshatras"][planet_name] = nakshatra_info
-
-            # Add to planet data
-            planet_data["nakshatra"] = nakshatra_info.get("name")
-            planet_data["nakshatra_pada"] = nakshatra_info.get("pada")
-            planet_data["nakshatra_longitude"] = nakshatra_info.get("longitude")
-            planet_data["nakshatra_lord"] = nakshatra_info.get("lord")
-
-        # Calculate and verify varga (divisional) charts - MANDATORY for Vedic astrology
-        varga_charts = calculate_varga_charts(chart_data)
-        chart_data["varga_charts"] = varga_charts
-
-        # Verify all required divisional charts are present
-        required_vargas = ["D1", "D9", "D3", "D7", "D10", "D12", "D2", "D4", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D60"]
-        missing_vargas = [v for v in required_vargas if v not in varga_charts]
-
-        if missing_vargas:
-            missing_vargas_str = ', '.join(missing_vargas)
-            logger.error(f"Missing critical divisional charts: {missing_vargas_str}")
-            raise ValueError(f"Vedic verification failed: Missing required divisional charts: {missing_vargas_str}")
-
-        # Calculate dasa periods (Vimshottari dasa)
-        chart_data["dasa_periods"] = calculate_dasa_periods(
-            birth_dt=birth_dt,
-            moon_longitude=chart_data.get("planets", {}).get("moon", {}).get("longitude", 0),
-            ayanamsha=ayanamsha_value
-        )
-
-        # Calculate planetary avasthas (states) for all planets
-        chart_data["avasthas"] = calculate_planetary_avasthas(chart_data)
-
-        # Calculate dignity and shadbala - mandatory for all planets
-        chart_data["dignities"] = {}
-        chart_data["shadbala"] = {}
-
-        essential_planets = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"]
-        missing_dignity_calcs = []
-
-        for planet_name in essential_planets:
-            if planet_name not in chart_data.get("planets", {}):
-                missing_dignity_calcs.append(planet_name)
-                continue
-
-            planet_data = chart_data["planets"][planet_name]
-
-            # Calculate dignity
-            sign = planet_data.get("sign", "")
-            degree = planet_data.get("longitude", 0) % 30
-
-            dignity = calculate_planet_dignity(planet_name, sign, degree)
-            chart_data["dignities"][planet_name] = dignity
-
-            # Calculate shadbala (sixfold strength)
-            shadbala = calculate_shadbala(planet_name, chart_data)
-            chart_data["shadbala"][planet_name] = shadbala
-
-        if missing_dignity_calcs:
-            missing_planets_str = ', '.join(missing_dignity_calcs)
-            logger.error(f"Missing essential planets for dignity/shadbala calculation: {missing_planets_str}")
-            raise ValueError(f"Vedic verification failed: Cannot calculate dignities for essential planets: {missing_planets_str}")
-
-        # Verify overall chart integrity
-        chart_data["verification_details"] = {
-            "verified_against": "vedic_standards",
-            "verified_at": datetime.now().isoformat(),
-            "verification_status": "verified",
-            "ayanamsha": ayanamsha_value,
-            "ayanamsha_type": "Lahiri"
-        }
-
-        return chart_data
-
-    except ImportError as ie:
-        logger.error(f"Error importing Vedic calculation modules: {ie}")
-        # Don't fall back to simplified implementation - raise the error for proper handling
-        raise ValueError(f"Vedic calculation modules not available: {str(ie)}")
-    except Exception as e:
-        logger.error(f"Error during Vedic verification: {e}")
-        logger.error(traceback.format_exc())
-        # Don't return unverified chart - raise the error for proper handling
-        raise ValueError(f"Vedic verification failed: {str(e)}")
-
-async def _verify_chart_with_openai(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Verify chart data using OpenAI for accuracy checks.
-
-    Args:
-        chart_data: Chart data to verify
-
-    Returns:
-        Verified chart data with potential corrections
-    """
-    try:
-        # Import OpenAI service only when needed
-        from ai_service.api.services.openai import get_openai_service
-
-        # Get OpenAI service - now properly awaiting the async function
-        openai_service = await get_openai_service()
-        if not openai_service:
-            logger.warning("OpenAI service not available, skipping chart verification")
-            return chart_data
-
-        # Extract key chart elements for verification
-        verification_data = {
-            "ascendant": chart_data.get("ascendant", {}),
-            "houses": chart_data.get("houses", []),
-            "planets": {
-                k: v for k, v in chart_data.get("planets", {}).items()
-                if k in ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn"]
-            },
-            "aspects": chart_data.get("aspects", [])[:10],  # Limit to first 10 aspects
-            "chart_id": chart_data.get("chart_id", ""),
-            "zodiac_type": chart_data.get("zodiac_type", "tropical"),
-            "house_system": chart_data.get("house_system", "placidus")
-        }
-
-        # Create structured prompt for OpenAI
-        prompt = {
-            "task": "chart_verification",
-            "chart_data": verification_data,
-            "instructions": [
-                "Verify this astrological chart data for accuracy and consistency",
-                "Check that planet positions are in valid zodiac signs (0-360°)",
-                "Verify house cusps are in correct order",
-                "Check if ascendant degree is consistent with house system",
-                "Identify any potential errors or inconsistencies",
-                "Return corrections as a structured JSON object"
-            ]
-        }
-
-        # Serialize prompt to JSON
-        prompt_str = json.dumps(prompt)
-
-        # Call OpenAI with retry logic
-        max_retries = 3
-        retry_delay = 1.0
-
-        for attempt in range(max_retries):
-            try:
-                response = await openai_service.generate_completion(
-                    prompt=prompt_str,
-                    task_type="chart_verification",
-                    max_tokens=1000
-                )
-
-                # Parse response
-                corrections = []
-                if isinstance(response, dict):
-                    if "corrections" in response:
-                        corrections = response.get("corrections", [])
-                else:
-                    # Try to parse from string
-                    response_str = response if isinstance(response, str) else json.dumps(response)
-                    corrections = _parse_verification_response(response_str)
-
-                if corrections:
-                    logger.info(f"Chart verification found {len(corrections)} corrections")
-                    # Apply corrections
-                    corrected_chart = _apply_corrections(chart_data, corrections)
-
-                    # Add verification metadata
-                    corrected_chart["verification"] = {
-                        "verified_with_openai": True,
-                        "verification_timestamp": datetime.now().isoformat(),
-                        "corrections_applied": len(corrections),
-                        "verification_status": "success"
-                    }
-
-                    return corrected_chart
-                else:
-                    # No corrections needed
-                    chart_data["verification"] = {
-                        "verified_with_openai": True,
-                        "verification_timestamp": datetime.now().isoformat(),
-                        "corrections_applied": 0,
-                        "verification_status": "success"
-                    }
-
-                    return chart_data
-
-            except Exception as e:
-                logger.warning(f"OpenAI verification attempt {attempt+1}/{max_retries} failed: {str(e)}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-
-        # If we get here, all retries failed
-        logger.error(f"OpenAI chart verification failed after {max_retries} attempts")
-
-        # Add verification metadata indicating failure
-        chart_data["verification"] = {
-            "verified_with_openai": False,
-            "verification_timestamp": datetime.now().isoformat(),
-            "verification_status": "failed",
-            "error": "Verification failed after multiple attempts"
-        }
-
-        return chart_data
-
-    except Exception as e:
-        logger.error(f"Error in chart verification: {e}")
-
-        # Add verification metadata indicating error
-        chart_data["verification"] = {
-            "verified_with_openai": False,
-            "verification_timestamp": datetime.now().isoformat(),
-            "verification_status": "error",
-            "error": str(e)
-        }
-
-        return chart_data
-
-def _parse_verification_response(response: Union[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Parse the verification response from OpenAI.
-
-    Args:
-        response: Response from OpenAI, can be string or dictionary
-
-    Returns:
-        List of corrections to apply
-    """
-    corrections = []
-
-    try:
-        # Check if response is already a dictionary
-        if isinstance(response, dict):
-            if "corrections" in response:
-                return response.get("corrections", [])
-            return []
-
-        # If it's a string, try to parse as JSON
-        if isinstance(response, str):
-            try:
-                json_data = json.loads(response)
-                if "corrections" in json_data:
-                    return json_data.get("corrections", [])
-                return []
-            except json.JSONDecodeError:
-                pass
-
-            # Try to extract JSON block
-            json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
-            if json_match:
-                try:
-                    json_str = json_match.group(1)
-                    json_data = json.loads(json_str)
-                    if "corrections" in json_data:
-                        return json_data.get("corrections", [])
-                except (json.JSONDecodeError, IndexError):
-                    pass
-
-            # Extract corrections with alternative regex approach
-            correction_pattern = r'([a-zA-Z_]+):\s*([^,]+),\s*correct value:\s*([^,]+)'
-            matches = re.findall(correction_pattern, response, re.IGNORECASE)
-
-            for match in matches:
-                field, current, correct = match
-                corrections.append({
-                    "field": field.strip(),
-                    "current_value": current.strip(),
-                    "correct_value": correct.strip()
-                })
-
-    except Exception as e:
-        logger.error(f"Error parsing verification response: {e}")
-
-    return corrections
-
-def _apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Apply corrections to chart data from verification.
-
-    Args:
-        chart_data: Original chart data
-        corrections: List of correction objects
-
-    Returns:
-        Chart data with corrections applied
-    """
-    for correction in corrections:
-        correction_type = correction.get("type", "")
-        object_name = correction.get("object", "")
-        corrected_value = correction.get("corrected", "")
-
-        if not correction_type or not object_name or not corrected_value:
-            continue
-
-        try:
-            if correction_type == "planet_position" and object_name in chart_data.get("planets", {}):
-                # Parse corrected value - could be longitude or sign
-                try:
-                    # Check if it's a longitude value
-                    corrected_longitude = float(corrected_value)
-                    chart_data["planets"][object_name]["longitude"] = corrected_longitude
-
-                    # Update sign based on longitude
-                    sign_num = int(corrected_longitude / 30) % 12
-                    signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-                            "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-                    chart_data["planets"][object_name]["sign"] = signs[sign_num]
-                except ValueError:
-                    # Must be a sign correction
-                    chart_data["planets"][object_name]["sign"] = corrected_value
-            elif correction_type == "angle" and object_name in chart_data.get("angles", {}):
-                try:
-                    # Check if it's a longitude value
-                    corrected_longitude = float(corrected_value)
-                    chart_data["angles"][object_name]["longitude"] = corrected_longitude
-
-                    # Update sign based on longitude
-                    sign_num = int(corrected_longitude / 30) % 12
-                    signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
-                            "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
-                    chart_data["angles"][object_name]["sign"] = signs[sign_num]
-                except ValueError:
-                    # Must be a sign correction
-                    chart_data["angles"][object_name]["sign"] = corrected_value
-
-        except Exception as e:
-            logger.warning(f"Error applying correction {correction}: {e}")
-
-    return chart_data
+    # Create an instance of EnhancedChartCalculator
+    calculator = EnhancedChartCalculator()
+
+    # Delegate to the class method implementation
+    return await calculator.calculate_verified_chart(
+        birth_date=birth_date,
+        birth_time=birth_time,
+        latitude=latitude,
+        longitude=longitude,
+        timezone=timezone,
+        verify_with_openai=verify_with_openai
+    )
 
 class EnhancedChartCalculator:
-    """Enhanced chart calculator for birth time rectification."""
+    """
+    Enhanced chart calculator with verification capabilities.
 
-    def __init__(self, swisseph_proxy: SwissEphemerisProxy):
+    This calculator includes OpenAI-based verification of chart data
+    against Indian Vedic standards, with fallback to basic calculation if
+    verification is unavailable.
+    """
+
+    def __init__(self, ephemeris=None):
         """
         Initialize the enhanced chart calculator.
 
         Args:
-            swisseph_proxy: Swiss Ephemeris proxy instance
-
-        Raises:
-            RuntimeError: If Swiss Ephemeris proxy is not available
+            ephemeris: Swiss ephemeris proxy object (optional)
         """
-        if not swisseph_proxy:
-            raise RuntimeError("Swiss Ephemeris proxy is required but not provided")
+        self.ephemeris = ephemeris
 
-        self.swisseph = swisseph_proxy
-
-    async def calculate_planets_positions(
-        self, birth_datetime: datetime, latitude: float, longitude: float
-    ) -> Dict[str, Dict[str, Any]]:
-        """
-        Calculate positions of all planets for a specific birth datetime and location.
-
-        Args:
-            birth_datetime: Birth datetime
-            latitude: Birth latitude in decimal degrees
-            longitude: Birth longitude in decimal degrees
-
-        Returns:
-            Dictionary with planet positions data
-
-        Raises:
-            RuntimeError: If calculation fails
-        """
-        try:
-            planets_data = {}
-
-            # Define planet IDs to calculate
-            planet_ids = {
-                "Sun": 0,
-                "Moon": 1,
-                "Mercury": 2,
-                "Venus": 3,
-                "Mars": 4,
-                "Jupiter": 5,
-                "Saturn": 6,
-                "Uranus": 7,
-                "Neptune": 8,
-                "Pluto": 9
-            }
-
-            # Calculate positions for each planet
-            for planet_name, planet_id in planet_ids.items():
-                try:
-                    # Get position data
-                    position = await self.swisseph.get_planet_position(
-                        birth_datetime, planet_id, latitude, longitude
-                    )
-
-                    # Store in result
-                    planets_data[planet_name] = {
-                        'longitude': position['longitude'],
-                        'latitude': position['latitude'],
-                        'distance': position['distance'],
-                        'speed': position.get('longitude_speed', 0)
-                    }
-                except Exception as planet_error:
-                    # Log error and raise
-                    error_msg = f"Failed to calculate position for planet {planet_name}: {planet_error}"
-                    logger.error(error_msg)
-                    raise RuntimeError(error_msg) from planet_error
-
-            return planets_data
-        except Exception as e:
-            error_msg = f"Failed to calculate planet positions: {e}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
-
-    async def calculate_houses(
-        self, birth_datetime: datetime, latitude: float, longitude: float, house_system: str = "P"
-    ) -> Dict[str, float]:
-        """
-        Calculate house cusps for a specific birth datetime and location.
-
-        Args:
-            birth_datetime: Birth datetime
-            latitude: Birth latitude in decimal degrees
-            longitude: Birth longitude in decimal degrees
-            house_system: House system code (e.g., "P" for Placidus)
-
-        Returns:
-            Dictionary with house cusps data
-
-        Raises:
-            RuntimeError: If calculation fails
-        """
-        try:
-            # Get house data
-            houses_data = await self.swisseph.get_houses(
-                birth_datetime, latitude, longitude, house_system
-            )
-
-            # Format result
-            result = {}
-
-            # Extract cusps
-            for i, cusp in enumerate(houses_data['cusps']):
-                if i > 0 and i <= 12:  # Skip 0 index, use 1-12
-                    result[str(i)] = cusp
-
-            # Add special angles
-            result['ASC'] = houses_data['ascendant']
-            result['MC'] = houses_data['midheaven']
-            result['ARMC'] = houses_data['armc']
-            result['Vertex'] = houses_data['vertex']
-
-            return result
-        except Exception as e:
-            error_msg = f"Failed to calculate houses: {e}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
-
-    async def calculate_aspects(
-        self, planets_data: Dict[str, Dict[str, Any]], orb_settings: Optional[Dict[str, float]] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Calculate aspects between planets.
-
-        Args:
-            planets_data: Dictionary with planet positions data
-            orb_settings: Optional dictionary with orb settings by aspect type
-
-        Returns:
-            List of aspect dictionaries
-
-        Raises:
-            RuntimeError: If calculation fails
-        """
-        try:
-            # Default orb settings if not provided
-            if not orb_settings:
-                orb_settings = {
-                    'conjunction': 8.0,
-                    'opposition': 8.0,
-                    'trine': 7.0,
-                    'square': 7.0,
-                    'sextile': 6.0,
-                    'quincunx': 5.0,
-                    'semisextile': 5.0,
-                    'semisquare': 3.0,
-                    'sesquisquare': 3.0
-                }
-
-            aspects = []
-            planets = list(planets_data.keys())
-
-            # Loop through all planet pairs
-            for i, planet1 in enumerate(planets):
-                for planet2 in planets[i+1:]:  # Only check each pair once
-                    # Get planet longitudes
-                    if 'longitude' not in planets_data[planet1] or 'longitude' not in planets_data[planet2]:
-                        continue
-
-                    lon1 = planets_data[planet1]['longitude']
-                    lon2 = planets_data[planet2]['longitude']
-
-                    # Calculate aspect
-                    aspect = self._calculate_single_aspect(planet1, lon1, planet2, lon2, orb_settings)
-
-                    # Add if aspect exists
-                    if aspect:
-                        aspects.append(aspect)
-
-            return aspects
-        except Exception as e:
-            error_msg = f"Failed to calculate aspects: {e}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
-
-    async def calculate_chart(
+    async def calculate_verified_chart(
         self,
-        birth_datetime: datetime,
+        birth_date: str,
+        birth_time: str,
         latitude: float,
         longitude: float,
-        house_system: str = "P"
+        timezone: str = "UTC",
+        verify_with_openai: bool = True
     ) -> Dict[str, Any]:
         """
-        Calculate a complete astrological chart for a specific birth datetime and location.
+        Calculate a verified astrological chart.
+
+        This method follows the sequence diagram workflow:
+        1. Calculate initial chart data with astronomical precision
+        2. Verify with OpenAI using Indian Vedic astrological standards if enabled
+        3. Apply any corrections identified during verification
+        4. Return the verified chart with confidence scores and metadata
+
+        The verification confidence score (0-1) indicates how confident the system is
+        in the accuracy of the chart data, based on multiple validation methods:
+        - Direct astronomical validation: Cross-checking calculations with multiple libraries
+        - OpenAI expert verification: Analysis using astrological principles
+        - Internal consistency checks: Ensuring all chart elements are coherent
 
         Args:
-            birth_datetime: Birth datetime
-            latitude: Birth latitude in decimal degrees
-            longitude: Birth longitude in decimal degrees
-            house_system: House system code (e.g., "P" for Placidus)
+            birth_date: Birth date (YYYY-MM-DD)
+            birth_time: Birth time (HH:MM:SS)
+            latitude: Birth latitude
+            longitude: Birth longitude
+            timezone: Timezone string
+            verify_with_openai: Whether to verify with OpenAI
 
         Returns:
-            Dictionary with complete chart data
+            Verified chart data with complete verification metadata
 
         Raises:
-            RuntimeError: If calculation fails
+            ValueError: If chart calculation fails
+            RuntimeError: If verification process encounters an unrecoverable error
         """
         try:
-            # Calculate planets
-            planets_data = await self.calculate_planets_positions(birth_datetime, latitude, longitude)
+            # STEP 1: Calculate initial chart
+            logger.info(f"Calculating chart for {birth_date} {birth_time} at {latitude}, {longitude}")
 
-            # Calculate houses
-            houses_data = await self.calculate_houses(birth_datetime, latitude, longitude, house_system)
+            # Use the instance's calculate_chart method which now uses real calculations
+            chart_data = self.calculate_chart(
+                birth_date=birth_date,
+                birth_time=birth_time,
+                latitude=latitude,
+                longitude=longitude,
+                timezone=timezone
+            )
 
-            # Assign houses to planets
-            planets_with_houses = self._assign_houses_to_planets(planets_data, houses_data)
+            # STEP 2: Verify with OpenAI if requested
+            verification_result = {
+                "status": "verification_skipped" if not verify_with_openai else "verification_pending",
+                "verified": False,
+                "message": "OpenAI verification not requested" if not verify_with_openai else "Verification pending",
+                "confidence": 0.8,  # Default moderate confidence for non-verified charts
+                "corrections_applied": False,
+                "corrections": [],
+                "verification_method": "none" if not verify_with_openai else "pending"
+            }
 
-            # Calculate aspects
-            aspects = await self.calculate_aspects(planets_with_houses)
+            if verify_with_openai:
+                try:
+                    # Use the chart verification service directly
+                    from ai_service.services.chart_verification import verify_chart
 
-            # Calculate additional angles
-            angles = self._calculate_angles(planets_with_houses, houses_data)
+                    # Verify the chart
+                    verification_result = await verify_chart(
+                        chart_data=chart_data,
+                        verify_with_openai=True
+                    )
 
-            # Build chart data
-            chart_data = {
-                'planets': planets_with_houses,
-                'houses': houses_data,
-                'aspects': aspects,
-                'angles': angles,
-                'datetime': birth_datetime.isoformat(),
-                'latitude': latitude,
-                'longitude': longitude,
-                'house_system': house_system
+                    logger.info(f"Chart verification completed with status: {verification_result.get('status')}")
+
+                    # Apply corrections if available
+                    if verification_result.get("corrections_applied", False) and verification_result.get("corrected_chart"):
+                        chart_data = verification_result.get("corrected_chart")
+                        logger.info("Applied corrections from verification")
+                except Exception as e:
+                    logger.error(f"Error during chart verification: {e}")
+                    logger.error(traceback.format_exc())
+
+                    # Create error verification result but continue with the chart
+                    verification_result = {
+                        "status": "verification_error",
+                        "verified": False,
+                        "confidence": 0.5,  # Moderate confidence since we still have the calculated chart
+                        "message": f"Verification error: {str(e)}",
+                        "corrections_applied": False,
+                        "corrections": [],
+                        "error": str(e),
+                        "verification_method": "failed"
+                    }
+
+            # STEP 3: Add verification result to chart data
+            chart_data["verification"] = verification_result
+            chart_data["verified_at"] = datetime.now().isoformat()
+
+            return chart_data
+
+        except Exception as e:
+            logger.error(f"Error calculating verified chart: {e}")
+            logger.error(traceback.format_exc())
+            raise ValueError(f"Chart calculation failed: {str(e)}")
+
+    def calculate_chart(
+        self,
+        birth_date: str,
+        birth_time: str,
+        latitude: float,
+        longitude: float,
+        timezone: str = "UTC"
+    ) -> Dict[str, Any]:
+        """
+        Calculate a comprehensive astrological chart using real astronomical methods.
+
+        This method performs precise astronomical calculations to determine planetary positions,
+        house cusps, and other chart elements based on birth details. It leverages
+        Swiss Ephemeris for high-precision astronomical calculations.
+
+        Args:
+            birth_date: Birth date (YYYY-MM-DD)
+            birth_time: Birth time (HH:MM:SS)
+            latitude: Birth latitude in decimal degrees
+            longitude: Birth longitude in decimal degrees
+            timezone: IANA timezone identifier (e.g., 'America/New_York')
+
+        Returns:
+            Dict containing complete chart data including planets, houses, aspects, etc.
+
+        Raises:
+            ValueError: If calculation fails due to invalid input or astronomical problems
+        """
+        import logging
+        from datetime import datetime
+        import pytz
+        import uuid
+        import traceback
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Calculating chart for {birth_date} {birth_time} at coordinates {latitude}, {longitude}")
+
+        try:
+            # Parse date and time into a datetime object
+            birth_dt_str = f"{birth_date} {birth_time}"
+            birth_dt_naive = datetime.strptime(birth_dt_str, "%Y-%m-%d %H:%M:%S")
+
+            # Get the timezone object and localize the datetime
+            tz = pytz.timezone(timezone)
+            birth_dt = tz.localize(birth_dt_naive)
+
+            # Get UTC datetime for Swiss Ephemeris calculations
+            birth_dt_utc = birth_dt.astimezone(pytz.UTC)
+
+            chart_data = {}
+
+            # Use Swiss Ephemeris if available in this calculator instance
+            if self.ephemeris:
+                logger.info("Using instance ephemeris for calculations")
+                # Calculate planetary positions
+                planet_data = self._calculate_planets(birth_dt_utc, self.ephemeris)
+
+                # Calculate house cusps
+                houses_data = self._calculate_houses(birth_dt_utc, latitude, longitude, self.ephemeris)
+
+                # Set chart data
+                chart_data["planets"] = planet_data
+                chart_data["houses"] = houses_data
+
+                # Calculate ascendant
+                ascendant = self._calculate_ascendant(birth_dt_utc, latitude, longitude, self.ephemeris)
+                chart_data["ascendant"] = ascendant
+            else:
+                # Use the standalone calculation function as fallback
+                logger.info("No ephemeris found, using standalone calculation function")
+                from ai_service.services.chart_service_calculation import calculate_chart as standalone_calculate
+
+                chart_data = standalone_calculate(
+                    birth_date=birth_date,
+                    birth_time=birth_time,
+                    latitude=latitude,
+                    longitude=longitude,
+                    timezone=timezone,
+                    verify_with_openai=False,  # Skip verification, we'll do it separately
+                    include_divisional=True
+                )
+
+            # Calculate aspects between planets if not already calculated
+            if "aspects" not in chart_data:
+                from ai_service.services.chart_service_aspects import calculate_aspects
+                chart_data["aspects"] = calculate_aspects(chart_data)
+
+            # Calculate dignities and planet strengths if not already calculated
+            if "dignities" not in chart_data:
+                from ai_service.services.chart_service_dignities import calculate_dignities, calculate_planet_strengths
+                chart_data["dignities"] = calculate_dignities(chart_data)
+                chart_data["strengths"] = calculate_planet_strengths(chart_data)
+
+            # Add birth details
+            chart_data["birth_details"] = {
+                "date": birth_date,
+                "time": birth_time,
+                "latitude": latitude,
+                "longitude": longitude,
+                "timezone": timezone
+            }
+
+            # Generate a chart ID if not present
+            if "chart_id" not in chart_data:
+                chart_data["chart_id"] = f"chart_{uuid.uuid4().hex[:10]}"
+
+            # Add calculation metadata
+            chart_data["calculation_details"] = {
+                "calculator": "EnhancedChartCalculator",
+                "calculation_method": "swiss_ephemeris" if self.ephemeris else "standalone",
+                "calculated_at": datetime.now().isoformat(),
+                "calculation_version": "3.1"
             }
 
             return chart_data
-        except Exception as e:
-            error_msg = f"Failed to calculate chart: {e}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg) from e
 
-    def _calculate_angles(
-        self, planets_data: Dict[str, Dict[str, Any]], houses_data: Dict[str, float]
-    ) -> Dict[str, Dict[str, Any]]:
+        except Exception as e:
+            logger.error(f"Error calculating chart: {e}")
+            logger.error(traceback.format_exc())
+            raise ValueError(f"Chart calculation failed: {str(e)}")
+
+    def _calculate_planets(self, birth_dt, ephemeris) -> Dict[str, Dict[str, Any]]:
         """
-        Calculate the main astrological angles (Ascendant, Midheaven, etc.)
+        Calculate planetary positions using Swiss Ephemeris.
 
         Args:
-            planets_data: Planetary positions data
-            houses_data: House cusps data
+            birth_dt: UTC datetime of birth
+            ephemeris: Swiss Ephemeris proxy object
 
         Returns:
-            Dictionary with angular data
+            Dictionary mapping planet names to position data
         """
-        angles = {}
+        import swisseph as swe
+        from ai_service.core.rectification.constants import PLANET_IDS
 
+        # Convert datetime to Julian day
+        jd = swe.julday(
+            birth_dt.year,
+            birth_dt.month,
+            birth_dt.day,
+            birth_dt.hour + birth_dt.minute/60.0 + birth_dt.second/3600.0
+        )
+
+        # Calculate ayanamsa (for sidereal zodiac)
+        ayanamsa = swe.get_ayanamsa(jd)
+
+        # Initialize results dictionary
+        planets = {}
+
+        # Calculate positions for all planets
+        for planet_name, planet_id in PLANET_IDS.items():
+            # Skip special cases handled differently
+            if planet_name in ["North_Node", "South_Node"]:
+                continue
+
+            try:
+                # Calculate planet position
+                result = swe.calc_ut(jd, planet_id)
+
+                # Extract longitude and convert to sidereal if needed
+                longitude = result[0]
+                sidereal_longitude = (longitude - ayanamsa) % 360
+
+                # Determine zodiac sign
+                sign_num = int(sidereal_longitude / 30)
+                sign_names = [
+                    "Aries", "Taurus", "Gemini", "Cancer",
+                    "Leo", "Virgo", "Libra", "Scorpio",
+                    "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+                ]
+                sign = sign_names[sign_num]
+
+                # Determine retrograde status
+                is_retrograde = result[3] < 0
+
+                # Store planet data
+                planets[planet_name] = {
+                    "longitude": sidereal_longitude,
+                    "latitude": result[1],
+                    "distance": result[2],
+                    "speed": result[3],
+                    "sign": sign,
+                    "position_in_sign": sidereal_longitude % 30,
+                    "retrograde": is_retrograde
+                }
+            except Exception as e:
+                # Log error but continue with other planets
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error calculating position for {planet_name}: {e}")
+
+        # Special case for nodes
         try:
-            # Ascendant is the cusp of house 1
-            if "1" in houses_data:
-                asc_longitude = houses_data["1"]
-                sign_num = int(asc_longitude / 30)
-                angles["Asc"] = {
-                    "longitude": asc_longitude,
-                    "sign": ZODIAC_SIGNS[sign_num],
-                    "sign_num": sign_num
-                }
+            # Calculate nodes
+            result = swe.calc_ut(jd, swe.MEAN_NODE)
 
-            # Midheaven is the cusp of house 10
-            if "10" in houses_data:
-                mc_longitude = houses_data["10"]
-                sign_num = int(mc_longitude / 30)
-                angles["MC"] = {
-                    "longitude": mc_longitude,
-                    "sign": ZODIAC_SIGNS[sign_num],
-                    "sign_num": sign_num
-                }
+            # North Node (Rahu)
+            longitude = result[0]
+            sidereal_longitude = (longitude - ayanamsa) % 360
+            sign_num = int(sidereal_longitude / 30)
+            sign = sign_names[sign_num]
 
-            # Descendant is opposite the Ascendant
-            if "Asc" in angles:
-                desc_longitude = (angles["Asc"]["longitude"] + 180) % 360
-                sign_num = int(desc_longitude / 30)
-                angles["Desc"] = {
-                    "longitude": desc_longitude,
-                    "sign": ZODIAC_SIGNS[sign_num],
-                    "sign_num": sign_num
-                }
+            planets["North_Node"] = {
+                "longitude": sidereal_longitude,
+                "sign": sign,
+                "position_in_sign": sidereal_longitude % 30
+            }
 
-            # IC is opposite the Midheaven
-            if "MC" in angles:
-                ic_longitude = (angles["MC"]["longitude"] + 180) % 360
-                sign_num = int(ic_longitude / 30)
-                angles["IC"] = {
-                    "longitude": ic_longitude,
-                    "sign": ZODIAC_SIGNS[sign_num],
-                    "sign_num": sign_num
-                }
+            # South Node (Ketu) - always 180° from North Node
+            south_longitude = (sidereal_longitude + 180) % 360
+            south_sign_num = int(south_longitude / 30)
+            south_sign = sign_names[south_sign_num]
 
-            return angles
-
+            planets["South_Node"] = {
+                "longitude": south_longitude,
+                "sign": south_sign,
+                "position_in_sign": south_longitude % 30
+            }
         except Exception as e:
-            logger.warning(f"Failed to calculate some angles: {str(e)}")
-            return angles
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error calculating lunar nodes: {e}")
 
-    def _assign_houses_to_planets(
-        self, planets_data: Dict[str, Dict[str, Any]], houses_data: Dict[str, float]
-    ) -> Dict[str, Dict[str, Any]]:
+        return planets
+
+    def _calculate_houses(self, birth_dt, latitude, longitude, ephemeris) -> List[Dict[str, Any]]:
         """
-        Assign houses to planets based on their longitudes.
+        Calculate house cusps using Swiss Ephemeris.
 
         Args:
-            planets_data: Planetary positions data
-            houses_data: House cusps data
+            birth_dt: UTC datetime of birth
+            latitude: Birth latitude
+            longitude: Birth longitude
+            ephemeris: Swiss Ephemeris proxy object
 
         Returns:
-            Updated planetary data with house assignments
+            List of house cusps data
         """
-        try:
-            # Convert houses_data to a sorted list of (house_num, longitude) tuples
-            house_cusps = [(int(house_num), longitude) for house_num, longitude in houses_data.items()]
-            house_cusps.sort(key=lambda x: x[1])
+        import swisseph as swe
 
-            # Add house 13 same as house 1 but + 360° for calculations that span 360°
-            if house_cusps:
-                house_cusps.append((house_cusps[0][0] + 12, house_cusps[0][1] + 360))
+        # Convert datetime to Julian day
+        jd = swe.julday(
+            birth_dt.year,
+            birth_dt.month,
+            birth_dt.day,
+            birth_dt.hour + birth_dt.minute/60.0 + birth_dt.second/3600.0
+        )
 
-            # Assign house to each planet
-            for planet_name, planet_data in planets_data.items():
-                planet_longitude = planet_data["longitude"]
+        # Calculate ayanamsa (for sidereal zodiac)
+        ayanamsa = swe.get_ayanamsa(jd)
 
-                # Find which house the planet is in
-                for i in range(len(house_cusps) - 1):
-                    current_house, current_cusp = house_cusps[i]
-                    next_house, next_cusp = house_cusps[i + 1]
+        # Calculate sidereal time
+        sidereal_time = swe.sidtime(jd)
 
-                    # Handle the case where planet longitude is between the last and first house cusp
-                    if i == len(house_cusps) - 2 and planet_longitude < current_cusp:
-                        planet_longitude += 360
+        # Calculate houses (Placidus system is 'P')
+        house_system = 'P'  # Default to Placidus
+        house_cusps, ascmc = swe.houses(jd, latitude, longitude, house_system.encode())
 
-                    if current_cusp <= planet_longitude < next_cusp:
-                        planet_data["house"] = str(current_house)
-                        break
+        # Process house cusps
+        houses = []
+        sign_names = [
+            "Aries", "Taurus", "Gemini", "Cancer",
+            "Leo", "Virgo", "Libra", "Scorpio",
+            "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+        ]
 
-            return planets_data
+        for i in range(12):
+            # Convert to sidereal longitude
+            tropical_longitude = house_cusps[i]
+            sidereal_longitude = (tropical_longitude - ayanamsa) % 360
 
-        except Exception as e:
-            logger.warning(f"Failed to assign houses to planets: {str(e)}")
-            return planets_data
+            # Determine sign
+            sign_num = int(sidereal_longitude / 30)
+            sign = sign_names[sign_num]
 
-    def _calculate_single_aspect(
-        self, planet1: str, lon1: float, planet2: str, lon2: float, orb_settings: Dict[str, float]
-    ) -> Optional[Dict[str, Any]]:
+            # Store house data
+            houses.append({
+                "house": i + 1,  # House number (1-12)
+                "longitude": sidereal_longitude,
+                "sign": sign,
+                "position_in_sign": sidereal_longitude % 30
+            })
+
+        return houses
+
+    def _calculate_ascendant(self, birth_dt, latitude, longitude, ephemeris) -> Dict[str, Any]:
         """
-        Calculate a single aspect between two planets.
+        Calculate ascendant (rising sign) using Swiss Ephemeris.
 
         Args:
-            planet1: Name of first planet
-            lon1: Longitude of first planet
-            planet2: Name of second planet
-            lon2: Longitude of second planet
-            orb_settings: Orb settings for aspects
+            birth_dt: UTC datetime of birth
+            latitude: Birth latitude
+            longitude: Birth longitude
+            ephemeris: Swiss Ephemeris proxy object
 
         Returns:
-            Aspect data dictionary or None if no valid aspect
+            Dictionary with ascendant data
         """
-        try:
-            # Calculate the angle between planets
-            angle_diff = abs(lon1 - lon2)
-            if angle_diff > 180:
-                angle_diff = 360 - angle_diff
+        import swisseph as swe
 
-            # Check against each possible aspect
-            for aspect_name, aspect_angle in ASPECT_ANGLES.items():
-                allowed_orb = orb_settings.get(aspect_name, DEFAULT_ASPECT_ORBS.get(aspect_name, 5.0))
+        # Convert datetime to Julian day
+        jd = swe.julday(
+            birth_dt.year,
+            birth_dt.month,
+            birth_dt.day,
+            birth_dt.hour + birth_dt.minute/60.0 + birth_dt.second/3600.0
+        )
 
-                # Check if the planets form this aspect
-                angle_diff_from_aspect = abs(angle_diff - aspect_angle)
+        # Calculate ayanamsa (for sidereal zodiac)
+        ayanamsa = swe.get_ayanamsa(jd)
 
-                if angle_diff_from_aspect <= allowed_orb:
-                    # Found a valid aspect
-                    return {
-                        "planet1": planet1,
-                        "planet2": planet2,
-                        "type": aspect_name,
-                        "angle": aspect_angle,
-                        "orb": angle_diff_from_aspect,
-                        "applying": self._is_aspect_applying(lon1, lon2, aspect_angle)
-                    }
+        # Calculate houses to get ascendant (which is part of ascmc)
+        house_system = 'P'  # Default to Placidus
+        house_cusps, ascmc = swe.houses(jd, latitude, longitude, house_system.encode())
 
-            # No valid aspect found
-            return None
+        # Extract ascendant from ascmc (index 0)
+        tropical_ascendant = ascmc[0]
+        sidereal_ascendant = (tropical_ascendant - ayanamsa) % 360
 
-        except Exception as e:
-            logger.warning(f"Error in aspect calculation between {planet1} and {planet2}: {str(e)}")
-            return None
+        # Determine zodiac sign
+        sign_num = int(sidereal_ascendant / 30)
+        sign_names = [
+            "Aries", "Taurus", "Gemini", "Cancer",
+            "Leo", "Virgo", "Libra", "Scorpio",
+            "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+        ]
+        sign = sign_names[sign_num]
 
-    def _is_aspect_applying(self, lon1: float, lon2: float, aspect_angle: float) -> bool:
-        """
-        Determine if an aspect is applying (planets moving toward exact aspect) or separating.
-
-        This is a simplified version and would need actual planet speeds for accuracy.
-
-        Args:
-            lon1: Longitude of first planet
-            lon2: Longitude of second planet
-            aspect_angle: The aspect angle to check
-
-        Returns:
-            True if the aspect is applying, False if separating
-        """
-        # This is a simplification - would need planet velocities for accurate calculation
-        diff = abs(lon1 - lon2)
-        if diff > 180:
-            diff = 360 - diff
-
-        # If the difference is less than the aspect angle, it's approaching
-        return diff < aspect_angle
+        return {
+            "longitude": sidereal_ascendant,
+            "sign": sign,
+            "position_in_sign": sidereal_ascendant % 30
+        }
 
 # Constants
 
@@ -1677,11 +1256,14 @@ async def verify_ephemeris_files():
         # Test calculation to verify files work
         # Calculate Sun position for J2000 standard epoch
         sun_data = swe.calc_ut(2451545.0, swe.SUN)
-
-        # If we get here, the files are valid and usable
-        logger.info(f"Ephemeris files verified successfully: {sun_data}")
-        return True
+        if sun_data and len(sun_data) > 0:
+            logger.info("Ephemeris files verified successfully")
+            return True
+        else:
+            error_msg = "Ephemeris files failed to produce valid calculation results"
+            logger.error(error_msg)
+            raise EphemerisError(error_msg)
     except Exception as e:
-        error_msg = f"Ephemeris files validation failed: {str(e)}"
+        error_msg = f"Error verifying ephemeris files: {e}"
         logger.error(error_msg)
         raise EphemerisError(error_msg)

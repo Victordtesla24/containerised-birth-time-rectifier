@@ -4,7 +4,7 @@ Astrological constants for points not directly provided by Swiss Ephemeris.
 This module defines constants for astrological points that aren't directly
 defined in the pyswisseph library but are commonly used in astrological calculations.
 """
-import pyswisseph as swe
+import swisseph as swe
 
 # House points/angles already in pyswisseph
 ASC = swe.ASC  # Ascendant (0)

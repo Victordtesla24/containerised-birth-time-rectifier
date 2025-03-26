@@ -14,6 +14,16 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from ai_service.api.services.openai.service import OpenAIService
+# Import the chart calculation functionality
+from ai_service.api.services.questionnaire_service_chart_calculations import calculate_chart_data
+# Import utilities for analysis
+from ai_service.api.services.questionnaire_service_utilities import (
+    _enhance_astrological_analysis,
+    _assess_time_precision,
+    _parse_text_response
+)
+# Import time indicators extraction
+from ai_service.api.services.questionnaire_service_time_indicators import _extract_birth_time_indicators
 
 async def submit_answer(
     self,
@@ -123,7 +133,7 @@ async def submit_answer(
                     answer_record["analysis"] = analysis
 
                     # Extract birth time indicators if available
-                    time_indicators = await self._extract_birth_time_indicators(question.get("text", ""), answer)
+                    time_indicators = await _extract_birth_time_indicators(self, question.get("text", ""), answer)
                     if time_indicators:
                         answer_record["time_indicators"] = time_indicators
             except Exception as e:
@@ -280,7 +290,7 @@ def _detect_contradiction(
     # If questions are not similar, skip extensive checking
     if question_similarity < 0.3:
         return None
-        
+
 
     # Extract key patterns from questions and answers
 
@@ -464,7 +474,7 @@ async def _perform_astrological_analysis(
         openai_service = self.openai_service
         if not openai_service:
             from ai_service.api.services.openai import get_openai_service
-            openai_service = get_openai_service()
+            openai_service = await get_openai_service()
 
         if not openai_service:
             logger.warning("OpenAI service not available for astrological analysis")
@@ -477,7 +487,7 @@ async def _perform_astrological_analysis(
             answer_text = answer
 
         # Calculate chart data
-        chart_data = self._calculate_chart_data(
+        chart_data = calculate_chart_data(
             birth_date,
             birth_time,
             latitude,
@@ -539,24 +549,23 @@ async def _perform_astrological_analysis(
         """
 
         # Call OpenAI API
-        response = await openai_service.generate_completion(
-            prompt={
-                "messages": [
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": user_message}
-                ]
-            },
-            task_type="astrological_analysis",
+        response = await openai_service.chat_completion(
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message}
+            ],
+            model="gpt-4-turbo",
             max_tokens=1500,
             temperature=0.7
         )
 
         # Parse response
         content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-        result = self._parse_text_response(content)
+        result = _parse_text_response(self, content)
 
         # Enhance analysis with chart data
-        enhanced_analysis = self._enhance_astrological_analysis(
+        enhanced_analysis = _enhance_astrological_analysis(
+            self,
             result,
             question,
             answer_text,
@@ -568,7 +577,7 @@ async def _perform_astrological_analysis(
         )
 
         # Assess time precision
-        precision_assessment = self._assess_time_precision(enhanced_analysis)
+        precision_assessment = _assess_time_precision(self, enhanced_analysis)
         if precision_assessment:
             enhanced_analysis["time_precision"] = precision_assessment
 
@@ -577,3 +586,53 @@ async def _perform_astrological_analysis(
     except Exception as e:
         logger.error(f"Error performing astrological analysis: {e}")
         return {}
+
+def _format_chart_data_for_prompt(self, chart_data: Dict[str, Any]) -> str:
+    """
+    Format chart data for inclusion in an AI prompt.
+
+    Args:
+        chart_data: Dictionary with chart data
+
+    Returns:
+        Formatted string with chart data
+    """
+    if not chart_data:
+        return "No chart data available."
+
+    formatted_text = []
+
+    # Add ascendant information
+    ascendant = chart_data.get("ascendant", {})
+    if ascendant:
+        asc_sign = ascendant.get("sign", "Unknown")
+        asc_degree = ascendant.get("degree", 0)
+        formatted_text.append(f"Ascendant: {asc_sign} {asc_degree}°")
+
+    # Add planet information
+    planets = chart_data.get("planets", {})
+    if planets:
+        formatted_text.append("\nPlanets:")
+        for planet, data in planets.items():
+            sign = data.get("sign", "Unknown")
+            degree = data.get("degree", 0)
+            house = data.get("house", "Unknown")
+
+            # Format retrograde status
+            retrograde = " (R)" if data.get("retrograde", False) else ""
+
+            # Add formatted planet info
+            formatted_text.append(f"- {planet}: {sign} {degree}° in House {house}{retrograde}")
+
+    # Add house information
+    houses = chart_data.get("houses", [])
+    if houses:
+        formatted_text.append("\nHouses:")
+        for i, house in enumerate(houses):
+            house_num = i + 1
+            sign = house.get("sign", "Unknown")
+            degree = house.get("degree", 0)
+            formatted_text.append(f"- House {house_num}: {sign} {degree}°")
+
+    # Join all sections with newlines
+    return "\n".join(formatted_text)

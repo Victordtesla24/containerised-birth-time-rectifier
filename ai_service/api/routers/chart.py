@@ -34,7 +34,7 @@ from ai_service.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Create router
-router = APIRouter()
+router = APIRouter(tags=["chart"])
 
 # Helper function to get chart repository
 async def get_chart_repository():
@@ -48,24 +48,25 @@ class BirthDetails(BaseModel):
     birth_time: str = Field(..., description="Birth time in HH:MM:SS format")
     latitude: float = Field(..., description="Birth latitude")
     longitude: float = Field(..., description="Birth longitude")
-    timezone: Optional[str] = Field(None, description="Timezone, e.g., 'America/New_York'")
-    location: Optional[str] = Field(None, description="Location name")
+    timezone: Optional[str] = Field(None, description="Timezone string (e.g., 'America/New_York')")
+    location: Optional[str] = Field(None, description="Birth location name")
+    house_system: Optional[str] = Field("P", description="House system to use (e.g., 'P' for Placidus)")
+    zodiac_type: Optional[str] = Field("sidereal", description="Zodiac type (sidereal or tropical)")
 
 class ChartGenerationRequest(BaseModel):
-    """Request for chart generation."""
-    birth_details: BirthDetails
+    """Request body for chart generation."""
+    birth_details: BirthDetails = Field(..., description="Birth details for chart generation")
     verify_with_openai: bool = Field(True, description="Whether to verify the chart with OpenAI")
     session_id: Optional[str] = Field(None, description="Session ID for tracking")
+    generate_visualization: bool = Field(True, description="Whether to generate chart visualization")
 
 class ChartResponse(BaseModel):
-    """Response for chart generation and retrieval."""
-    chart_id: str
-    generated_at: str
-    birth_details: Optional[Dict[str, Any]] = None
-    ascendant: Optional[Dict[str, Any]] = None
-    planets: Optional[List[Dict[str, Any]]] = None
-    houses: Optional[List[Dict[str, Any]]] = None
-    verification: Optional[Dict[str, Any]] = None
+    """Response body for chart endpoints."""
+    status: str = Field(..., description="Status of the operation")
+    message: Optional[str] = Field(None, description="Message about the operation")
+    chart_id: Optional[str] = Field(None, description="Generated chart ID")
+    chart_data: Optional[Dict[str, Any]] = Field(None, description="Chart data")
+    verification: Optional[Dict[str, Any]] = Field(None, description="Verification results if verified")
 
 class RectificationRequest(BaseModel):
     """Request for birth time rectification."""
@@ -87,46 +88,117 @@ class RectificationResponse(BaseModel):
     explanation: str
     details: Optional[Dict[str, Any]] = None
 
-@router.post("/generate", response_model=ChartResponse, tags=["Chart"])
-async def generate_chart(request: ChartGenerationRequest) -> Dict[str, Any]:
+class ChartVerificationRequest(BaseModel):
+    """Request for chart verification."""
+    sessionId: Optional[str] = Field(None, description="Session ID for tracking")
+    chartId: str = Field(..., description="Chart ID to verify")
+
+# Background task functions
+async def generate_chart_visualization(chart_data: Dict[str, Any]) -> None:
     """
-    Generate an astrological chart based on birth details.
+    Background task to generate chart visualizations.
 
     Args:
-        request: Chart generation request with birth details and options
-
-    Returns:
-        Generated chart data
+        chart_data: The chart data to visualize
     """
     try:
-        # Get chart service
         chart_service = get_chart_service()
 
-        # Extract request parameters
-        birth_details = request.birth_details
-        verify_with_openai = request.verify_with_openai
-        session_id = request.session_id
+        # Generate different chart visualizations
+        try:
+            chart_service.generate_vedic_kundli_chart(chart_data)
+            logger.info(f"Generated Vedic Kundli chart for chart_id: {chart_data.get('chart_id')}")
+        except Exception as e:
+            logger.error(f"Error generating Vedic chart: {e}")
 
-        logger.info(f"Generating chart for {birth_details.birth_date} {birth_details.birth_time}")
+        try:
+            chart_service.generate_western_chart(chart_data)
+            logger.info(f"Generated Western chart for chart_id: {chart_data.get('chart_id')}")
+        except Exception as e:
+            logger.error(f"Error generating Western chart: {e}")
 
-        # Generate chart
+    except Exception as e:
+        logger.error(f"Error in chart visualization background task: {e}")
+
+@router.post("/generate", response_model=ChartResponse)
+async def generate_chart(
+    chart_request: ChartGenerationRequest,
+    background_tasks: BackgroundTasks,
+    request: Request
+) -> ChartResponse:
+    """
+    Generate a new astrological chart based on birth details.
+
+    This endpoint follows the sequence diagram flow:
+    1. Validate input (already done by Pydantic)
+    2. Calculate initial chart
+    3. Verify with OpenAI if requested
+    4. Apply corrections if needed
+    5. Store in database
+    6. Return chart data
+
+    Args:
+        chart_request: Birth details and options
+        background_tasks: FastAPI background tasks
+        request: FastAPI request object
+
+    Returns:
+        ChartResponse: Generated chart data with verification status
+    """
+    logger.info(f"Generating chart with request: {chart_request}")
+
+    try:
+        # Get chart service using the async method to ensure proper initialization
+        from ai_service.services import get_chart_service_async
+        chart_service = await get_chart_service_async()
+
+        # Get or create session ID
+        session_id = request.headers.get("X-Session-ID") or chart_request.session_id
+
+        # 1. Generate the chart with the service
         chart_data = await chart_service.generate_chart(
-                birth_date=birth_details.birth_date,
-                birth_time=birth_details.birth_time,
-                latitude=birth_details.latitude,
-                longitude=birth_details.longitude,
-            timezone=birth_details.timezone,
-            location=birth_details.location,
-            verify_with_openai=verify_with_openai,
+            birth_date=chart_request.birth_details.birth_date,
+            birth_time=chart_request.birth_details.birth_time,
+            latitude=chart_request.birth_details.latitude,
+            longitude=chart_request.birth_details.longitude,
+            timezone=chart_request.birth_details.timezone,
+            location=chart_request.birth_details.location,
+            verify_with_openai=chart_request.verify_with_openai,
             session_id=session_id
         )
 
-        logger.info(f"Chart generated successfully with ID: {chart_data.get('chart_id')}")
-        return chart_data
+        # Generate chart visualization in the background
+        if chart_request.generate_visualization:
+            background_tasks.add_task(
+                generate_chart_visualization,
+                chart_data=chart_data
+            )
+
+        # 2. Return chart data with success status
+        return ChartResponse(
+            status="success",
+            message="Chart generated successfully",
+            chart_id=chart_data["chart_id"],
+            chart_data=chart_data,
+            verification=chart_data.get("verification", {})
+        )
+
+    except ValueError as e:
+        # Handle validation errors
+        logger.error(f"Validation error in chart generation: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid chart data: {str(e)}"
+        )
+
     except Exception as e:
+        # Handle unexpected errors
         logger.error(f"Error generating chart: {e}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Chart calculation error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chart generation failed: {str(e)}"
+        )
 
 @router.get("/{chart_id}", response_model=ChartResponse, tags=["Chart"])
 async def get_chart(chart_id: str = Path(..., description="Chart ID")) -> Dict[str, Any]:
@@ -158,27 +230,145 @@ async def get_chart(chart_id: str = Path(..., description="Chart ID")) -> Dict[s
         raise HTTPException(status_code=500, detail=f"Error retrieving chart: {str(e)}")
 
 @router.post("/verify", tags=["Chart"])
-async def verify_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
+async def verify_chart(request: ChartVerificationRequest) -> Dict[str, Any]:
     """
     Verify a chart's accuracy using OpenAI.
 
     Args:
-        chart_data: The chart data to verify
+        request: Verification request with chart ID
 
     Returns:
         Verification results
     """
     try:
-        # Get OpenAI service
-        openai_service = get_openai_service()
+        # Get chart service
+        chart_service = get_chart_service()
+
+        # Get chart repository
+        chart_repository = await get_chart_repository()
+
+        # Get the chart data
+        chart_data = await chart_repository.get_chart(request.chartId)
+        if not chart_data:
+            raise HTTPException(status_code=404, detail=f"Chart with ID {request.chartId} not found")
+
+        # Generate a verification ID
+        verification_id = f"ver_{uuid.uuid4().hex[:8]}"
+
+        # Import verification function directly to avoid circular imports
+        from ai_service.services.chart_service_verification import verify_chart_with_openai
+
+        # Get OpenAI service for verification
+        openai_service = await get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI service not available. Cannot perform chart verification."
+            )
 
         # Verify chart
-        verification_result = await openai_service.verify_chart(chart_data)
+        try:
+            verification_data = await verify_chart_with_openai(chart_data)
 
-        logger.info(f"Chart verification completed with confidence: {verification_result.get('confidence', 0)}")
+            # Format the response
+            verification_result = {
+                "verificationId": verification_id,
+                "result": {
+                    "confidence": verification_data.get("confidence", 0.8),
+                    "suggestedCorrection": {
+                        "adjustment": verification_data.get("suggested_adjustment", "None"),
+                        "newTime": verification_data.get("suggested_time", chart_data.get("birth_details", {}).get("time", "")),
+                        "reason": verification_data.get("adjustment_reason", "No adjustments needed")
+                    },
+                    "analysis": verification_data.get("verification_result", "Chart verified successfully.")
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error in chart verification: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Chart verification failed: {str(e)}"
+            )
+
+        logger.info(f"Chart verification completed successfully with ID: {verification_id}")
         return verification_result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error verifying chart: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error verifying chart: {str(e)}")
+
+@router.post("/api/v1/chart/verify", tags=["Chart"])
+async def verify_chart_v1(request: ChartVerificationRequest) -> Dict[str, Any]:
+    """
+    API v1 endpoint for verifying a chart's accuracy using OpenAI.
+    This endpoint is used by the integration tests and returns a format compatible with test expectations.
+
+    Args:
+        request: Verification request with chart ID and session ID
+
+    Returns:
+        Verification results in the format expected by integration tests
+    """
+    try:
+        # Get chart repository
+        chart_repository = await get_chart_repository()
+
+        # Get the chart data
+        chart_data = await chart_repository.get_chart(request.chartId)
+        if not chart_data:
+            raise HTTPException(status_code=404, detail=f"Chart with ID {request.chartId} not found")
+
+        # Generate a verification ID
+        verification_id = f"ver_{uuid.uuid4().hex[:8]}"
+
+        # Import verification function directly to avoid circular imports
+        from ai_service.services.chart_service_verification import verify_chart_with_openai
+
+        # Get OpenAI service for verification
+        openai_service = await get_openai_service()
+        if not openai_service:
+            raise HTTPException(
+                status_code=503,
+                detail="OpenAI service not available. Cannot perform chart verification."
+            )
+
+        # Verify chart
+        try:
+            verification_data = await verify_chart_with_openai(chart_data)
+
+            # Check if verification was successful
+            if not verification_data:
+                raise RuntimeError("Verification returned empty data")
+
+            # Format the response in the expected structure for API v1
+            verification_result = {
+                "verificationId": verification_id,
+                "result": {
+                    "confidence": verification_data.get("confidence", 0.5),
+                    "suggestedCorrection": {
+                        "adjustment": verification_data.get("suggested_adjustment", "No adjustment needed"),
+                        "newTime": verification_data.get("suggested_time", chart_data.get("birth_details", {}).get("time", "")),
+                        "reason": verification_data.get("adjustment_reason", "Chart verified with no adjustment needed")
+                    },
+                    "analysis": verification_data.get("verification_result", "Chart verification completed")
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error in chart verification: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Chart verification failed: {str(e)}"
+            )
+
+        logger.info(f"Chart verification completed successfully with ID: {verification_id}")
+        return verification_result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying chart: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error verifying chart: {str(e)}")
 
 @router.post("/rectify", response_model=RectificationResponse, tags=["Chart"])
@@ -235,7 +425,6 @@ async def rectify_birth_time(
             longitude=longitude,
             timezone=timezone,
             answers=request.responses,
-            chart_id=request.chart_id,
             options={"include_details": request.include_details}
         )
 
@@ -402,3 +591,27 @@ async def export_chart(
     except Exception as e:
         logger.error(f"Error exporting chart: {e}")
         raise HTTPException(status_code=500, detail=f"Chart export failed: {str(e)}")
+
+# Add a plural version of the endpoint for compatibility with v1 API
+@router.post("/charts/generate", response_model=ChartResponse)
+async def generate_charts(
+    chart_request: ChartGenerationRequest,
+    background_tasks: BackgroundTasks,
+    request: Request
+) -> ChartResponse:
+    """
+    Generate a new astrological chart (plural endpoint for v1 API compatibility).
+
+    This is an alias of the /chart/generate endpoint that maintains compatibility
+    with the v1 API that uses plural 'charts' in the path.
+
+    Args:
+        chart_request: Birth details and options
+        background_tasks: FastAPI background tasks
+        request: FastAPI request object
+
+    Returns:
+        ChartResponse: Generated chart data with verification status
+    """
+    # Simply delegate to the singular endpoint
+    return await generate_chart(chart_request, background_tasks, request)

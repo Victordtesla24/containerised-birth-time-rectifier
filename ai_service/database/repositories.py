@@ -419,3 +419,543 @@ class ChartRepository:
         if row:
             return json.loads(row['data'])
         return None
+
+class UserRepository:
+    """Repository for user data."""
+
+    def __init__(self):
+        """Initialize repository."""
+        self._init_db_pool()
+        self._db_error_counts = {}
+        self._max_errors_before_reconnect = 5
+
+    def _init_db_pool(self):
+        """Initialize database connection pool."""
+        import os
+        from dotenv import load_dotenv
+        import asyncpg
+
+        # Load environment variables
+        load_dotenv()
+
+        # Get database configuration from environment
+        self.db_url = os.environ.get('DATABASE_URL')
+        self.db_pool = None
+        self.use_db = self.db_url is not None
+
+        if not self.use_db:
+            raise ValueError("Database URL not provided. Database connection is required.")
+
+        # Create connection pool
+        try:
+            import asyncio
+            self.db_pool = asyncio.get_event_loop().run_until_complete(
+                asyncpg.create_pool(self.db_url, min_size=2, max_size=10)
+            )
+            logger.info("Database connection pool initialized for UserRepository")
+        except Exception as e:
+            logger.error(f"Error initializing database connection pool for UserRepository: {e}")
+            raise ValueError(f"Failed to initialize database: {e}")
+
+    async def _reset_db_pool(self):
+        """Reset database connection pool after errors."""
+        import asyncpg
+
+        try:
+            # Close existing pool if any
+            if self.db_pool:
+                await self.db_pool.close()
+
+            # Create new pool
+            self.db_pool = await asyncpg.create_pool(self.db_url, min_size=2, max_size=10)
+            logger.info("Database connection pool reset for UserRepository")
+        except Exception as e:
+            logger.error(f"Error resetting database connection pool for UserRepository: {e}")
+            raise ValueError(f"Failed to reset database pool: {e}")
+
+    async def _ensure_pool(self) -> Optional[asyncpg.Pool]:
+        """
+        Ensure we have a valid database pool.
+
+        Returns:
+            Database pool or None if initialization failed
+        """
+        if self.db_pool is None:
+            try:
+                await self._reset_db_pool()
+            except Exception as e:
+                logger.error(f"Failed to ensure database pool for UserRepository: {e}")
+                return None
+
+        return self.db_pool
+
+    def store_user(self, user: Dict[str, Any]) -> bool:
+        """
+        Store user data in the database.
+
+        Args:
+            user: User data to store
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.store_user")
+            return False
+
+        try:
+            # Convert datetime objects to strings
+            user_copy = user.copy()
+            if isinstance(user_copy.get('created_at'), datetime):
+                user_copy['created_at'] = user_copy['created_at'].isoformat()
+            if isinstance(user_copy.get('updated_at'), datetime):
+                user_copy['updated_at'] = user_copy['updated_at'].isoformat()
+
+            # Store in database
+            asyncio.get_event_loop().run_until_complete(self._store_user_async(pool, user_copy))
+            return True
+        except Exception as e:
+            logger.error(f"Error storing user in database: {e}")
+            return False
+
+    async def _store_user_async(self, pool, user_data):
+        """Async implementation of store_user."""
+        async with pool.acquire() as conn:
+            # Create table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    full_name TEXT NOT NULL,
+                    hashed_password TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    preferences JSONB NOT NULL DEFAULT '{}'::jsonb
+                )
+            ''')
+
+            # Create user_charts table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_charts (
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    chart_id TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, chart_id)
+                )
+            ''')
+
+            # Insert user data
+            await conn.execute(
+                '''
+                INSERT INTO users(id, email, full_name, hashed_password, created_at, updated_at, preferences)
+                VALUES($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT(id) DO UPDATE SET
+                    email = $2,
+                    full_name = $3,
+                    hashed_password = $4,
+                    updated_at = $6,
+                    preferences = $7
+                ''',
+                user_data['id'],
+                user_data['email'],
+                user_data['full_name'],
+                user_data['hashed_password'],
+                user_data['created_at'],
+                user_data['updated_at'],
+                json.dumps(user_data['preferences'])
+            )
+
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user data by ID.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            User data or None if not found
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.get_user")
+            return None
+
+        try:
+            # Query database
+            return asyncio.get_event_loop().run_until_complete(self._get_user_async(pool, user_id))
+        except Exception as e:
+            logger.error(f"Error getting user from database: {e}")
+            return None
+
+    async def _get_user_async(self, pool, user_id):
+        """Async implementation of get_user."""
+        async with pool.acquire() as conn:
+            # Create table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    full_name TEXT NOT NULL,
+                    hashed_password TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    preferences JSONB NOT NULL DEFAULT '{}'::jsonb
+                )
+            ''')
+
+            # Query user data
+            row = await conn.fetchrow(
+                '''
+                SELECT id, email, full_name, hashed_password, created_at, updated_at, preferences
+                FROM users WHERE id = $1
+                ''',
+                user_id
+            )
+
+        # Return user data if found
+        if row:
+            return {
+                'id': row['id'],
+                'email': row['email'],
+                'full_name': row['full_name'],
+                'hashed_password': row['hashed_password'],
+                'created_at': row['created_at'],
+                'updated_at': row['updated_at'],
+                'preferences': json.loads(row['preferences'])
+            }
+        return None
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get user data by email.
+
+        Args:
+            email: User email
+
+        Returns:
+            User data or None if not found
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.get_user_by_email")
+            return None
+
+        try:
+            # Query database
+            return asyncio.get_event_loop().run_until_complete(self._get_user_by_email_async(pool, email))
+        except Exception as e:
+            logger.error(f"Error getting user by email from database: {e}")
+            return None
+
+    async def _get_user_by_email_async(self, pool, email):
+        """Async implementation of get_user_by_email."""
+        async with pool.acquire() as conn:
+            # Create table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    full_name TEXT NOT NULL,
+                    hashed_password TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    preferences JSONB NOT NULL DEFAULT '{}'::jsonb
+                )
+            ''')
+
+            # Query user data
+            row = await conn.fetchrow(
+                '''
+                SELECT id, email, full_name, hashed_password, created_at, updated_at, preferences
+                FROM users WHERE email = $1
+                ''',
+                email
+            )
+
+        # Return user data if found
+        if row:
+            return {
+                'id': row['id'],
+                'email': row['email'],
+                'full_name': row['full_name'],
+                'hashed_password': row['hashed_password'],
+                'created_at': row['created_at'],
+                'updated_at': row['updated_at'],
+                'preferences': json.loads(row['preferences'])
+            }
+        return None
+
+    def user_exists(self, user_id: str) -> bool:
+        """
+        Check if a user exists by ID.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            True if exists, False otherwise
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.user_exists")
+            return False
+
+        try:
+            # Query database
+            return asyncio.get_event_loop().run_until_complete(self._user_exists_async(pool, user_id))
+        except Exception as e:
+            logger.error(f"Error checking user existence in database: {e}")
+            return False
+
+    async def _user_exists_async(self, pool, user_id):
+        """Async implementation of user_exists."""
+        async with pool.acquire() as conn:
+            # Query user data
+            row = await conn.fetchrow('SELECT 1 FROM users WHERE id = $1', user_id)
+        return row is not None
+
+    def user_exists_by_email(self, email: str) -> bool:
+        """
+        Check if a user exists by email.
+
+        Args:
+            email: User email
+
+        Returns:
+            True if exists, False otherwise
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.user_exists_by_email")
+            return False
+
+        try:
+            # Query database
+            return asyncio.get_event_loop().run_until_complete(self._user_exists_by_email_async(pool, email))
+        except Exception as e:
+            logger.error(f"Error checking user existence by email in database: {e}")
+            return False
+
+    async def _user_exists_by_email_async(self, pool, email):
+        """Async implementation of user_exists_by_email."""
+        async with pool.acquire() as conn:
+            # Query user data
+            row = await conn.fetchrow('SELECT 1 FROM users WHERE email = $1', email)
+        return row is not None
+
+    def update_preferences(self, user_id: str, preferences: Dict[str, Any]) -> bool:
+        """
+        Update user preferences.
+
+        Args:
+            user_id: User ID
+            preferences: New preferences
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.update_preferences")
+            return False
+
+        try:
+            # Update database
+            success = asyncio.get_event_loop().run_until_complete(self._update_preferences_async(pool, user_id, preferences))
+            return success
+        except Exception as e:
+            logger.error(f"Error updating user preferences in database: {e}")
+            return False
+
+    async def _update_preferences_async(self, pool, user_id, preferences):
+        """Async implementation of update_preferences."""
+        async with pool.acquire() as conn:
+            # Get current user
+            user = await conn.fetchrow(
+                '''
+                SELECT preferences FROM users WHERE id = $1
+                ''',
+                user_id
+            )
+
+            if not user:
+                return False
+
+            # Update preferences
+            current_prefs = json.loads(user['preferences'])
+            current_prefs.update(preferences)
+
+            # Update in database
+            await conn.execute(
+                '''
+                UPDATE users SET preferences = $1, updated_at = $2 WHERE id = $3
+                ''',
+                json.dumps(current_prefs),
+                datetime.now(),
+                user_id
+            )
+
+        return True
+
+    def get_user_charts(self, user_id: str) -> List[str]:
+        """
+        Get charts associated with a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            List of chart IDs
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.get_user_charts")
+            return []
+
+        try:
+            # Query database
+            return asyncio.get_event_loop().run_until_complete(self._get_user_charts_async(pool, user_id))
+        except Exception as e:
+            logger.error(f"Error getting user charts from database: {e}")
+            return []
+
+    async def _get_user_charts_async(self, pool, user_id):
+        """Async implementation of get_user_charts."""
+        async with pool.acquire() as conn:
+            # Create table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_charts (
+                    user_id TEXT NOT NULL,
+                    chart_id TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, chart_id)
+                )
+            ''')
+
+            # Query charts
+            rows = await conn.fetch(
+                '''
+                SELECT chart_id FROM user_charts WHERE user_id = $1
+                ORDER BY created_at DESC
+                ''',
+                user_id
+            )
+
+        # Return chart IDs
+        return [row['chart_id'] for row in rows]
+
+    def add_chart(self, user_id: str, chart_id: str) -> bool:
+        """
+        Associate a chart with a user.
+
+        Args:
+            user_id: User ID
+            chart_id: Chart ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.add_chart")
+            return False
+
+        try:
+            # Update database
+            success = asyncio.get_event_loop().run_until_complete(self._add_chart_async(pool, user_id, chart_id))
+            return success
+        except Exception as e:
+            logger.error(f"Error adding chart to user in database: {e}")
+            return False
+
+    async def _add_chart_async(self, pool, user_id, chart_id):
+        """Async implementation of add_chart."""
+        async with pool.acquire() as conn:
+            # Create table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_charts (
+                    user_id TEXT NOT NULL,
+                    chart_id TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, chart_id)
+                )
+            ''')
+
+            # Check if user exists
+            user_exists = await conn.fetchval('SELECT 1 FROM users WHERE id = $1', user_id)
+            if not user_exists:
+                return False
+
+            try:
+                # Add chart
+                await conn.execute(
+                    '''
+                    INSERT INTO user_charts(user_id, chart_id)
+                    VALUES($1, $2)
+                    ON CONFLICT(user_id, chart_id) DO NOTHING
+                    ''',
+                    user_id,
+                    chart_id
+                )
+                return True
+            except Exception:
+                return False
+
+    def remove_chart(self, user_id: str, chart_id: str) -> bool:
+        """
+        Remove a chart association from a user.
+
+        Args:
+            user_id: User ID
+            chart_id: Chart ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # Get pool and verify it's available
+        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+        if pool is None:
+            logger.error("Database connection unavailable for UserRepository.remove_chart")
+            return False
+
+        try:
+            # Update database
+            success = asyncio.get_event_loop().run_until_complete(self._remove_chart_async(pool, user_id, chart_id))
+            return success
+        except Exception as e:
+            logger.error(f"Error removing chart from user in database: {e}")
+            return False
+
+    async def _remove_chart_async(self, pool, user_id, chart_id):
+        """Async implementation of remove_chart."""
+        async with pool.acquire() as conn:
+            # Create table if not exists
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_charts (
+                    user_id TEXT NOT NULL,
+                    chart_id TEXT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, chart_id)
+                )
+            ''')
+
+            # Remove chart
+            result = await conn.execute(
+                '''
+                DELETE FROM user_charts WHERE user_id = $1 AND chart_id = $2
+                ''',
+                user_id,
+                chart_id
+            )
+
+        # Check if deleted
+        return 'DELETE 1' in result

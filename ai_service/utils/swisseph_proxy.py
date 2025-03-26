@@ -12,19 +12,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-try:
-    import pyswisseph as swe
-    SWISSEPH_AVAILABLE = True
-except ImportError:
-    try:
-        # Fall back to swisseph if pyswisseph is not available (for backward compatibility)
-        import swisseph as swe
-        SWISSEPH_AVAILABLE = True
-        logger.warning("Using swisseph instead of pyswisseph. Consider upgrading to pyswisseph.")
-    except ImportError:
-        SWISSEPH_AVAILABLE = False
-        logger.error("Swiss Ephemeris library not available. Install with 'pip install pyswisseph'")
-        raise ImportError("Swiss Ephemeris (pyswisseph) is required but not installed")
+# Import swisseph library
+import swisseph as swe
 
 # Define flag constants if not in swisseph
 if not hasattr(swe, "SEFLG_TRANSIT_LONGITUDE"):
@@ -73,35 +62,13 @@ def get_planet_name(planet_id: int) -> str:
         ValueError: If planet ID is invalid
     """
     # Check for valid values
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "get_planet_name"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     # Get planet name from Swiss Ephemeris
     try:
         # Use getattr with a safe fallback to ensure it exists
-        if hasattr(swe, "get_planet_name"):
-            return swe.get_planet_name(planet_id)
-        else:
-            # Manual mapping of common planet IDs
-            planets = {
-                swe.SUN: "Sun",
-                swe.MOON: "Moon",
-                swe.MERCURY: "Mercury",
-                swe.VENUS: "Venus",
-                swe.MARS: "Mars",
-                swe.JUPITER: "Jupiter",
-                swe.SATURN: "Saturn",
-                swe.URANUS: "Uranus",
-                swe.NEPTUNE: "Neptune",
-                swe.PLUTO: "Pluto",
-                swe.MEAN_NODE: "North Node",
-                swe.TRUE_NODE: "True Node",
-                swe.CHIRON: "Chiron"
-            }
-            if planet_id in planets:
-                return planets[planet_id]
-            else:
-                raise ValueError(f"Unknown planet ID: {planet_id}")
+        return swe.get_planet_name(planet_id)
     except Exception as e:
         logger.error(f"Error getting planet name for ID {planet_id}: {e}")
         raise ValueError(f"Failed to get planet name for ID {planet_id}: {e}")
@@ -125,7 +92,7 @@ def calculate_planet_position(
     Raises:
         ValueError: If calculation fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "calc"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:
@@ -173,7 +140,7 @@ def calculate_house_cusps(
     Raises:
         ValueError: If calculation fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "houses"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:
@@ -226,7 +193,7 @@ def calculate_sidereal_info(
     Raises:
         ValueError: If calculation fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "get_ayanamsa"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:
@@ -338,7 +305,7 @@ def jd_to_datetime(jd: float) -> datetime:
     Raises:
         ValueError: If conversion fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "jdut1_to_utc"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:
@@ -364,7 +331,7 @@ def datetime_to_jd(dt: datetime) -> float:
     Raises:
         ValueError: If conversion fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "utc_to_jd"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:
@@ -403,7 +370,7 @@ def get_planet_transit(
     Raises:
         ValueError: If calculation fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "next_transit"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:
@@ -456,7 +423,7 @@ def calculate_chart(
     Raises:
         ValueError: If calculation fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not hasattr(swe, "calc"):
         raise RuntimeError("Swiss Ephemeris library not available")
 
     try:

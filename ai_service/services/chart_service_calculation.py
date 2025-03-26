@@ -647,39 +647,345 @@ def calculate_drekkana_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
     return d3_chart
 
 def calculate_saptamsa_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Placeholder for D7 calculation"""
-    # Create basic stub implementation
+    """
+    Calculate D7 (Saptamsa) chart - related to children and progeny.
+
+    Args:
+        chart_data: Base chart data
+
+    Returns:
+        D7 chart data
+    """
     import copy
+    from ai_service.services.chart_service_utils import determine_house_for_longitude
+
+    # Create a deep copy of the chart data
     d7_chart = copy.deepcopy(chart_data)
     d7_chart["varga_type"] = "D7"
     d7_chart["varga_name"] = "Saptamsa"
+
+    # Define zodiac signs
+    ZODIAC_SIGNS = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    # Process planets for D7
+    for planet_name, planet_data in d7_chart["planets"].items():
+        if "longitude" not in planet_data:
+            continue
+
+        # Get original longitude
+        longitude = planet_data["longitude"]
+
+        # Calculate saptamsa (1/7th division of sign)
+        sign_num = int(longitude / 30)
+        pos_in_sign = longitude % 30
+        saptamsa_num = int(pos_in_sign / 4.285714)  # 30/7 = 4.285714 degrees per division
+
+        # Different calculations for odd and even signs
+        if sign_num % 2 == 0:  # Odd signs (0-based indexing)
+            # For odd signs, start from the current sign and move forward
+            new_sign_num = (sign_num + saptamsa_num) % 12
+        else:  # Even signs (0-based indexing)
+            # For even signs, start from 7th from the current sign and move forward
+            new_sign_num = (sign_num + 6 + saptamsa_num) % 12
+
+        # Calculate new longitude
+        new_longitude = new_sign_num * 30 + (pos_in_sign % 4.285714) * 7
+
+        # Update planet data
+        planet_data["original_longitude"] = longitude
+        planet_data["longitude"] = new_longitude
+        planet_data["sign"] = ZODIAC_SIGNS[new_sign_num]
+
+        # Recalculate house position if houses are defined
+        if "houses" in d7_chart:
+            planet_data["house"] = determine_house_for_longitude(d7_chart["houses"], new_longitude)
+
+    # Calculate aspects for the D7 chart
+    try:
+        from ai_service.services.chart_service_aspects import calculate_aspects
+        d7_chart["aspects"] = calculate_aspects(d7_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate aspects for D7 chart: {e}")
+        d7_chart["aspects"] = []
+
+    # Calculate dignities for the D7 chart
+    try:
+        from ai_service.services.chart_service_dignities import calculate_dignities
+        d7_chart["dignities"] = calculate_dignities(d7_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate dignities for D7 chart: {e}")
+        d7_chart["dignities"] = {}
+
     return d7_chart
 
 def calculate_dashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Placeholder for D10 calculation"""
-    # Create basic stub implementation
+    """
+    Calculate D10 (Dashamsha) chart - related to career and profession.
+
+    Args:
+        chart_data: Base chart data
+
+    Returns:
+        D10 chart data
+    """
     import copy
+    from ai_service.services.chart_service_utils import determine_house_for_longitude
+
+    # Create a deep copy of the chart data
     d10_chart = copy.deepcopy(chart_data)
     d10_chart["varga_type"] = "D10"
     d10_chart["varga_name"] = "Dashamsha"
+
+    # Define zodiac signs
+    ZODIAC_SIGNS = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    # Process planets for D10
+    for planet_name, planet_data in d10_chart["planets"].items():
+        if "longitude" not in planet_data:
+            continue
+
+        # Get original longitude
+        longitude = planet_data["longitude"]
+
+        # Calculate dashamsha (1/10th division of sign)
+        sign_num = int(longitude / 30)
+        pos_in_sign = longitude % 30
+        dashamsha_num = int(pos_in_sign / 3.0)  # 30/10 = 3 degrees per division
+
+        # Different calculations for different sign types
+        sign_element = sign_num % 4  # 0=Fire, 1=Earth, 2=Air, 3=Water
+
+        if sign_element == 0:  # Fire signs (Aries, Leo, Sagittarius)
+            new_sign_num = (sign_num + dashamsha_num) % 12
+        elif sign_element == 1:  # Earth signs (Taurus, Virgo, Capricorn)
+            new_sign_num = (sign_num + 9 + dashamsha_num) % 12
+        elif sign_element == 2:  # Air signs (Gemini, Libra, Aquarius)
+            new_sign_num = (sign_num + 6 + dashamsha_num) % 12
+        else:  # Water signs (Cancer, Scorpio, Pisces)
+            new_sign_num = (sign_num + 3 + dashamsha_num) % 12
+
+        # Calculate new longitude
+        new_longitude = new_sign_num * 30 + (pos_in_sign % 3.0) * 10
+
+        # Update planet data
+        planet_data["original_longitude"] = longitude
+        planet_data["longitude"] = new_longitude
+        planet_data["sign"] = ZODIAC_SIGNS[new_sign_num]
+
+        # Recalculate house position if houses are defined
+        if "houses" in d10_chart:
+            planet_data["house"] = determine_house_for_longitude(d10_chart["houses"], new_longitude)
+
+    # Calculate aspects for the D10 chart
+    try:
+        from ai_service.services.chart_service_aspects import calculate_aspects
+        d10_chart["aspects"] = calculate_aspects(d10_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate aspects for D10 chart: {e}")
+        d10_chart["aspects"] = []
+
+    # Calculate dignities for the D10 chart
+    try:
+        from ai_service.services.chart_service_dignities import calculate_dignities
+        d10_chart["dignities"] = calculate_dignities(d10_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate dignities for D10 chart: {e}")
+        d10_chart["dignities"] = {}
+
     return d10_chart
 
 def calculate_dwadashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Placeholder for D12 calculation"""
-    # Create basic stub implementation
+    """
+    Calculate D12 (Dwadashamsha) chart - related to parents and ancestry.
+
+    Args:
+        chart_data: Base chart data
+
+    Returns:
+        D12 chart data
+    """
     import copy
+    from ai_service.services.chart_service_utils import determine_house_for_longitude
+
+    # Create a deep copy of the chart data
     d12_chart = copy.deepcopy(chart_data)
     d12_chart["varga_type"] = "D12"
     d12_chart["varga_name"] = "Dwadashamsha"
+
+    # Define zodiac signs
+    ZODIAC_SIGNS = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    # Process planets for D12
+    for planet_name, planet_data in d12_chart["planets"].items():
+        if "longitude" not in planet_data:
+            continue
+
+        # Get original longitude
+        longitude = planet_data["longitude"]
+
+        # Calculate dwadashamsha (1/12th division of sign)
+        sign_num = int(longitude / 30)
+        pos_in_sign = longitude % 30
+        dwadashamsha_num = int(pos_in_sign / 2.5)  # 30/12 = 2.5 degrees per division
+
+        # For D12, calculation is simpler - each sign is divided into 12 equal parts
+        # corresponding to the 12 signs starting from the sign itself
+        new_sign_num = (sign_num + dwadashamsha_num) % 12
+
+        # Calculate new longitude
+        new_longitude = new_sign_num * 30 + (pos_in_sign % 2.5) * 12
+
+        # Update planet data
+        planet_data["original_longitude"] = longitude
+        planet_data["longitude"] = new_longitude
+        planet_data["sign"] = ZODIAC_SIGNS[new_sign_num]
+
+        # Recalculate house position if houses are defined
+        if "houses" in d12_chart:
+            planet_data["house"] = determine_house_for_longitude(d12_chart["houses"], new_longitude)
+
+    # Calculate aspects for the D12 chart
+    try:
+        from ai_service.services.chart_service_aspects import calculate_aspects
+        d12_chart["aspects"] = calculate_aspects(d12_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate aspects for D12 chart: {e}")
+        d12_chart["aspects"] = []
+
+    # Calculate dignities for the D12 chart
+    try:
+        from ai_service.services.chart_service_dignities import calculate_dignities
+        d12_chart["dignities"] = calculate_dignities(d12_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate dignities for D12 chart: {e}")
+        d12_chart["dignities"] = {}
+
     return d12_chart
 
 def calculate_trimsamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Placeholder for D30 calculation"""
-    # Create basic stub implementation
+    """
+    Calculate D30 (Trimsamsha) chart - related to misfortunes and challenges.
+
+    Args:
+        chart_data: Base chart data
+
+    Returns:
+        D30 chart data
+    """
     import copy
+    from ai_service.services.chart_service_utils import determine_house_for_longitude
+
+    # Create a deep copy of the chart data
     d30_chart = copy.deepcopy(chart_data)
     d30_chart["varga_type"] = "D30"
     d30_chart["varga_name"] = "Trimsamsha"
+
+    # Define zodiac signs
+    ZODIAC_SIGNS = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    # Trimsamsha has a complex calculation with varying segment sizes
+    # Different for odd and even signs
+
+    # For odd signs (Aries, Gemini, Leo, Libra, Sagittarius, Aquarius):
+    # 0°-5° = Mars, 5°-10° = Saturn, 10°-18° = Jupiter, 18°-25° = Mercury, 25°-30° = Venus
+
+    # For even signs (Taurus, Cancer, Virgo, Scorpio, Capricorn, Pisces):
+    # 0°-5° = Venus, 5°-12° = Mercury, 12°-20° = Jupiter, 20°-25° = Saturn, 25°-30° = Mars
+
+    # Define segment ranges and rulers for odd and even signs
+    odd_segments = [
+        (0, 5, 4),     # 0-5° = Mars (ruler of Aries and Scorpio = 0, 7 -> simplified to 4)
+        (5, 10, 6),    # 5-10° = Saturn (ruler of Capricorn and Aquarius = 9, 10 -> simplified to 6)
+        (10, 18, 9),   # 10-18° = Jupiter (ruler of Sagittarius and Pisces = 8, 11 -> simplified to 9)
+        (18, 25, 2),   # 18-25° = Mercury (ruler of Gemini and Virgo = 2, 5 -> simplified to 2)
+        (25, 30, 1)    # 25-30° = Venus (ruler of Taurus and Libra = 1, 6 -> simplified to 1)
+    ]
+
+    even_segments = [
+        (0, 5, 1),     # 0-5° = Venus
+        (5, 12, 2),    # 5-12° = Mercury
+        (12, 20, 9),   # 12-20° = Jupiter
+        (20, 25, 6),   # 20-25° = Saturn
+        (25, 30, 4)    # 25-30° = Mars
+    ]
+
+    # Process planets for D30
+    for planet_name, planet_data in d30_chart["planets"].items():
+        if "longitude" not in planet_data:
+            continue
+
+        # Get original longitude
+        longitude = planet_data["longitude"]
+
+        # Calculate trimsamsha
+        sign_num = int(longitude / 30)
+        pos_in_sign = longitude % 30
+
+        # Determine segment and new sign
+        if sign_num % 2 == 0:  # Odd signs (0-based indexing)
+            segments = odd_segments
+        else:  # Even signs (0-based indexing)
+            segments = even_segments
+
+        # Find which segment the position falls into
+        for start, end, ruler_offset in segments:
+            if start <= pos_in_sign < end:
+                # Calculate new sign based on ruler
+                new_sign_num = (ruler_offset) % 12
+                # Calculate new position within sign based on proportional position in segment
+                segment_width = end - start
+                pos_in_segment = pos_in_sign - start
+                new_pos_in_sign = (pos_in_segment / segment_width) * 30
+                break
+        else:
+            # This is an error condition - the segments should cover the entire sign
+            logger.error(f"Position {pos_in_sign} in sign {sign_num} not found in any segment")
+            raise ValueError(f"Invalid segment definition for Trimsamsha calculation at position {pos_in_sign} in sign {sign_num}")
+
+        # Calculate new longitude
+        new_longitude = new_sign_num * 30 + new_pos_in_sign
+
+        # Update planet data
+        planet_data["original_longitude"] = longitude
+        planet_data["longitude"] = new_longitude
+        planet_data["sign"] = ZODIAC_SIGNS[new_sign_num]
+
+        # Recalculate house position if houses are defined
+        if "houses" in d30_chart:
+            planet_data["house"] = determine_house_for_longitude(d30_chart["houses"], new_longitude)
+
+    # Calculate aspects for the D30 chart
+    try:
+        from ai_service.services.chart_service_aspects import calculate_aspects
+        d30_chart["aspects"] = calculate_aspects(d30_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate aspects for D30 chart: {e}")
+        d30_chart["aspects"] = []
+
+    # Calculate dignities for the D30 chart
+    try:
+        from ai_service.services.chart_service_dignities import calculate_dignities
+        d30_chart["dignities"] = calculate_dignities(d30_chart)
+    except Exception as e:
+        logger.warning(f"Failed to calculate dignities for D30 chart: {e}")
+        d30_chart["dignities"] = {}
+
     return d30_chart
 
 def get_varga_name(varga_code: str) -> str:

@@ -424,3 +424,185 @@ pytest -xvs tests/
 ```
 
 Note that running tests with real API calls will consume API credits and may incur costs.
+
+## Running Tests
+
+### Using Docker Test Environment
+
+You can use our streamlined test script for managing Docker test containers:
+
+```bash
+# Run the test script (shows interactive menu)
+./test.sh
+
+# Or use commands directly
+./test.sh run --type integration          # Run all integration tests
+./test.sh run --path tests/integration/birth_time_rectification/test_integration_birth_time_01_session_init.py  # Run specific test
+./test.sh rebuild --filter "session_init" # Rebuild containers and run tests matching filter
+./test.sh clean                           # Clean up test environment
+```
+
+### Manual Docker Test Setup
+
+If you prefer to use docker-compose directly:
+
+```bash
+# Build and run using docker-compose.test.yml
+export OPENAI_API_KEY="your-openai-api-key"
+docker-compose -f docker-compose.test.yml up --build test-runner
+
+# Run specific test files with a custom command
+docker-compose -f docker-compose.test.yml run test-runner pytest -xvs tests/integration/birth_time_rectification/test_integration_birth_time_01_session_init.py
+```
+
+### Running Tests Locally
+
+1. Set up the Python environment:
+
+```bash
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+2. Run the tests:
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run specific tests
+pytest tests/unit/ -v
+pytest tests/integration/birth_time_rectification/ -v
+```
+
+## Building Docker Images for Production
+
+Use our streamlined build script for managing production Docker images:
+
+```bash
+# Run the build script (shows interactive menu)
+./build.sh
+
+# Or use commands directly
+./build.sh --all                        # Build all containers
+./build.sh --service                    # Build AI service container only
+./build.sh --gateway                    # Build API gateway container only
+./build.sh --push --registry myregistry # Build and push to registry
+```
+
+### Manual Production Build
+
+If you prefer to build containers directly:
+
+```bash
+# Build AI service container
+docker build -t birth-rectifier-ai-service:latest -f ai_service.Dockerfile .
+
+# Build API gateway container
+docker build -t birth-rectifier-api-gateway:latest -f api_gateway.Dockerfile --target production .
+```
+
+## Directory Structure
+
+The codebase has been reorganized for better clarity and maintainability:
+
+- `ai_service/` - Core AI service and astrological calculations
+- `api_gateway/` - API Gateway for client requests
+- `docker/` - Docker files (Dockerfiles, docker-compose files)
+- `config/` - Configuration files for various tools and frameworks
+- `python/` - Python-specific files (requirements, constraints)
+- `env/` - Environment configuration files
+- `tests/` - Test files and utilities
+- `scripts/` - Utility and helper scripts
+- `src/` - Frontend source code
+
+To build Docker containers: `cd docker_prod && ./build_docker_container.sh`
+To run tests: `cd tests/shell_scripts && ./test_manager.sh`
+
+All other configuration files have been moved to their appropriate directories
+and can be found in the respective subdirectories.
+
+## Running Tests
+
+### Using Test Scripts
+
+You can run tests using the provided script in the scripts directory:
+
+```bash
+./scripts/test.sh          # Shows interactive menu with test options
+./scripts/test.sh run      # Run integration tests
+./scripts/test.sh help     # Show usage information
+```
+
+### Manual Test Setup
+
+If you prefer to run tests manually:
+
+```bash
+# Run integration tests
+python -m pytest tests/integration -v
+
+# Run unit tests
+python -m pytest tests/unit -v
+
+# Run specific test
+python -m pytest tests/integration/birth_time_rectification/test_integration_birth_time_01_session_init.py -v
+```
+
+## Building Docker Containers
+
+### Using Build Script
+
+You can build Docker containers using the provided script:
+
+```bash
+./scripts/build.sh         # Shows interactive menu
+./scripts/build.sh --all   # Build all containers
+./scripts/build.sh --help  # Show usage information
+```
+
+### Manual Docker Build
+
+If you prefer to build manually:
+
+```bash
+# Build and run using docker-compose
+cd docker
+docker-compose up --build
+
+# Build individual containers
+docker build -f docker/ai_service.Dockerfile -t birth-rectifier-ai-service:latest .
+docker build -f docker/api_gateway.Dockerfile -t birth-rectifier-api-gateway:latest .
+docker build -f docker/frontend.Dockerfile -t birth-rectifier-frontend:latest .
+```
+
+## Development Setup
+
+1. Install dependencies:
+   ```bash
+   # Python dependencies
+   pip install -r python/requirements.txt
+
+   # Node dependencies
+   npm install
+   ```
+
+2. Set up environment variables:
+   ```bash
+   cp env/.env.example env/.env
+   # Edit .env with your configuration
+   ```
+
+3. Start the development server:
+   ```bash
+   # Start AI service
+   cd ai_service
+   uvicorn app_wrapper:app_wrapper --reload --port 8000
+
+   # Start frontend
+   npm run dev
+   ```

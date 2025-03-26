@@ -1187,3 +1187,173 @@ async def emit_rectification_error(
             pass
 
         return False
+
+# Add WebSocket events for chart verification
+async def emit_chart_verification_status(
+    session_id: str,
+    chart_id: str,
+    status: str,
+    message: str,
+    progress: float,
+    details: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Emit chart verification status updates to a client session.
+
+    Args:
+        session_id: Session ID of the client
+        chart_id: ID of the chart being verified
+        status: Current verification status (started, calculating, verifying, completed, error)
+        message: Human-readable status message
+        progress: Progress as a float between 0 and 1
+        details: Optional additional verification details
+
+    Returns:
+        True if the event was successfully sent, False otherwise
+    """
+    # Create event data with standard format
+    event_data = {
+        "chart_id": chart_id,
+        "status": status,
+        "message": message,
+        "progress": min(1.0, max(0.0, progress)),  # Ensure progress is between 0 and 1
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # Add additional details if provided
+    if details:
+        event_data.update(details)
+
+    # Calculate additional information for better client experience
+    event_data["progress_percent"] = int(event_data["progress"] * 100)
+
+    # Add stage information based on status
+    if status == "started":
+        event_data["stage"] = "initialization"
+        event_data["stage_progress"] = 100
+    elif status == "calculating":
+        event_data["stage"] = "direct_calculations"
+        event_data["stage_progress"] = min(100, int((progress / 0.5) * 100)) if progress <= 0.5 else 100
+    elif status == "verifying":
+        event_data["stage"] = "ai_verification"
+        event_data["stage_progress"] = min(100, int(((progress - 0.5) / 0.5) * 100)) if progress > 0.5 else 0
+    elif status == "completed":
+        event_data["stage"] = "completed"
+        event_data["stage_progress"] = 100
+    elif status == "error":
+        event_data["stage"] = "error"
+        event_data["stage_progress"] = 100
+
+    logger.info(f"Emitting chart verification status '{status}' to session {session_id} for chart {chart_id}")
+    return await emit_event(session_id, "chart_verification_status", event_data)
+
+async def emit_chart_verification_complete(
+    session_id: str,
+    chart_id: str,
+    verification_result: Dict[str, Any]
+) -> bool:
+    """
+    Emit chart verification completion event to a client session.
+
+    Args:
+        session_id: Session ID of the client
+        chart_id: ID of the verified chart
+        verification_result: Complete verification results
+
+    Returns:
+        True if the event was successfully sent, False otherwise
+    """
+    # Extract key information for the event
+    status = verification_result.get("status", "verification_completed")
+    confidence = verification_result.get("confidence", 0.0)
+    verified = verification_result.get("verified", False)
+
+    # Create a confidence description
+    confidence_description = get_verification_confidence_description(confidence)
+
+    # Prepare the event data
+    event_data = {
+        "chart_id": chart_id,
+        "status": "completed",
+        "progress": 1.0,
+        "progress_percent": 100,
+        "verified": verified,
+        "verification_status": status,
+        "confidence": confidence,
+        "confidence_description": confidence_description,
+        "message": f"Chart verification completed with {confidence_description}",
+        "timestamp": datetime.now().isoformat(),
+        "verification_time": verification_result.get("verification_time_seconds", 0),
+        "verified_at": verification_result.get("verified_at", datetime.now().isoformat())
+    }
+
+    # Add key verification results
+    if "corrections_applied" in verification_result:
+        event_data["corrections_applied"] = verification_result["corrections_applied"]
+
+    if verification_result.get("corrections_applied", False) and "corrections" in verification_result:
+        event_data["corrections"] = verification_result["corrections"]
+
+    if "suggested_adjustment" in verification_result:
+        event_data["suggested_adjustment"] = verification_result["suggested_adjustment"]
+
+    if "suggested_time" in verification_result:
+        event_data["suggested_time"] = verification_result["suggested_time"]
+
+    if "adjustment_reason" in verification_result:
+        event_data["adjustment_reason"] = verification_result["adjustment_reason"]
+
+    logger.info(f"Emitting chart verification completion to session {session_id} for chart {chart_id}")
+    return await emit_event(session_id, "chart_verification_complete", event_data)
+
+async def emit_chart_verification_error(
+    session_id: str,
+    chart_id: str,
+    error_message: str,
+    error_code: str = "VERIFICATION_ERROR"
+) -> bool:
+    """
+    Emit chart verification error event to a client session.
+
+    Args:
+        session_id: Session ID of the client
+        chart_id: ID of the chart
+        error_message: Human-readable error message
+        error_code: Error code for programmatic handling
+
+    Returns:
+        True if the event was successfully sent, False otherwise
+    """
+    # Prepare error event data
+    event_data = {
+        "chart_id": chart_id,
+        "status": "error",
+        "error": True,
+        "error_message": error_message,
+        "error_code": error_code,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    logger.error(f"Chart verification error for chart {chart_id}: {error_message}")
+    return await emit_event(session_id, "chart_verification_error", event_data)
+
+def get_verification_confidence_description(confidence: float) -> str:
+    """
+    Get a human-readable description of verification confidence.
+
+    Args:
+        confidence: Verification confidence as a float between 0 and 1
+
+    Returns:
+        Human-readable confidence description
+    """
+    if confidence >= 0.9:
+        return "very high confidence"
+    elif confidence >= 0.7:
+        return "high confidence"
+    elif confidence >= 0.5:
+        return "moderate confidence"
+    elif confidence >= 0.3:
+        return "low confidence"
+    else:
+        return "very low confidence"

@@ -1,25 +1,46 @@
 """
 Chart verification functionality for chart service.
 
-This module provides functions for verifying astrological charts with OpenAI.
+This module provides function references to the chart_verification module
+to avoid duplication while maintaining backwards compatibility.
 """
 
 import logging
-import json
-import asyncio
-import time
-import re
-import uuid
 from typing import Dict, Any, Optional, List, Union
-from datetime import datetime
-from ai_service.api.services.openai import get_openai_service
+
+# Import directly from chart_verification
+from ai_service.services.chart_verification import get_chart_verification_service
 
 logger = logging.getLogger(__name__)
 
-# Make sure the verify_chart_with_openai function can be imported properly
+# Re-export functions to maintain backwards compatibility
 __all__ = ['verify_chart_with_openai', 'create_verification_instructions',
            'prepare_chart_for_verification', 'apply_corrections',
            'validate_corrected_chart', 'get_zodiac_sign']
+
+async def verify_chart_with_openai(chart_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Verify chart data using OpenAI service and astrological standards.
+
+    Delegates to chart_verification.py for actual implementation.
+
+    Args:
+        chart_data: Chart data to verify
+        session_id: Optional session ID for WebSocket updates
+
+    Returns:
+        Dictionary with verification results
+    """
+    # Get the chart verification service
+    verification_service = get_chart_verification_service()
+
+    # Delegate to the service's implementation
+    return await verification_service.verify_chart(
+        chart_data=chart_data,
+        session_id=session_id,
+        verify_with_openai=True,
+        send_websocket_updates=session_id is not None
+    )
 
 async def create_verification_instructions(chart_data: Dict[str, Any]) -> str:
     """
@@ -75,7 +96,6 @@ async def create_verification_instructions(chart_data: Dict[str, Any]) -> str:
 
     return "\n".join(instructions)
 
-
 def get_zodiac_sign(longitude: float) -> str:
     """
     Get the zodiac sign for a longitude value.
@@ -95,149 +115,55 @@ def get_zodiac_sign(longitude: float) -> str:
     sign_index = int(longitude / 30) % 12
     return signs[sign_index]
 
-
-async def _perform_verification_check(
-    openai_service: Any,
-    verification_prompt: str,
-    chart_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Perform verification check with OpenAI.
-
-    Args:
-        openai_service: OpenAI service instance
-        verification_prompt: Verification instructions
-        chart_data: Chart data to verify
-
-    Returns:
-        Verification results
-
-    Raises:
-        RuntimeError: If verification check fails
-    """
-    if not openai_service:
-        error_msg = "OpenAI service is not available for verification"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
-
-    try:
-        # Send request to OpenAI
-        response = await openai_service.chat_completion(
-            messages=[
-                {"role": "system", "content": "You are an expert astrologer reviewing chart data for accuracy."},
-                {"role": "user", "content": verification_prompt}
-            ],
-            temperature=0.2,
-            max_tokens=600
-        )
-
-        # Extract verification result
-        verification_text = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-        if not verification_text:
-            raise RuntimeError("Empty verification result from OpenAI")
-
-        # Process verification result
-        result = {
-            "verified": True,
-            "chart_id": chart_data.get("chart_id", str(uuid.uuid4())),
-            "verification_result": verification_text,
-            "issues": []
-        }
-
-        # Check for reported issues
-        issue_pattern = r"issue|problem|error|incorrect|missing|invalid"
-        if re.search(issue_pattern, verification_text.lower()):
-            result["verified"] = False
-
-            # Extract issues (simple approach, could be enhanced)
-            issues = []
-            for line in verification_text.split("\n"):
-                if re.search(issue_pattern, line.lower()):
-                    issues.append(line.strip())
-
-            result["issues"] = issues
-
-        return result
-
-    except Exception as e:
-        error_msg = f"Verification check failed: {str(e)}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
-
-async def verify_chart_with_openai(chart_data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Verify chart data using OpenAI service.
-
-    Args:
-        chart_data: Chart data to verify
-
-    Returns:
-        Dictionary with verification results
-
-    Raises:
-        ValueError: If chart data is invalid
-        RuntimeError: If OpenAI verification fails
-    """
-    if not chart_data:
-        error_msg = "Cannot verify empty chart data"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-
-    logger.info("Verifying chart data with OpenAI")
-
-    # Get OpenAI service
-    openai_service = get_openai_service()
-
-    if not openai_service:
-        error_msg = "OpenAI service is not available for verification"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
-
-    # Create verification instructions
-    verification_prompt = await create_verification_instructions(chart_data)
-
-    # Perform verification check
-    try:
-        verification_result = await _perform_verification_check(
-            openai_service,
-            verification_prompt,
-            chart_data
-        )
-
-        logger.info("Chart verification completed successfully")
-        return verification_result
-
-    except Exception as e:
-        error_msg = f"Chart verification failed: {str(e)}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
-
 def prepare_chart_for_verification(chart_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Prepare chart data for verification by extracting relevant information.
 
     Args:
-        chart_data: The complete chart data
+        chart_data: The complete chart data from calculation functions
 
     Returns:
-        Dictionary with relevant chart data for verification
+        Dictionary with relevant chart data structured for verification
     """
-    # Extract only the data needed for verification
-    birth_details = chart_data.get("birth_details", {})
-    planets = chart_data.get("planets", {})
-    houses = chart_data.get("houses", {})
-    aspects = chart_data.get("aspects", [])
+    try:
+        # Extract only the data needed for verification
+        birth_details = chart_data.get("birth_details", {})
+        planets = chart_data.get("planets", {})
+        houses = chart_data.get("houses", {})
+        aspects = chart_data.get("aspects", [])
 
-    # Create verification data structure
-    verification_data = {
-        "birth_details": birth_details,
-        "planets": planets,
-        "houses": houses,
-        "aspects": aspects
-    }
+        # Verify we have required components
+        if not birth_details:
+            logger.warning("Missing birth details in chart data for verification")
+        if not planets:
+            raise ValueError("Missing planetary data required for verification")
+        if not houses:
+            raise ValueError("Missing house data required for verification")
 
-    return verification_data
+        # Create focused verification data structure
+        verification_data = {
+            "birth_details": birth_details,
+            "planets": planets,
+            "houses": houses,
+            "aspects": aspects
+        }
+
+        # Add chart type information if available
+        if "chart_type" in chart_data:
+            verification_data["chart_type"] = chart_data["chart_type"]
+
+        # Add house system if available
+        options = chart_data.get("options", {})
+        if "house_system" in options:
+            verification_data["house_system"] = options["house_system"]
+        elif "house_system" in chart_data:
+            verification_data["house_system"] = chart_data["house_system"]
+
+        return verification_data
+
+    except Exception as e:
+        logger.error(f"Error preparing chart data for verification: {e}")
+        raise ValueError(f"Failed to prepare chart for verification: {str(e)}")
 
 def apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -249,105 +175,18 @@ def apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, An
 
     Returns:
         Corrected chart data
-
-    Raises:
-        ValueError: If corrections cannot be applied
     """
     try:
-        # Create a deep copy of the original chart data
-        corrected_chart = json.loads(json.dumps(chart_data))
+        import asyncio
 
-        # Process each correction
-        for correction in corrections:
-            correction_type = correction.get("type")
-            target = correction.get("target")
-            value = correction.get("value")
+        # Get the chart verification service
+        verification_service = get_chart_verification_service()
 
-            if not correction_type or not target or value is None:
-                logger.warning(f"Skipping invalid correction: {correction}")
-                continue
+        # Create a verification result with just the corrections
+        verification_result = {"corrections": corrections}
 
-            if correction_type == "planet_position":
-                # Format: "planet_position.{planet_name}.{property}"
-                parts = target.split(".")
-                if len(parts) >= 3:
-                    planet_name = parts[1]
-                    property_name = parts[2]
-
-                    # Check if planet exists
-                    if planet_name in corrected_chart.get("planets", {}):
-                        # Apply correction
-                        corrected_chart["planets"][planet_name][property_name] = value
-                        logger.info(f"Corrected {planet_name} {property_name} to {value}")
-                    else:
-                        logger.warning(f"Cannot correct nonexistent planet: {planet_name}")
-
-            elif correction_type == "house_cusp":
-                # Format: "house_cusp.{house_number}"
-                parts = target.split(".")
-                if len(parts) >= 2:
-                    house_number = parts[1]
-
-                    # Check if house exists
-                    if house_number in corrected_chart.get("houses", {}):
-                        # Apply correction
-                        if isinstance(value, dict):
-                            for k, v in value.items():
-                                corrected_chart["houses"][house_number][k] = v
-                            logger.info(f"Corrected House {house_number} with values: {value}")
-                        else:
-                            corrected_chart["houses"][house_number]["longitude"] = value
-                            logger.info(f"Corrected House {house_number} longitude to {value}")
-                    else:
-                        logger.warning(f"Cannot correct nonexistent house: {house_number}")
-
-            elif correction_type == "aspect":
-                # Format: "aspect.{aspect_id}" or general aspect correction
-                if "." in target:
-                    aspect_id = target.split(".")[1]
-
-                    # Find aspect by ID or by planets
-                    aspect_found = False
-                    for i, aspect in enumerate(corrected_chart.get("aspects", [])):
-                        if (str(aspect.get("id")) == aspect_id or
-                            (aspect.get("planet1") == value.get("planet1") and
-                             aspect.get("planet2") == value.get("planet2"))):
-
-                            # Update aspect
-                            for k, v in value.items():
-                                corrected_chart["aspects"][i][k] = v
-
-                            aspect_found = True
-                            logger.info(f"Corrected aspect between {value.get('planet1')} and {value.get('planet2')}")
-                            break
-
-                    if not aspect_found and isinstance(value, dict):
-                        # Add new aspect
-                        if all(k in value for k in ["planet1", "planet2", "type", "orb"]):
-                            new_aspect = value.copy()
-                            new_aspect["id"] = len(corrected_chart.get("aspects", [])) + 1
-                            corrected_chart.setdefault("aspects", []).append(new_aspect)
-                            logger.info(f"Added new aspect between {value.get('planet1')} and {value.get('planet2')}")
-                        else:
-                            logger.warning(f"Cannot add incomplete aspect: {value}")
-                else:
-                    # General aspect correction not supported
-                    logger.warning(f"General aspect correction not supported: {correction}")
-
-            elif correction_type == "birth_detail":
-                # Format: "birth_detail.{detail_name}"
-                parts = target.split(".")
-                if len(parts) >= 2:
-                    detail_name = parts[1]
-
-                    # Apply correction to birth details
-                    corrected_chart.setdefault("birth_details", {})[detail_name] = value
-                    logger.info(f"Corrected birth detail {detail_name} to {value}")
-
-            else:
-                logger.warning(f"Unknown correction type: {correction_type}")
-
-        return corrected_chart
+        # Use the async function but run it synchronously for compatibility
+        return asyncio.run(verification_service._apply_corrections(chart_data, verification_result))
     except Exception as e:
         error_msg = f"Failed to apply corrections: {str(e)}"
         logger.error(error_msg)

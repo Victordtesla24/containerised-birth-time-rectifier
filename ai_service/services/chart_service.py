@@ -15,7 +15,7 @@ import json
 import traceback
 
 # Import modular components
-from ai_service.services.chart_service_utils import calculate_arc_difference, get_sign_from_longitude
+from ai_service.services.chart_service_utils import calculate_arc_difference
 from ai_service.services.chart_service_aspects import calculate_aspects, get_aspect_interpretation, calculate_aspect_significance
 from ai_service.services.chart_service_dignities import calculate_dignities, calculate_planet_strengths, get_dignity_change_significance
 from ai_service.services.chart_service_export import export_chart, get_content_type
@@ -60,40 +60,96 @@ class ChartService:
         Initialize the chart service.
 
         Args:
-            chart_output_dir: Directory for chart output files
+            chart_output_dir: Directory to store chart images and exports
         """
-        self.chart_output_dir = chart_output_dir or os.environ.get("CHART_OUTPUT_DIR", "/tmp/charts")
-
-        # Create output directory if it doesn't exist
+        self.chart_output_dir = chart_output_dir or os.path.join(tempfile.gettempdir(), "chart_exports")
         os.makedirs(self.chart_output_dir, exist_ok=True)
 
-        # Initialize the enhanced chart calculator
+        # Chart calculation attributes
+        self._house_system = "P"  # Placidus house system
+        self._zodiac_type = "sidereal"  # Sidereal zodiac (vs tropical)
+        self._ayanamsa = "lahiri"  # Lahiri ayanamsa (for sidereal zodiac)
+
+        # Service initialization status
+        self._initialized = False
+        self.openai_service = None
         self.calculator = None
 
-        # Tracking for generated charts
-        self.generated_charts = {}
+        # Semaphore to prevent multiple concurrent initializations
+        self._init_lock = asyncio.Lock()
 
-    async def initialize(self):
-        """Initialize the chart service with async resources."""
-        from ai_service.core.rectification.chart_calculator import SwissEphemerisProxy
+    async def initialize(self) -> bool:
+        """
+        Initialize the chart service.
 
-        # Initialize SwissEphemeris proxy for chart calculations
-        try:
-            swiss_ephemeris = SwissEphemerisProxy()
-            self.calculator = EnhancedChartCalculator(swiss_ephemeris)
-            logger.info("Chart calculator initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Swiss Ephemeris: {e}")
-            logger.error(traceback.format_exc())
-            raise
+        This method initializes OpenAI integration and chart calculator.
+        It is safe to call multiple times as it will skip if already initialized.
 
-        # Initialize OpenAI service if needed
-        try:
-            self.openai_service = await get_openai_service()
-            logger.info("OpenAI service initialized successfully")
-        except Exception as e:
-            logger.warning(f"Failed to initialize OpenAI service: {e}. Chart verification will be limited.")
-            self.openai_service = None
+        Returns:
+            True if initialization was successful, False otherwise
+        """
+        # Skip initialization if already done
+        if self._initialized:
+            return True
+
+        # Use lock to prevent concurrent initializations
+        async with self._init_lock:
+            # Check again inside the lock
+            if self._initialized:
+                return True
+
+            # Initialize components
+            try:
+                # Import the calculator
+                try:
+                    from ai_service.core.rectification.chart_calculator import EnhancedChartCalculator
+                    self.calculator = EnhancedChartCalculator()
+                    logger.info("Initialized Enhanced Chart Calculator")
+                except ImportError as e:
+                    logger.error(f"Error importing EnhancedChartCalculator: {e}")
+                    self.calculator = None
+                    raise
+
+                # Try to get OpenAI service from container
+                try:
+                    from ai_service.utils.dependency_container import get_container
+                    container = get_container()
+
+                    if container.has_service("openai_service"):
+                        self.openai_service = container.get("openai_service")
+                        logger.info("OpenAI service retrieved from container")
+                except (ImportError, ValueError) as e:
+                    logger.warning(f"Could not get OpenAI service from container: {e}")
+
+                    # Try direct import if container failed
+                    if not self.openai_service:
+                        try:
+                            from ai_service.api.services.openai import get_openai_service
+                            self.openai_service = await get_openai_service()
+                            logger.info("OpenAI service initialized directly")
+                        except Exception as e:
+                            logger.warning(f"Could not initialize OpenAI service: {e}")
+                            self.openai_service = None
+
+                # Mark as initialized
+                self._initialized = True
+                logger.info("Chart service initialization completed successfully")
+                return True
+
+            except Exception as e:
+                logger.error(f"Error initializing chart service: {e}")
+                return False
+
+    async def ensure_initialized(self) -> bool:
+        """
+        Ensure the service is initialized before use.
+
+        Returns:
+            bool: True if initialized successfully, False otherwise
+        """
+        if not self._initialized:
+            return await self.initialize()
+        return True
 
     def generate_vedic_kundli_chart(self, chart_data: Dict[str, Any], output_dir: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -192,20 +248,20 @@ class ChartService:
             chart2_data: Second chart data
 
         Returns:
-            Dictionary with basic comparison results
-        """
-        # This method is kept as is since it's a complex method that would be difficult to modularize
-        # The implementation remains the same as it was in the original file
-        # Only the function calls are updated to use the new modular functions
+            Basic comparison data
 
-        # Delegate calls to modular implementations where appropriate
-        # This ensures backward compatibility while leveraging the modular structure
-        # Placeholder for the original implementation
-        return {
-            "comparison_timestamp": datetime.now().isoformat(),
-            "summary": "Comparison data placeholder",
-            "differences": []
-        }
+        Raises:
+            ValueError: If chart data is invalid
+        """
+        if not isinstance(chart1_data, dict) or not isinstance(chart2_data, dict):
+            raise ValueError("Invalid chart data for comparison")
+
+        # Create comparison service
+        from ai_service.services.chart_comparison_service import ChartComparisonService
+        comparison_service = ChartComparisonService()
+
+        # Compare using the dedicated service
+        return comparison_service.compare_chart_data(chart1_data, chart2_data)
 
     def calculate_chart(self, birth_date: str, birth_time: str, latitude: float, longitude: float,
                         timezone: str, chart_type: str = "vedic", house_system: str = "placidus",
@@ -298,39 +354,62 @@ class ChartService:
 
     def _analyze_timing_implications(self, comparison_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analyze timing implications from chart comparison data.
+        Analyze timing implications from a chart comparison.
 
         Args:
             comparison_data: Chart comparison data
 
         Returns:
-            Dictionary containing timing analysis
+            Timing implications analysis
+
+        Raises:
+            ValueError: If comparison data is invalid
         """
-        try:
-            # Simplified implementation to resolve linter error
-            return {
-                "favorable_periods": [
-                    {
-                        "start_date": "2023-01-01",
-                        "end_date": "2023-03-15",
-                        "description": "Favorable period for new initiatives"
-                    }
-                ],
-                "challenging_periods": [
-                    {
-                        "start_date": "2023-04-10",
-                        "end_date": "2023-05-20",
-                        "description": "Period requiring caution and patience"
-                    }
-                ],
-                "transit_highlights": [
-                    "Jupiter transiting key natal positions in mid-2023",
-                    "Saturn forming aspects to natal Sun in early 2024"
-                ]
-            }
-        except Exception as e:
-            logger.error(f"Error in timing implications analysis: {e}")
-            return {"error": str(e)}
+        if not isinstance(comparison_data, dict):
+            raise ValueError("Invalid comparison data for timing analysis")
+
+        # Get difference objects
+        differences = comparison_data.get("differences", [])
+
+        # Initialize timing implications
+        timing_implications = {
+            "critical_periods": [],
+            "significant_dates": [],
+            "overall_impact": 0.0,
+            "timing_factors": []
+        }
+
+        # Extract critical timing factors from the differences
+        for diff in differences:
+            diff_type = diff.get("type")
+            diff_object = diff.get("object")
+
+            # Analyze based on difference type
+            if diff_type == "planet_position":
+                # Planet position changes can indicate important transit times
+                timing_implications["timing_factors"].append({
+                    "factor": f"{diff_object} position shift",
+                    "description": f"The shift in {diff_object} position affects timing of {diff_object}-related events",
+                    "impact": min(1.0, diff.get("difference", 0) / 10.0)
+                })
+
+            elif diff_type == "house_cusp":
+                # House cusp changes affect timing of house-related events
+                house_num = diff_object.replace("House ", "")
+                if house_num.isdigit():
+                    house_num = int(house_num)
+                    timing_implications["timing_factors"].append({
+                        "factor": f"House {house_num} cusp shift",
+                        "description": f"Events related to house {house_num} may occur at different times",
+                        "impact": min(1.0, diff.get("difference", 0) / 5.0)
+                    })
+
+        # Calculate overall impact
+        if timing_implications["timing_factors"]:
+            total_impact = sum(factor["impact"] for factor in timing_implications["timing_factors"])
+            timing_implications["overall_impact"] = total_impact / len(timing_implications["timing_factors"])
+
+        return timing_implications
 
     async def update_chart_with_rectification(self, chart_id: str, rectification_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -365,6 +444,36 @@ class ChartService:
         """
         return cross_validate_calculations(charts_data)
 
+    async def _verify_chart_with_openai(self, chart_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Verify a chart using OpenAI for accuracy.
+
+        Args:
+            chart_data: The chart data to verify
+            session_id: Optional session ID for WebSocket updates
+
+        Returns:
+            Verification result dictionary
+
+        Raises:
+            ValueError: If verification fails
+        """
+        try:
+            # Import verify_chart function
+            from ai_service.services.chart_verification import verify_chart
+
+            # Verify chart
+            verification_result = await verify_chart(
+                chart_data=chart_data,
+                session_id=session_id,
+                verify_with_openai=True
+            )
+
+            return verification_result
+        except Exception as e:
+            logger.error(f"Error during chart verification: {e}")
+            raise ValueError(f"Chart verification failed: {e}")
+
     async def generate_chart(
         self,
         birth_date: str,
@@ -386,74 +495,121 @@ class ChartService:
             longitude: Birth longitude
             timezone: Timezone string (optional)
             location: Birth location name (optional)
-            verify_with_openai: Whether to verify chart with OpenAI
-            session_id: Session ID for tracking
+            verify_with_openai: Whether to verify the chart with OpenAI
+            session_id: Optional session ID for WebSocket updates
 
         Returns:
             Generated chart data
+
+        Raises:
+            ValueError: If chart calculation fails
+            RuntimeError: If chart calculator is not available
         """
-        # Generate chart ID
-        chart_id = f"chart_{uuid.uuid4().hex[:10]}"
+        if not self._initialized:
+            await self.initialize()
 
-        # Parse date and time
-        birth_datetime_str = f"{birth_date} {birth_time}"
-        birth_dt = datetime.strptime(birth_datetime_str, "%Y-%m-%d %H:%M:%S")
+        # Parse birth date and time
+        try:
+            from datetime import datetime
+            from ai_service.utils.timezone import get_timezone_for_coordinates
 
-        # If timezone not provided, try to determine it
-        if not timezone:
-            from timezonefinder import TimezoneFinder
-            tf = TimezoneFinder()
-            timezone = tf.timezone_at(lat=latitude, lng=longitude) or "UTC"
+            # Parse datetime
+            if birth_time and ":" in birth_time:
+                if len(birth_time.split(":")) == 2:
+                    birth_time += ":00"  # Add seconds if not provided
 
-        # Set up birth details object for later reference
-        birth_details = {
-            "date": birth_date,
-            "time": birth_time,
-            "latitude": latitude,
-            "longitude": longitude,
-            "timezone": timezone,
-            "location": location
-        }
-
-        # Calculate chart using Swiss Ephemeris
-        from ai_service.services.chart_service_calculation import calculate_chart
-        # Convert birth_dt to separate date and time strings
-        birth_date_str = birth_dt.strftime("%Y-%m-%d")
-        birth_time_str = birth_dt.strftime("%H:%M:%S")
-        chart_data = calculate_chart(
-            birth_date=birth_date_str,
-            birth_time=birth_time_str,
-            latitude=latitude,
-            longitude=longitude,
-            timezone=timezone
-        )
-
-        # Add metadata to chart
-        chart_data["chart_id"] = chart_id
-        chart_data["generated_at"] = datetime.now().isoformat()
-        chart_data["birth_details"] = birth_details
-
-        # Verify with OpenAI if requested
-        if verify_with_openai:
-            if self.openai_service is not None:
-                verification = await self.openai_service.verify_chart(chart_data)
-                chart_data["verification"] = verification
+                birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
             else:
-                logger.warning("OpenAI service not available, skipping chart verification")
-                chart_data["verification"] = {
-                    "status": "verification_skipped",
-                    "message": "OpenAI service not available",
-                    "verified_with_openai": False,
-                    "corrections_applied": False,
-                    "corrections": []
+                birth_dt = datetime.strptime(birth_date, "%Y-%m-%d")
+                birth_dt = birth_dt.replace(hour=12, minute=0, second=0)  # Noon if no time
+                logger.warning(f"No birth time provided, using noon: {birth_dt}")
+
+            # Get timezone if not provided
+            if not timezone:
+                try:
+                    tz_info = get_timezone_for_coordinates(latitude, longitude)
+                    # Ensure we get a string value for timezone
+                    if isinstance(tz_info, dict):
+                        timezone = tz_info.get("timezone", "UTC")
+                    else:
+                        timezone = str(tz_info) if tz_info else "UTC"
+                    logger.info(f"Determined timezone from coordinates: {timezone}")
+                except Exception as e:
+                    logger.error(f"Failed to determine timezone, using UTC: {e}")
+                    timezone = "UTC"
+
+            # Ensure timezone is not None
+            tz_string = timezone if timezone else "UTC"
+
+            # Prepare calculator options
+            options = {
+                "house_system": self._house_system,
+                "zodiac_type": self._zodiac_type,
+                "ayanamsa": self._ayanamsa,
+                "verify_with_openai": verify_with_openai
+            }
+
+            # Calculate chart data using the chart calculator
+            try:
+                # Import the chart calculator
+                from ai_service.core.rectification.chart_calculator import calculate_chart
+
+                logger.info(f"Calculating chart for {birth_dt} at {latitude}, {longitude}")
+
+                # Calculate chart
+                chart_data = calculate_chart(
+                    birth_dt=birth_dt,
+                    latitude=latitude,
+                    longitude=longitude,
+                    timezone_str=tz_string,
+                    **options
+                )
+
+                # Add birth details and location to chart data
+                chart_data["birth_details"] = {
+                    "date": birth_date,
+                    "time": birth_time,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "timezone": tz_string,
+                    "location": location
                 }
 
-        # Store the chart in repository
-        from ai_service.database.repositories import ChartRepository
-        chart_repository = ChartRepository()
-        await chart_repository.store_chart(chart_data)
+                # Generate chart ID if not present
+                if "chart_id" not in chart_data:
+                    import uuid
+                    chart_data["chart_id"] = f"chrt_{uuid.uuid4().hex[:8]}"
 
-        return chart_data
+                # Verify with OpenAI if requested and OpenAI service is available
+                if verify_with_openai and self.openai_service:
+                    try:
+                        verification_result = await self._verify_chart_with_openai(
+                            chart_data, session_id
+                        )
+                        chart_data["verification"] = verification_result
+                    except Exception as e:
+                        logger.error(f"Chart verification failed: {e}")
+                        # Add failed verification info but don't fail the chart generation
+                        chart_data["verification"] = {
+                            "status": "verification_failed",
+                            "message": f"Verification failed: {str(e)}",
+                            "verified": False
+                        }
+
+                return chart_data
+
+            except ImportError as e:
+                # The calculation module is missing - this is a critical error
+                logger.error(f"Chart calculator module not available: {e}")
+                raise RuntimeError(f"Chart calculator module is required but not available: {e}")
+            except Exception as e:
+                # Calculation failed - raise the error
+                logger.error(f"Chart calculation failed: {e}")
+                raise ValueError(f"Failed to calculate chart: {e}")
+
+        except Exception as e:
+            logger.error(f"Error generating chart: {e}")
+            raise ValueError(f"Failed to generate chart: {e}")
 
     async def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -513,66 +669,272 @@ class ChartService:
 
     def _generate_comparison_data(self, chart1_data: Dict[str, Any], chart2_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Generate comprehensive comparison data between two charts.
+        Generate comparison data between two charts.
 
         Args:
             chart1_data: First chart data
             chart2_data: Second chart data (optional)
 
         Returns:
-            Dictionary with detailed comparison results
+            Dictionary with comparison results
         """
-        result = {
-            "comparison_timestamp": datetime.now().isoformat(),
-            "summary": "Chart analysis",
-            "differences": []
-        }
+        try:
+            # If only one chart provided, return basic info about it
+            if chart2_data is None:
+                return {
+                    "comparison_timestamp": datetime.now().isoformat(),
+                    "single_chart": True,
+                    "chart_id": chart1_data.get("chart_id", ""),
+                    "message": "No second chart provided for comparison"
+                }
 
-        # If only one chart, return its analysis
-        if chart2_data is None:
-            result["summary"] = "Single chart analysis"
-            return result
+            # Start with basic comparison information
+            comparison_result = {
+                "comparison_timestamp": datetime.now().isoformat(),
+                "chart1_id": chart1_data.get("chart_id", ""),
+                "chart2_id": chart2_data.get("chart_id", ""),
+                "differences": [],
+                "summary": ""
+            }
 
-        # Compare planets
-        planets1 = chart1_data.get("planets", {})
-        planets2 = chart2_data.get("planets", {})
+            # Compare birth details
+            birth_details1 = chart1_data.get("birth_details", {})
+            birth_details2 = chart2_data.get("birth_details", {})
 
-        # Compare ascendant
-        asc1 = chart1_data.get("angles", {}).get("Asc", {})
-        asc2 = chart2_data.get("angles", {}).get("Asc", {})
+            # Compare birth times if available
+            time1 = birth_details1.get("time", "")
+            time2 = birth_details2.get("time", "")
 
-        if asc1 and asc2:
-            asc_diff = abs(asc1.get("longitude", 0) - asc2.get("longitude", 0)) % 360
-            result["differences"].append({
-                "element": "Ascendant",
-                "difference_degrees": asc_diff,
-                "chart1": asc1,
-                "chart2": asc2
-            })
+            if time1 and time2 and time1 != time2:
+                # Calculate time difference in minutes
+                time_format = "%H:%M:%S"
 
-        # Compare each planet
-        for planet_name in planets1.keys():
-            if planet_name in planets2:
-                planet1 = planets1[planet_name]
-                planet2 = planets2[planet_name]
+                try:
+                    t1 = datetime.strptime(time1, time_format)
+                    t2 = datetime.strptime(time2, time_format)
 
-                long_diff = abs(planet1.get("longitude", 0) - planet2.get("longitude", 0)) % 360
-                house_diff = abs(planet1.get("house", 0) - planet2.get("house", 0))
+                    # Calculate difference in minutes
+                    diff_seconds = abs((t2.hour * 3600 + t2.minute * 60 + t2.second) -
+                                      (t1.hour * 3600 + t1.minute * 60 + t1.second))
+                    diff_minutes = diff_seconds / 60
 
-                result["differences"].append({
-                    "element": planet_name,
-                    "difference_degrees": long_diff,
-                    "house_difference": house_diff,
-                    "chart1": planet1,
-                    "chart2": planet2
+                    comparison_result["differences"].append({
+                        "type": "birth_time",
+                        "chart1_value": time1,
+                        "chart2_value": time2,
+                        "difference_minutes": diff_minutes,
+                        "significance": 1.0  # Birth time difference is highly significant
+                    })
+
+                    # Add to summary
+                    if comparison_result["summary"]:
+                        comparison_result["summary"] += " "
+                    comparison_result["summary"] += f"Birth time differs by {diff_minutes:.1f} minutes."
+                except Exception as e:
+                    logger.warning(f"Error comparing birth times: {e}")
+
+            # Compare planetary positions
+            planets1 = chart1_data.get("planets", {})
+            planets2 = chart2_data.get("planets", {})
+
+            # Ensure planets are in dictionary format
+            if isinstance(planets1, list):
+                planets1 = {p.get("name", f"planet_{i}"): p for i, p in enumerate(planets1)}
+            if isinstance(planets2, list):
+                planets2 = {p.get("name", f"planet_{i}"): p for i, p in enumerate(planets2)}
+
+            # Calculate planetary position differences
+            planet_differences = []
+            for planet_name in set(planets1.keys()).union(planets2.keys()):
+                if planet_name in planets1 and planet_name in planets2:
+                    planet1 = planets1[planet_name]
+                    planet2 = planets2[planet_name]
+
+                    # Compare longitudes
+                    longitude1 = planet1.get("longitude", 0)
+                    longitude2 = planet2.get("longitude", 0)
+
+                    if isinstance(longitude1, (int, float)) and isinstance(longitude2, (int, float)):
+                        # Calculate arc difference (shortest distance in degrees)
+                        diff = calculate_arc_difference(longitude1, longitude2)
+
+                        # Only include significant differences (> 0.1 degree)
+                        if diff > 0.1:
+                            # Calculate significance based on planet and degree difference
+                            significance = min(1.0, diff / 10)  # Scale to max 1.0
+
+                            # Adjust significance by planet importance
+                            planet_importance = {
+                                "Sun": 1.0, "Moon": 1.0, "Ascendant": 1.0,
+                                "Mercury": 0.9, "Venus": 0.8, "Mars": 0.8,
+                                "Jupiter": 0.7, "Saturn": 0.7,
+                                "Rahu": 0.6, "Ketu": 0.6,
+                                "Uranus": 0.5, "Neptune": 0.5, "Pluto": 0.5
+                            }
+
+                            importance = planet_importance.get(planet_name, 0.5)
+                            weighted_significance = significance * importance
+
+                            # Get sign changes
+                            sign1 = self.get_sign_from_longitude(longitude1)
+                            sign2 = self.get_sign_from_longitude(longitude2)
+                            sign_changed = sign1 != sign2
+
+                            planet_differences.append({
+                                "planet": planet_name,
+                                "difference_degrees": diff,
+                                "chart1_longitude": longitude1,
+                                "chart2_longitude": longitude2,
+                                "chart1_sign": sign1,
+                                "chart2_sign": sign2,
+                                "sign_changed": sign_changed,
+                                "significance": weighted_significance
+                            })
+
+            # Sort planetary differences by significance
+            planet_differences.sort(key=lambda x: x["significance"], reverse=True)
+            comparison_result["planetary_differences"] = planet_differences
+
+            # Add the most significant planetary differences
+            for diff in planet_differences[:3]:  # Include top 3 most significant
+                comparison_result["differences"].append({
+                    "type": "planet_position",
+                    "planet": diff["planet"],
+                    "chart1_value": f"{diff['chart1_sign']} {diff['chart1_longitude'] % 30:.2f}°",
+                    "chart2_value": f"{diff['chart2_sign']} {diff['chart2_longitude'] % 30:.2f}°",
+                    "difference_degrees": diff["difference_degrees"],
+                    "sign_changed": diff["sign_changed"],
+                    "significance": diff["significance"]
                 })
 
-        # Generate summary text based on differences
-        if result["differences"]:
-            # Calculate average difference
-            total_diff = sum(d.get("difference_degrees", 0) for d in result["differences"])
-            avg_diff = total_diff / len(result["differences"]) if result["differences"] else 0
+            # Compare house cusps
+            houses1 = chart1_data.get("houses", {})
+            houses2 = chart2_data.get("houses", {})
 
-            result["summary"] = f"Charts comparison: average difference of {avg_diff:.2f} degrees across {len(result['differences'])} elements."
+            # Ensure houses are in dictionary format
+            if isinstance(houses1, list):
+                houses1 = {str(h.get("house", i+1)): h for i, h in enumerate(houses1)}
+            if isinstance(houses2, list):
+                houses2 = {str(h.get("house", i+1)): h for i, h in enumerate(houses2)}
 
-        return result
+            # Calculate house cusp differences
+            house_differences = []
+            for house_num in set(houses1.keys()).union(houses2.keys()):
+                if house_num in houses1 and house_num in houses2:
+                    house1 = houses1[house_num]
+                    house2 = houses2[house_num]
+
+                    # Compare longitudes
+                    longitude1 = house1.get("longitude", 0)
+                    longitude2 = house2.get("longitude", 0)
+
+                    if isinstance(longitude1, (int, float)) and isinstance(longitude2, (int, float)):
+                        # Calculate arc difference
+                        diff = calculate_arc_difference(longitude1, longitude2)
+
+                        # Only include significant differences
+                        if diff > 0.5:
+                            # Calculate significance based on house importance and degree difference
+                            significance = min(1.0, diff / 15)  # Scale to max 1.0
+
+                            # Adjust significance by house importance
+                            house_importance = {
+                                "1": 1.0, "10": 0.9, "7": 0.8, "4": 0.8,
+                                "2": 0.7, "5": 0.7, "8": 0.7, "11": 0.7,
+                                "3": 0.6, "6": 0.6, "9": 0.6, "12": 0.6
+                            }
+
+                            importance = house_importance.get(str(house_num), 0.5)
+                            weighted_significance = significance * importance
+
+                            # Get sign changes
+                            sign1 = self.get_sign_from_longitude(longitude1)
+                            sign2 = self.get_sign_from_longitude(longitude2)
+                            sign_changed = sign1 != sign2
+
+                            house_differences.append({
+                                "house": house_num,
+                                "difference_degrees": diff,
+                                "chart1_longitude": longitude1,
+                                "chart2_longitude": longitude2,
+                                "chart1_sign": sign1,
+                                "chart2_sign": sign2,
+                                "sign_changed": sign_changed,
+                                "significance": weighted_significance
+                            })
+
+            # Sort house differences by significance
+            house_differences.sort(key=lambda x: x["significance"], reverse=True)
+            comparison_result["house_differences"] = house_differences
+
+            # Add the most significant house differences
+            for diff in house_differences[:2]:  # Include top 2 most significant
+                comparison_result["differences"].append({
+                    "type": "house_cusp",
+                    "house": diff["house"],
+                    "chart1_value": f"{diff['chart1_sign']} {diff['chart1_longitude'] % 30:.2f}°",
+                    "chart2_value": f"{diff['chart2_sign']} {diff['chart2_longitude'] % 30:.2f}°",
+                    "difference_degrees": diff["difference_degrees"],
+                    "sign_changed": diff["sign_changed"],
+                    "significance": diff["significance"]
+                })
+
+            # Calculate overall difference magnitude based on all planetary and house differences
+            all_diffs = planet_differences + house_differences
+            if all_diffs:
+                weighted_diffs = [d["difference_degrees"] * d["significance"] for d in all_diffs]
+                overall_diff = sum(weighted_diffs) / sum(d["significance"] for d in all_diffs)
+                comparison_result["overall_difference"] = overall_diff
+
+                # Generate summary text based on differences
+                sign_changes = sum(1 for d in all_diffs if d["sign_changed"])
+
+                if sign_changes > 0:
+                    if comparison_result["summary"]:
+                        comparison_result["summary"] += " "
+                    comparison_result["summary"] += f"{sign_changes} sign changes observed."
+
+                # Add birth time difference to summary if available
+                time_diff = next((d for d in comparison_result["differences"] if d["type"] == "birth_time"), None)
+                if time_diff:
+                    minutes = time_diff["difference_minutes"]
+                    if comparison_result["summary"]:
+                        comparison_result["summary"] += " "
+                    comparison_result["summary"] += f"Time adjustment of {minutes:.1f} minutes."
+
+            # If no summary was generated, create a default one
+            if not comparison_result["summary"]:
+                comparison_result["summary"] = f"Comparison between charts {comparison_result['chart1_id']} and {comparison_result['chart2_id']}."
+
+            return comparison_result
+
+        except Exception as e:
+            logger.error(f"Error in chart comparison: {e}")
+            # Return a minimal but valid result even on error
+            return {
+                "comparison_timestamp": datetime.now().isoformat(),
+                "chart1_id": chart1_data.get("chart_id", ""),
+                "chart2_id": chart2_data.get("chart_id", "") if chart2_data else "",
+                "differences": [],
+                "error": str(e),
+                "summary": f"Error occurred during chart comparison: {str(e)}"
+            }
+
+    def get_sign_from_longitude(self, longitude: float) -> str:
+        """
+        Get the zodiac sign for a longitude value.
+
+        Args:
+            longitude: Celestial longitude in degrees
+
+        Returns:
+            Zodiac sign name
+        """
+        signs = [
+            "Aries", "Taurus", "Gemini", "Cancer",
+            "Leo", "Virgo", "Libra", "Scorpio",
+            "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+        ]
+
+        sign_index = int(longitude / 30) % 12
+        return signs[sign_index]

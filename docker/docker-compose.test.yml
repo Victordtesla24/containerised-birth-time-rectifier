@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  # Redis service for caching and messaging
+  redis:
+    image: redis:alpine
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - test-network
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # AI Service - Main application backend
+  ai-service:
+    build:
+      context: ..
+      dockerfile: docker/ai_service.Dockerfile
+    image: ${CONTAINER_PREFIX:-birth-rectifier}-ai-service:test
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-ai
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LOG_LEVEL=DEBUG
+      - PYTHONPATH=/app
+      - SWISSEPH_PATH=/app/ephemeris
+      - ENABLE_CACHE=true
+      - CACHE_TTL=3600
+      - REQUEST_RETRY_ATTEMPTS=3
+    volumes:
+      - ../ai_service:/app/ai_service
+      - ../scripts:/app/scripts
+      - ../tests:/app/tests
+      - ephemeris-data:/app/ephemeris
+      - media-data:/app/media
+      - temp-data:/app/temp
+      - exports-data:/app/exports
+      - logs-data:/app/logs
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # API Gateway - Front-facing API service
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: docker/api_gateway.Dockerfile
+      target: development
+    image: ${CONTAINER_PREFIX:-birth-rectifier}-api-gateway:test
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-api-gateway
+    depends_on:
+      - ai-service
+    ports:
+      - "9000:8000"
+    environment:
+      - AI_SERVICE_URL=http://ai-service:8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ../api_gateway:/app/api_gateway
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # Test Runner - Container for running tests
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/test.Dockerfile
+    image: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner:latest
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner
+    depends_on:
+      - ai-service
+      - api-gateway
+    environment:
+      - PYTHONPATH=/app
+      - SWISSEPH_PATH=/app/ephemeris
+      - LOG_LEVEL=DEBUG
+      - API_BASE_URL=http://ai-service:8000
+      - API_GATEWAY_URL=http://api-gateway:8000
+      - WS_BASE_URL=ws://ai-service:8000/ws
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ../ai_service:/app/ai_service
+      - ../tests:/app/tests
+      - ../scripts:/app/scripts
+      - ephemeris-data:/app/ephemeris
+      - media-data:/app/media
+      - temp-data:/app/temp
+      - exports-data:/app/exports
+      - logs-data:/app/logs
+    networks:
+      - test-network
+    command: ["python", "-c", "import time; time.sleep(2); print('Test runner container is ready.')"]
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  ephemeris-data:
+  media-data:
+  temp-data:
+  exports-data:
+  logs-data:
