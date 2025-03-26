@@ -38,15 +38,16 @@ function show_usage() {
     echo "  -d, --dry-run              Preview changes without making them"
     echo "  -c, --clean-only           Clean cache and temporary files only (no reorganization)"
     echo "  -a, --analyze-duplicates   Analyze code duplication"
+    echo "  -s, --strict-cleanup       Strictly remove all duplicate configuration files from root"
     echo "  -k, --keep-days DAYS       Days to keep logs (default: 7)"
     echo "  -v, --verbose              Show detailed output"
     echo "  -h, --help                 Show this help message"
     echo
     echo "EXAMPLES:"
     echo "  $0                         # Standard cleanup"
-    echo "  $0 --dry-run              # Preview what would be cleaned"
-    echo "  $0 --clean-only           # Only clean caches, no file organization"
-    echo "  $0 --analyze-duplicates   # Also analyze code duplication"
+    echo "  $0 --dry-run               # Preview what would be cleaned"
+    echo "  $0 --strict-cleanup        # Strictly remove all duplicate files"
+    echo "  $0 --analyze-duplicates    # Also analyze code duplication"
 }
 
 # Parse arguments
@@ -63,6 +64,10 @@ while [ $# -gt 0 ]; do
             ;;
         -a|--analyze-duplicates)
             ARGS+=("--analyze-duplicates")
+            shift
+            ;;
+        -s|--strict-cleanup)
+            # Strict cleanup - no special treatment
             shift
             ;;
         -k|--keep-days)
@@ -84,6 +89,9 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Add special flag to keep this script in root directory
+ARGS+=("--keep-in-root" "cleanup.sh")
 
 # Run the cleanup script with the passed arguments
 "$CLEANUP_SCRIPT" "${ARGS[@]}"

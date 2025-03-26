@@ -1,76 +1,83 @@
 # Environment variables
-.env
+/Users/Shared/cursor/containerised-birth-time-rectifier/env/
+*.env
 
 # Python cache files
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-*.egg-info/
-.installed.cfg
-*.egg
+/Users/Shared/cursor/containerised-birth-time-rectifier/__pycache__/
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.py[cod]
+/Users/Shared/cursor/containerised-birth-time-rectifier/*$py.class
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.so
+/Users/Shared/cursor/containerised-birth-time-rectifier/.Python
+/Users/Shared/cursor/containerised-birth-time-rectifier/env/
+/Users/Shared/cursor/containerised-birth-time-rectifier/build/
+/Users/Shared/cursor/containerised-birth-time-rectifier/develop-eggs/
+/Users/Shared/cursor/containerised-birth-time-rectifier/dist/
+/Users/Shared/cursor/containerised-birth-time-rectifier/downloads/
+/Users/Shared/cursor/containerised-birth-time-rectifier/eggs/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.eggs/
+/Users/Shared/cursor/containerised-birth-time-rectifier/lib/
+/Users/Shared/cursor/containerised-birth-time-rectifier/lib64/
+/Users/Shared/cursor/containerised-birth-time-rectifier/parts/
+/Users/Shared/cursor/containerised-birth-time-rectifier/sdist/
+/Users/Shared/cursor/containerised-birth-time-rectifier/var/
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.egg-info/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.installed.cfg
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.egg
 
 # Virtual environments
-venv/
-ENV/
-env/
+/Users/Shared/cursor/containerised-birth-time-rectifier/venv/
+/Users/Shared/cursor/containerised-birth-time-rectifier/ENV/
+/Users/Shared/cursor/containerised-birth-time-rectifier/env/
 
 # IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
+/Users/Shared/cursor/containerised-birth-time-rectifier/.idea/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.vscode/
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.swp
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.swo
+/Users/Shared/cursor/containerised-birth-time-rectifier/.DS_Store
 
 # Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+/Users/Shared/cursor/containerised-birth-time-rectifier/logs/
+/Users/Shared/cursor/containerised-birth-time-rectifier/tests/logs/
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.log
+/Users/Shared/cursor/containerised-birth-time-rectifier/npm-debug.log*
+/Users/Shared/cursor/containerised-birth-time-rectifier/yarn-debug.log*
+/Users/Shared/cursor/containerised-birth-time-rectifier/yarn-error.log*
+/Users/Shared/cursor/containerised-birth-time-rectifier/reports/
 
 # Test coverage
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-pytest_cache/
-.pytest_cache/
+/Users/Shared/cursor/containerised-birth-time-rectifier/htmlcov/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.tox/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.coverage
+/Users/Shared/cursor/containerised-birth-time-rectifier/.coverage.*
+/Users/Shared/cursor/containerised-birth-time-rectifier/.cache
+/Users/Shared/cursor/containerised-birth-time-rectifier/nosetests.xml
+/Users/Shared/cursor/containerised-birth-time-rectifier/coverage.xml
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.cover
+/Users/Shared/cursor/containerised-birth-time-rectifier/.hypothesis/
+/Users/Shared/cursor/containerised-birth-time-rectifier/pytest_cache/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.pytest_cache/
 
 # Distribution
-dist/
-build/
+/Users/Shared/cursor/containerised-birth-time-rectifier/dist/
+/Users/Shared/cursor/containerised-birth-time-rectifier/build/
 
 # Vercel
-.vercel
-.vercel/
-.next/
-out/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.vercel
+/Users/Shared/cursor/containerised-birth-time-rectifier/.vercel/
+/Users/Shared/cursor/containerised-birth-time-rectifier/.next/
+/Users/Shared/cursor/containerised-birth-time-rectifier/out/
 
 # Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+/Users/Shared/cursor/containerised-birth-time-rectifier/pids
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.pid
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.seed
+/Users/Shared/cursor/containerised-birth-time-rectifier/*.pid.lock
 
 # Testing
-coverage/
-node_modules/
+/Users/Shared/cursor/containerised-birth-time-rectifier/coverage/
+/Users/Shared/cursor/containerised-birth-time-rectifier/node_modules/
+
+
+git add .
+git commit -m "Your original commit message (without secrets)"

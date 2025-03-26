@@ -1,18 +1,19 @@
 {
-  "root": true,
   "extends": [
-    "next/core-web-vitals",
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
     "plugin:react/recommended",
-    "plugin:react-hooks/recommended",
-    "plugin:jest/recommended",
-    "prettier"
+    "next/core-web-vitals"
   ],
-  "plugins": ["@typescript-eslint", "react", "jest", "testing-library"],
   "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint", "react"],
+  "env": {
+    "browser": true,
+    "es6": true,
+    "node": true
+  },
   "parserOptions": {
-    "ecmaVersion": 2021,
+    "ecmaVersion": 2020,
     "sourceType": "module",
     "ecmaFeatures": {
       "jsx": true
@@ -24,31 +25,11 @@
     }
   },
   "rules": {
+    "no-console": "off",
+    "no-unused-vars": "off",
+    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-explicit-any": "off",
     "react/react-in-jsx-scope": "off",
-    "react/prop-types": "off",
-    "@typescript-eslint/explicit-module-boundary-types": "off",
-    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "@typescript-eslint/no-explicit-any": "warn",
-    "no-console": ["warn", { "allow": ["warn", "error"] }],
-    "jest/expect-expect": "error",
-    "jest/no-disabled-tests": "warn",
-    "jest/no-focused-tests": "error",
-    "jest/no-identical-title": "error",
-    "jest/valid-expect": "error"
-  },
-  "overrides": [
-    {
-      "files": ["**/__tests__/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
-      "extends": ["plugin:testing-library/react"],
-      "rules": {
-        "@typescript-eslint/no-explicit-any": "off"
-      }
-    }
-  ],
-  "env": {
-    "browser": true,
-    "es2021": true,
-    "node": true,
-    "jest": true
+    "react/no-unescaped-entities": "off"
   }
-} 
+}

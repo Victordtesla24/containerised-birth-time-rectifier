@@ -1,0 +1,42 @@
+[0;32m[2025-03-26 14:42:47] SUCCESS: Removed 3 files (14.3 KB)[0m
+[0;36m[2025-03-26 14:42:47] STEP: Cleaning *.tmp files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 14:42:48] INFO: No matching files found[0m
+[0;36m[2025-03-26 14:42:48] STEP: Cleaning *.temp files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 14:42:48] INFO: No matching files found[0m
+[0;36m[2025-03-26 14:42:48] STEP: Cleaning *.bak files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 14:42:48] INFO: No matching files found[0m
+[0;36m[2025-03-26 14:42:48] STEP: Cleaning *.orig files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 14:42:48] INFO: No matching files found[0m
+[0;36m[2025-03-26 14:42:48] STEP: Cleaning .DS_Store files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 14:42:48] INFO: No matching files found[0m
+[0;36m[2025-03-26 14:42:48] STEP: Cleaning log files older than 7 days in /Users/Shared/cursor/containerised-birth-time-rectifier/logs[0m
+[0;34m[2025-03-26 14:42:48] INFO: No old log files to remove[0m
+[0;32m[2025-03-26 14:42:48] SUCCESS: Project directory cleanup completed[0m
+
+[1m[0;35m====== ORGANIZING ROOT DIRECTORY ======[0m
+
+[0;34m[2025-03-26 14:42:48] INFO: Starting root directory organization[0m
+[0;34m[2025-03-26 14:42:48] INFO: Creating necessary directories[0m
+[0;34m[2025-03-26 14:42:48] INFO: Found 1 JSON configuration files to organize[0m
+[0;34m[2025-03-26 14:42:48] INFO: Moved '.eslintrc.json' to 'config/json/' (754 bytes)[0m
+[0;34m[2025-03-26 14:42:48] INFO: Found 1 ESLint configuration to organize[0m
+[0;33m[2025-03-26 14:42:48] WARNING: Failed to organize '.eslintrc.json'[0m
+[0;34m[2025-03-26 14:42:48] INFO: Found 1 Git ignore file to organize[0m
+[0;34m[2025-03-26 14:42:48] INFO: Moved '.gitignore' to 'config/git/' (662 bytes)[0m
+[0;34m[2025-03-26 14:42:48] INFO: Found 1 NPM configuration file to organize[0m
+[0;34m[2025-03-26 14:42:48] INFO: Moved '.npmrc' to 'config/npm/' (89 bytes)[0m
+[0;32m[2025-03-26 14:42:48] SUCCESS: Organized 3 files (1.4 KB)[0m
+
+[1m[0;35m====== CLEANING DUPLICATE CONFIGURATION FILES ======[0m
+
+[0;34m[2025-03-26 14:42:48] INFO: Removing duplicate configuration files and keeping single versions[0m
+[0;32m[2025-03-26 14:42:48] SUCCESS: Removed duplicate '.dockerignore' from root directory (using version in config/dockerfiles)[0m
+[0;32m[2025-03-26 14:42:48] SUCCESS: Duplicate configuration file cleanup completed[0m
+[0;36m[2025-03-26 14:42:48] STEP: Generating cleanup report[0m
+[0;32m[2025-03-26 14:42:48] SUCCESS: Report generated at: /Users/Shared/cursor/containerised-birth-time-rectifier/reports/cleanup_report_20250326_144247.txt[0m
+
+[1m[0;35m====== CLEANUP COMPLETED ======[0m
+
+[0;32m[2025-03-26 14:42:48] SUCCESS: Cleanup process completed successfully![0m
+[0;34m[2025-03-26 14:42:48] INFO: Log file: /Users/Shared/cursor/containerised-birth-time-rectifier/logs/cleanup_20250326_144247.log[0m
+[0;34m[2025-03-26 14:42:48] INFO: Report file: /Users/Shared/cursor/containerised-birth-time-rectifier/reports/cleanup_report_20250326_144247.txt[0m

@@ -87,11 +87,26 @@ ROOT_KEEP_FILES=(
     "package.json"
     "package-lock.json"
     ".cursorignore"
-    ".gitignore"     # Keep a copy in root even if moved to config
-    ".npmrc"         # Keep a copy in root even if moved to config
-    ".dockerignore"  # Keep a copy in root even if moved to config
-    ".eslintrc.json" # Keep a copy in root even if moved to config
     ".service_config.json"
+    "cleanup.sh"
+)
+
+# Files to strictly remove from root directory (no symlinks or copies)
+ROOT_REMOVE_FILES=(
+    ".eslintrc.json"
+    ".gitignore"
+    ".dockerignore"
+    ".npmrc"
+    ".npmignore"
+)
+
+# Directories for organizing files (keep only one version)
+CONFIG_DIRS=(
+    "config/eslint"
+    "config/git"
+    "config/dockerfiles"
+    "config/npm"
+    "config/json"
 )
 
 # Directories to clean
@@ -166,6 +181,7 @@ print_usage() {
     echo "  --analyze-duplicates    Analyze code duplication"
     echo "  --no-organize           Skip organizing project files"
     echo "  --keep-days DAYS        Days to keep logs (default: 7)"
+    echo "  --keep-in-root FILE     Add a file to keep in root directory"
     echo "  --help                  Show this help message"
     echo ""
     echo "EXAMPLES:"
@@ -186,7 +202,7 @@ should_keep_in_root() {
         fi
     done
 
-    return 1
+            return 1
 }
 
 # Calculate and format size
@@ -389,7 +405,7 @@ clean_logs() {
 
     log "STEP" "Cleaning log files older than $days days in $log_dir"
 
-    if [ "$DRY_RUN" = true ]; then
+        if [ "$DRY_RUN" = true ]; then
         local count=$(find "$log_dir" -type f -name "*.log" -mtime +$days | wc -l | tr -d ' ')
         local size=$(find "$log_dir" -type f -name "*.log" -mtime +$days -ls | awk '{total += $7} END {print total}')
 
@@ -482,17 +498,12 @@ organize_root_directory() {
                 if [ "$DRY_RUN" = true ]; then
                     log "INFO" "Would move '$basename' to '${target_dir}/' ($(format_size "$size"))"
                 else
-                    # Copy the file to the target directory
+                    # Move the file to the target directory
                     if cp "$file" "${target_path}/" 2>/dev/null; then
-                        # If file is to be kept in root, it was copied above
-                        # Otherwise delete it from root after successful copy
-                        if ! should_keep_in_root "$file"; then
-                            rm -f "$file"
-                            log "INFO" "Moved '$basename' to '${target_dir}/' ($(format_size "$size"))"
-                            total_moved=$((total_moved + 1))
-                        else
-                            log "INFO" "Copied '$basename' to '${target_dir}/' ($(format_size "$size"))"
-                        fi
+                        # Remove the file from root (no symlinks)
+                        rm -f "$file"
+                        log "INFO" "Moved '$basename' to '${target_dir}/' ($(format_size "$size"))"
+                        total_moved=$((total_moved + 1))
                     else
                         log "WARNING" "Failed to organize '$basename'"
                     fi
@@ -502,31 +513,6 @@ organize_root_directory() {
     done
 
     rm -f "$temp_file_list"
-
-    # Create symlinks for critical files if needed
-    if [ "$DRY_RUN" = false ]; then
-        log "STEP" "Creating symlinks for critical files"
-
-        for mapping in "${FILE_MAPPINGS[@]}"; do
-            IFS='|' read -r pattern target_dir description <<< "$mapping"
-
-            # Check if pattern matches critical files that need symlinks
-            if [[ "$pattern" == ".eslintrc*" ||
-                  "$pattern" == ".gitignore" ||
-                  "$pattern" == ".dockerignore" ||
-                  "$pattern" == ".npmrc" ]]; then
-
-                local root_file="${PROJECT_ROOT}/$(echo "$pattern" | sed 's/\*//g')"
-                local target_file="${PROJECT_ROOT}/${target_dir}/$(echo "$pattern" | sed 's/\*//g')"
-
-                # If target file exists but root file doesn't, create a symlink
-                if [ -f "$target_file" ] && [ ! -f "$root_file" ]; then
-                    ln -sf "$target_file" "$root_file" 2>/dev/null
-                    log "INFO" "Created symlink for $(basename "$target_file") in root directory"
-                fi
-            fi
-        done
-    fi
 
     if [ "$DRY_RUN" = true ]; then
         log "INFO" "Would organize $total_moved files ($(format_size "$total_size"))"
@@ -582,7 +568,7 @@ analyze_code_duplication() {
         duplication_args+=("--verbose")
     fi
 
-    if [ "$DRY_RUN" = true ]; then
+        if [ "$DRY_RUN" = true ]; then
         log "INFO" "Would run duplication analysis on: ${valid_dirs[*]}"
         log "INFO" "Command: $DUPLICATION_IDENTIFIER ${duplication_args[*]} ${valid_dirs[*]}"
     else
@@ -662,6 +648,57 @@ generate_report() {
     log "SUCCESS" "Report generated at: $REPORT_FILE"
 }
 
+# Clean up specific duplicate files and ensure only one version exists
+clean_duplicate_config_files() {
+    print_header "CLEANING DUPLICATE CONFIGURATION FILES"
+    log "INFO" "Removing duplicate configuration files and keeping single versions"
+
+    for file in "${ROOT_REMOVE_FILES[@]}"; do
+        if [ -f "${PROJECT_ROOT}/${file}" ]; then
+            # Find matching file in config directories
+            found_match=false
+            preferred_dir=""
+
+            for config_dir in "${CONFIG_DIRS[@]}"; do
+                if [ -f "${PROJECT_ROOT}/${config_dir}/${file}" ]; then
+                    found_match=true
+                    preferred_dir="${config_dir}"
+                    break
+                fi
+            done
+
+            if [ "$found_match" = true ]; then
+                if [ "$DRY_RUN" = true ]; then
+                    log "INFO" "Would remove duplicate '${file}' from root directory (already in ${preferred_dir})"
+                else
+                    rm -f "${PROJECT_ROOT}/${file}"
+                    log "SUCCESS" "Removed duplicate '${file}' from root directory (using version in ${preferred_dir})"
+                fi
+            else
+                # No match found, move file to appropriate directory
+                for config_dir in "${CONFIG_DIRS[@]}"; do
+                    if [[ "$file" == ".eslintrc"* && "$config_dir" == "config/eslint" ]] || \
+                       [[ "$file" == ".gitignore" && "$config_dir" == "config/git" ]] || \
+                       [[ "$file" == ".docker"* && "$config_dir" == "config/dockerfiles" ]] || \
+                       [[ "$file" == ".npm"* && "$config_dir" == "config/npm" ]]; then
+
+                        if [ "$DRY_RUN" = true ]; then
+                            log "INFO" "Would move '${file}' to ${config_dir} directory"
+                        else
+                            mkdir -p "${PROJECT_ROOT}/${config_dir}" 2>/dev/null || true
+                            mv "${PROJECT_ROOT}/${file}" "${PROJECT_ROOT}/${config_dir}/"
+                            log "SUCCESS" "Moved '${file}' to ${config_dir} directory"
+                        fi
+                        break
+                    fi
+                done
+            fi
+        fi
+    done
+
+    log "SUCCESS" "Duplicate configuration file cleanup completed"
+}
+
 # ==============================================================================
 # SCRIPT ENTRY POINT
 # ==============================================================================
@@ -701,6 +738,11 @@ while [ $# -gt 0 ]; do
             DAYS_TO_KEEP="$2"
             shift 2
             ;;
+        --keep-in-root)
+            # Add the file to keep in root directory
+            ROOT_KEEP_FILES+=("$2")
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             print_usage
@@ -722,8 +764,13 @@ if [ "$CLEAN_PROJECT" = true ]; then
     clean_project_directory
 fi
 
-if [ "$CLEAN_ROOT_DIR" = true ] && [ "$ORGANIZE_FILES" = true ]; then
-    organize_root_directory
+if [ "$CLEAN_ROOT_DIR" = true ]; then
+    if [ "$ORGANIZE_FILES" = true ]; then
+        organize_root_directory
+    fi
+
+    # Clean duplicate config files
+    clean_duplicate_config_files
 fi
 
 if [ "$ANALYZE_DUPLICATES" = true ]; then
