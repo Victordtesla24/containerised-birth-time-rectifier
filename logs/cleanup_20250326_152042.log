@@ -1,0 +1,33 @@
+[0;32m[2025-03-26 15:20:43] SUCCESS: Removed 2 files (5.7 KB)[0m
+[0;36m[2025-03-26 15:20:43] STEP: Cleaning *.tmp files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 15:20:43] INFO: No matching files found[0m
+[0;36m[2025-03-26 15:20:43] STEP: Cleaning *.temp files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 15:20:43] INFO: No matching files found[0m
+[0;36m[2025-03-26 15:20:43] STEP: Cleaning *.bak files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 15:20:43] INFO: No matching files found[0m
+[0;36m[2025-03-26 15:20:43] STEP: Cleaning *.orig files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 15:20:43] INFO: No matching files found[0m
+[0;36m[2025-03-26 15:20:43] STEP: Cleaning .DS_Store files in /Users/Shared/cursor/containerised-birth-time-rectifier[0m
+[0;34m[2025-03-26 15:20:43] INFO: No matching files found[0m
+[0;36m[2025-03-26 15:20:43] STEP: Cleaning log files older than 7 days in /Users/Shared/cursor/containerised-birth-time-rectifier/logs[0m
+[0;34m[2025-03-26 15:20:43] INFO: No old log files to remove[0m
+[0;32m[2025-03-26 15:20:43] SUCCESS: Project directory cleanup completed[0m
+
+[1m[0;35m====== ORGANIZING ROOT DIRECTORY ======[0m
+
+[0;34m[2025-03-26 15:20:43] INFO: Starting root directory organization[0m
+[0;34m[2025-03-26 15:20:43] INFO: Creating necessary directories[0m
+[0;34m[2025-03-26 15:20:44] INFO: No files to organize[0m
+
+[1m[0;35m====== CLEANING DUPLICATE CONFIGURATION FILES ======[0m
+
+[0;34m[2025-03-26 15:20:44] INFO: Removing duplicate configuration files and keeping single versions[0m
+[0;32m[2025-03-26 15:20:44] SUCCESS: Duplicate configuration file cleanup completed[0m
+[0;36m[2025-03-26 15:20:44] STEP: Generating cleanup report[0m
+[0;32m[2025-03-26 15:20:44] SUCCESS: Report generated at: /Users/Shared/cursor/containerised-birth-time-rectifier/reports/cleanup_report_20250326_152042.txt[0m
+
+[1m[0;35m====== CLEANUP COMPLETED ======[0m
+
+[0;32m[2025-03-26 15:20:44] SUCCESS: Cleanup process completed successfully![0m
+[0;34m[2025-03-26 15:20:44] INFO: Log file: /Users/Shared/cursor/containerised-birth-time-rectifier/logs/cleanup_20250326_152042.log[0m
+[0;34m[2025-03-26 15:20:44] INFO: Report file: /Users/Shared/cursor/containerised-birth-time-rectifier/reports/cleanup_report_20250326_152042.txt[0m

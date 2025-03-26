@@ -506,15 +506,15 @@ organize_root_directory() {
                         total_moved=$((total_moved + 1))
                     else
                         log "WARNING" "Failed to organize '$basename'"
-                    fi
                 fi
-            done
-        fi
+            fi
+        done
+    fi
     done
 
     rm -f "$temp_file_list"
 
-    if [ "$DRY_RUN" = true ]; then
+        if [ "$DRY_RUN" = true ]; then
         log "INFO" "Would organize $total_moved files ($(format_size "$total_size"))"
     else
         if [ "$total_moved" -gt 0 ]; then
@@ -682,7 +682,7 @@ clean_duplicate_config_files() {
                        [[ "$file" == ".docker"* && "$config_dir" == "config/dockerfiles" ]] || \
                        [[ "$file" == ".npm"* && "$config_dir" == "config/npm" ]]; then
 
-                        if [ "$DRY_RUN" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
                             log "INFO" "Would move '${file}' to ${config_dir} directory"
                         else
                             mkdir -p "${PROJECT_ROOT}/${config_dir}" 2>/dev/null || true
@@ -690,11 +690,11 @@ clean_duplicate_config_files() {
                             log "SUCCESS" "Moved '${file}' to ${config_dir} directory"
                         fi
                         break
-                    fi
-                done
             fi
-        fi
-    done
+        done
+            fi
+            fi
+        done
 
     log "SUCCESS" "Duplicate configuration file cleanup completed"
 }

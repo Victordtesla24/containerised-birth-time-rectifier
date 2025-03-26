@@ -1,0 +1,45 @@
+==========================================================
+     ENHANCED CODE DUPLICATION ANALYSIS REPORT
+==========================================================
+
+Generated on: Wed Mar 26 15:42:50 AEDT 2025
+Directories analyzed: ai_service/api
+Similarity threshold: 0.3
+Detection method: ast
+File extensions: .py
+
+SUMMARY:
+---------
+Files analyzed: 52
+Comparisons performed: 0
+Similar file pairs found: 0
+
+DETAILED RESULTS:
+----------------
+No significant code duplication found.
+
+CLONE TYPES EXPLANATION:
+----------------------
+- Type-1 (Exact clones): Identical code fragments except for whitespace and comments
+- Type-2 (Renamed clones): Structurally identical fragments with renamed identifiers
+- Type-3 (Near-miss clones): Similar code with minor modifications beyond renaming
+- Type-4 (Semantic clones): Code fragments that perform the same function with different implementation
+
+RECOMMENDATIONS:
+--------------
+1. Review high similarity files first and consolidate or extract shared code.
+2. For directory pairs with high duplication, consider creating shared utilities.
+3. Analyze code communities to identify shared functionality across modules.
+4. Run this analysis regularly to prevent code duplication from increasing.
+5. Consider implementing automated checks in your CI pipeline.
+
+TECHNICAL DEBT METRICS:
+---------------------
+Code Health Index (CHI) = (Cyclomatic Complexity × Code Duplication) / Test Coverage
+
+CHI thresholds for action:
+- CHI > 0.7: Immediate refactoring required
+- CHI > 0.5: Plan refactoring in next sprint
+- CHI > 0.3: Monitor for degradation
+
+==========================================================
