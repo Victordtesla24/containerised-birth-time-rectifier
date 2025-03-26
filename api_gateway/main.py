@@ -147,6 +147,9 @@ v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(chart_router, prefix="/chart", tags=["Chart"])
 v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
 
+# Make sure the v1_router is included with the app
+app.include_router(v1_router)
+
 # Add session endpoint
 @v1_router.get("/session/init")
 async def init_session():
@@ -160,7 +163,20 @@ async def init_session():
     logger.info(f"Session initialized: {session_id}")
     return response
 
-@v1_router.post("/geocode")
+# Add health endpoint to v1 router
+@v1_router.get("/health")
+async def v1_health_check():
+    """Health check endpoint for v1 API"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "ai_service",
+        "middleware_bypassed": True,
+        "path": "/api/v1/health"
+    }
+
+# Add geocode endpoint to v1 router
+@v1_router.post("/geocode/geocode")
 async def geocode_location(request: Request):
     """
     Geocode a location and return coordinates and address details.
@@ -201,7 +217,7 @@ async def geocode_location(request: Request):
         # Use increased timeout for geocoding operations
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{AI_SERVICE_URL}/api/geocode",
+                f"{AI_SERVICE_URL}/api/v1/geocode/geocode",
                 json={
                     "query": query,
                     "exactly_one": exactly_one,
@@ -256,7 +272,7 @@ async def geocode_location(request: Request):
             }
         )
 
-@v1_router.post("/geocode/reverse")
+@v1_router.post("/geocode/geocode/reverse")
 async def reverse_geocode(request: Request):
     """
     Reverse geocode coordinates to address details.
@@ -341,7 +357,7 @@ async def reverse_geocode(request: Request):
         # Use increased timeout for geocoding operations
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{AI_SERVICE_URL}/api/geocode/reverse",
+                f"{AI_SERVICE_URL}/api/v1/geocode/geocode/reverse",
                 json={
                     "latitude": latitude,
                     "longitude": longitude
@@ -395,7 +411,7 @@ async def reverse_geocode(request: Request):
             }
         )
 
-@v1_router.post("/geocode/timezone")
+@v1_router.post("/geocode/geocode/timezone")
 async def get_timezone(request: Request):
     """
     Get timezone information for coordinates.
@@ -470,7 +486,7 @@ async def get_timezone(request: Request):
         # Use increased timeout for timezone operations
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{AI_SERVICE_URL}/api/geocode/timezone",
+                f"{AI_SERVICE_URL}/api/v1/geocode/geocode/timezone",
                 json={
                     "latitude": latitude,
                     "longitude": longitude
@@ -541,8 +557,6 @@ async def get_timezone(request: Request):
                 "error": f"Internal server error: {str(e)}"
             }
         )
-
-app.include_router(v1_router)
 
 # WebSocket endpoints
 @app.websocket("/ws/{session_id}")

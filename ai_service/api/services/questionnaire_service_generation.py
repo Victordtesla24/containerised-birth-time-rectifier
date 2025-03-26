@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 from ai_service.api.services.openai.service import OpenAIService
 from ai_service.api.services.questionnaire_service_types import Question, QuestionOption, QUESTION_TYPES
-from ai_service.api.services.questionnaire_service_chart_calculator import chart_calculator
+from ai_service.api.services.chart_calculator_service import chart_calculator
 
 def _format_chart_data_for_prompt(chart_data: Dict[str, Any]) -> str:
     """
@@ -196,25 +196,29 @@ async def _generate_astrologically_relevant_question(
         If this is question #{question_index + 1}, it should be more specific than earlier questions.
         """
 
-        # Call OpenAI service
-        response = await openai_service.generate_completion(
-            prompt={
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            },
-            task_type="questionnaire",
-            max_tokens=1000,
-            temperature=0.4
-        )
-
-        # Extract JSON content
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-
+        # Generate question using OpenAI
         try:
-            # Parse the content as JSON
+            openai_service = await get_openai_service()
+            if not openai_service:
+                raise ValueError("OpenAI service is not available")
+
+            messages = [
+                {"role": "system", "content": "You are an expert astrologer creating astrologically-relevant questions for birth time rectification."},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            response = await openai_service.chat_completion(
+                messages=messages,
+                model="gpt-4",
+                temperature=0.7
+            )
+
+            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             question_data = self._extract_json_from_content(content)
+
+            # Validate and process the response
+            if not question_data or "text" not in question_data:
+                raise ValueError("Invalid response format from OpenAI")
 
             # Ensure the question has the required fields
             if not question_data or not isinstance(question_data, dict):
@@ -238,7 +242,7 @@ async def _generate_astrologically_relevant_question(
             return question_data
 
         except Exception as e:
-            error_msg = f"Failed to parse question data from OpenAI response: {e}"
+            error_msg = f"Failed to generate astrologically relevant question: {e}"
             logger.error(error_msg)
             raise ValueError(error_msg)
 

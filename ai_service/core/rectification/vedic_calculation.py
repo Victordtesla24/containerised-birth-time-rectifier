@@ -10,30 +10,15 @@ import os
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
 
-# Try to import pyswisseph, but handle it gracefully if not available
+# Try to import swisseph, but handle it gracefully if not available
 try:
-    import pyswisseph as swe
+    import swisseph as swe
     SWISSEPH_AVAILABLE = True
 except ImportError:
     SWISSEPH_AVAILABLE = False
     swe = None
-    # Create constant placeholders to prevent import errors
-    class SwePlaceholder:
-        SUN = 0
-        MOON = 1
-        MERCURY = 2
-        VENUS = 3
-        MARS = 4
-        JUPITER = 5
-        SATURN = 6
-        URANUS = 7
-        NEPTUNE = 8
-        PLUTO = 9
-        MEAN_NODE = 10
-        MEAN_APOG = 11
-        SIDM_LAHIRI = 1
-        FLG_SIDEREAL = 1
-    swe = SwePlaceholder()
+    # We'll raise appropriate exceptions when functions that need swisseph are called
+    # rather than using placeholders
 
 # Import from methods if available
 try:
@@ -47,6 +32,39 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Constants for planetary bodies
+if SWISSEPH_AVAILABLE:
+    SUN = swe.SUN
+    MOON = swe.MOON
+    MERCURY = swe.MERCURY
+    VENUS = swe.VENUS
+    MARS = swe.MARS
+    JUPITER = swe.JUPITER
+    SATURN = swe.SATURN
+    URANUS = swe.URANUS
+    NEPTUNE = swe.NEPTUNE
+    PLUTO = swe.PLUTO
+    MEAN_NODE = swe.MEAN_NODE
+    MEAN_APOG = swe.MEAN_APOG
+    SIDM_LAHIRI = swe.SIDM_LAHIRI
+    FLG_SIDEREAL = swe.FLG_SIDEREAL
+else:
+    # Define constants directly rather than accessing them from swe
+    SUN = 0
+    MOON = 1
+    MERCURY = 2
+    VENUS = 3
+    MARS = 4
+    JUPITER = 5
+    SATURN = 6
+    URANUS = 7
+    NEPTUNE = 8
+    PLUTO = 9
+    MEAN_NODE = 10
+    MEAN_APOG = 11
+    SIDM_LAHIRI = 1
+    FLG_SIDEREAL = 1
+
 # Zodiac signs in traditional Vedic order
 ZODIAC_SIGNS = [
     "Aries", "Taurus", "Gemini", "Cancer",
@@ -56,25 +74,25 @@ ZODIAC_SIGNS = [
 
 # Main planets used in Vedic astrology
 VEDIC_PLANETS = [
-    swe.SUN, swe.MOON, swe.MERCURY, swe.VENUS,
-    swe.MARS, swe.JUPITER, swe.SATURN,
-    swe.MEAN_NODE  # Rahu (North Node)
+    SUN, MOON, MERCURY, VENUS,
+    MARS, JUPITER, SATURN,
+    MEAN_NODE  # Rahu (North Node)
 ]
 
 # Planet names for easy reference
 PLANET_NAMES = {
-    swe.SUN: "Sun",
-    swe.MOON: "Moon",
-    swe.MERCURY: "Mercury",
-    swe.VENUS: "Venus",
-    swe.MARS: "Mars",
-    swe.JUPITER: "Jupiter",
-    swe.SATURN: "Saturn",
-    swe.MEAN_NODE: "Rahu",
-    swe.MEAN_APOG: "Ketu",
-    swe.URANUS: "Uranus",
-    swe.NEPTUNE: "Neptune",
-    swe.PLUTO: "Pluto"
+    SUN: "Sun",
+    MOON: "Moon",
+    MERCURY: "Mercury",
+    VENUS: "Venus",
+    MARS: "Mars",
+    JUPITER: "Jupiter",
+    SATURN: "Saturn",
+    MEAN_NODE: "Rahu",
+    MEAN_APOG: "Ketu",
+    URANUS: "Uranus",
+    NEPTUNE: "Neptune",
+    PLUTO: "Pluto"
 }
 
 # Nakshatras (lunar mansions) data with their lords
@@ -127,10 +145,14 @@ def initialize_ephemeris(path: Optional[str] = None) -> None:
 
     Args:
         path: Path to the ephemeris files, or None to use default
+
+    Raises:
+        RuntimeError: If Swiss Ephemeris is not available
     """
     if not SWISSEPH_AVAILABLE:
-        logger.warning("Swiss Ephemeris not available. Cannot initialize ephemeris.")
-        return
+        error_msg = "Swiss Ephemeris not available. Cannot initialize ephemeris."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
     if path:
         swe.set_ephe_path(path)
@@ -138,7 +160,7 @@ def initialize_ephemeris(path: Optional[str] = None) -> None:
 
 def calculate_houses_positions(birth_dt: datetime, lat: float, lon: float) -> Dict[str, Any]:
     """
-    Calculate house positions for testing purposes when Swiss Ephemeris is not available.
+    Calculate house positions using Swiss Ephemeris.
 
     Args:
         birth_dt: Birth datetime
@@ -147,24 +169,40 @@ def calculate_houses_positions(birth_dt: datetime, lat: float, lon: float) -> Di
 
     Returns:
         Dictionary with house positions
+
+    Raises:
+        RuntimeError: If Swiss Ephemeris is not available
     """
     if not SWISSEPH_AVAILABLE:
-        logger.warning("Swiss Ephemeris not available. Using test data for houses.")
-        # Return test data
-        return {
-            "cusps": [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330],
-            "ascendant": 0,
-            "midheaven": 270,
-            "houses": [{"number": i+1, "longitude": i*30} for i in range(12)]
-        }
+        error_msg = "Swiss Ephemeris not available. Cannot calculate house positions."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
-    # Here we would normally use Swiss Ephemeris to calculate house positions
-    # But this function is here to provide a testing fallback
-    return {}
+    # Convert datetime to Julian day
+    jd = swe.julday(
+        birth_dt.year,
+        birth_dt.month,
+        birth_dt.day,
+        birth_dt.hour + birth_dt.minute/60.0 + birth_dt.second/3600.0
+    )
+
+    # Calculate house positions
+    houses_result = swe.houses(jd, lat, lon, b'P')  # Placidus house system
+    house_cusps = houses_result[0]
+    ascendant = houses_result[1][0]  # Ascendant
+    midheaven = houses_result[1][1]  # Midheaven
+
+    # Format and return results
+    return {
+        "cusps": list(house_cusps),
+        "ascendant": ascendant,
+        "midheaven": midheaven,
+        "houses": [{"number": i+1, "longitude": house_cusps[i]} for i in range(len(house_cusps)) if i < 12]
+    }
 
 def calculate_ascendant(birth_dt: datetime, lat: float, lon: float) -> float:
     """
-    Calculate ascendant for testing purposes when Swiss Ephemeris is not available.
+    Calculate ascendant using Swiss Ephemeris.
 
     Args:
         birth_dt: Birth datetime
@@ -173,15 +211,28 @@ def calculate_ascendant(birth_dt: datetime, lat: float, lon: float) -> float:
 
     Returns:
         Ascendant longitude in degrees
+
+    Raises:
+        RuntimeError: If Swiss Ephemeris is not available
     """
     if not SWISSEPH_AVAILABLE:
-        logger.warning("Swiss Ephemeris not available. Using test data for ascendant.")
-        # Return test value for ascendant
-        return 0.0
+        error_msg = "Swiss Ephemeris not available. Cannot calculate ascendant."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
-    # Here we would normally use Swiss Ephemeris to calculate the ascendant
-    # But this function is here to provide a testing fallback
-    return 0.0
+    # Convert datetime to Julian day
+    jd = swe.julday(
+        birth_dt.year,
+        birth_dt.month,
+        birth_dt.day,
+        birth_dt.hour + birth_dt.minute/60.0 + birth_dt.second/3600.0
+    )
+
+    # Calculate house positions which includes ascendant
+    houses_result = swe.houses(jd, lat, lon, b'P')  # Placidus house system
+    ascendant = houses_result[1][0]  # Ascendant
+
+    return ascendant
 
 def calculate_vedic_chart(
     birth_dt: datetime,
@@ -200,37 +251,17 @@ def calculate_vedic_chart(
 
     Returns:
         Dictionary containing the complete Vedic chart data
+
+    Raises:
+        RuntimeError: If Swiss Ephemeris is not available or calculation fails
     """
     if not SWISSEPH_AVAILABLE:
-        logger.warning("Swiss Ephemeris not available. Cannot calculate Vedic chart.")
-        # Return a minimal chart structure with placeholders
-        return {
-            "type": "vedic",
-            "ayanamsa": 23.85,  # Approximate Lahiri ayanamsa
-            "julian_day": 0.0,
-            "house_system": house_system,
-            "ascendant": {
-                "id": ASC,
-                "name": "Ascendant",
-                "longitude": 0.0,
-                "sign": "Aries",
-                "sign_num": 0,
-                "degree": 0.0
-            },
-            "mc": {
-                "id": MC,
-                "name": "Midheaven",
-                "longitude": 270.0,
-                "sign": "Capricorn",
-                "sign_num": 9,
-                "degree": 0.0
-            },
-            "houses": [{"number": i+1, "longitude": i*30, "sign": ZODIAC_SIGNS[i % 12], "sign_num": i % 12, "degree": 0.0} for i in range(12)],
-            "planets": {}
-        }
+        error_msg = "Swiss Ephemeris not available. Cannot calculate Vedic chart."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
     # Set ayanamsa to Lahiri (Indian)
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    swe.set_sid_mode(SIDM_LAHIRI)
 
     # Convert datetime to Julian day
     jd = swe.julday(
@@ -267,10 +298,10 @@ def calculate_vedic_chart(
     # Calculate positions for all planets
     planets_data = {}
     houses = []
-    for i, planet_id in enumerate(VEDIC_PLANETS + [swe.MEAN_APOG, swe.URANUS, swe.NEPTUNE, swe.PLUTO]):
-        if planet_id == swe.MEAN_APOG:  # Calculate Ketu (South Node) as opposite to Rahu
-            if swe.MEAN_NODE in planets_data:
-                rahu_position = planets_data[swe.MEAN_NODE]["longitude"]
+    for i, planet_id in enumerate(VEDIC_PLANETS + [MEAN_APOG, URANUS, NEPTUNE, PLUTO]):
+        if planet_id == MEAN_APOG:  # Calculate Ketu (South Node) as opposite to Rahu
+            if MEAN_NODE in planets_data:
+                rahu_position = planets_data[MEAN_NODE]["longitude"]
                 ketu_position = (rahu_position + 180) % 360
                 planet_name = "Ketu"
 
@@ -287,7 +318,7 @@ def calculate_vedic_chart(
                     "name": planet_name,
                     "longitude": ketu_position,
                     "latitude": 0.0,  # Ketu has the opposite latitude of Rahu
-                    "speed": -planets_data[swe.MEAN_NODE]["speed"],  # Opposite direction
+                    "speed": -planets_data[MEAN_NODE]["speed"],  # Opposite direction
                     "sign": sign,
                     "sign_num": sign_num,
                     "degree": degree,
@@ -297,7 +328,7 @@ def calculate_vedic_chart(
 
         try:
             # Calculate planet position
-            result = swe.calc_ut(jd, planet_id, swe.FLG_SIDEREAL)
+            result = swe.calc_ut(jd, planet_id, FLG_SIDEREAL)
 
             # result is a tuple: (positions_tuple, flags)
             positions_tuple = result[0]  # First element is the positional data tuple
@@ -334,6 +365,7 @@ def calculate_vedic_chart(
             }
         except Exception as e:
             logger.error(f"Error calculating position for planet {planet_id}: {e}")
+            raise RuntimeError(f"Failed to calculate position for planet {planet_name}: {e}")
 
     # Create formatted houses with sign information
     for i in range(1, 13):
@@ -411,24 +443,8 @@ def calculate_vedic_chart(
             "degree": ic_degree
         },
         "houses": houses,
-        "planets": {}
+        "planets": planets_data
     }
-
-    # Format planets data for chart
-    for planet_id, planet_data in planets_data.items():
-        planet_name = planet_data["name"]
-        chart_data["planets"][planet_name] = {
-            "id": planet_data["id"],
-            "name": planet_name,
-            "longitude": planet_data["longitude"],
-            "latitude": planet_data["latitude"],
-            "speed": planet_data["speed"],
-            "sign": planet_data["sign"],
-            "sign_num": planet_data["sign_num"],
-            "degree": planet_data["degree"],
-            "house": planet_data["house"],
-            "is_retrograde": planet_data["speed"] < 0
-        }
 
     return chart_data
 

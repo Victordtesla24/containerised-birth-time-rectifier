@@ -11,7 +11,7 @@ import os
 from typing import Tuple, List, Dict, Any, Optional
 from datetime import datetime, timezone
 
-import pyswisseph as swe
+import swisseph as swe
 
 logger = logging.getLogger(__name__)
 

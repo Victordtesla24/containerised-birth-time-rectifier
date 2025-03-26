@@ -3,7 +3,7 @@ Services package for API operations.
 """
 
 # Don't import at module level to prevent circular imports
-__all__ = ["OpenAIService", "QuestionnaireService", "DynamicQuestionnaireService", "get_questionnaire_service"]
+__all__ = ["OpenAIService", "QuestionnaireService", "get_questionnaire_service", "chart_calculator"]
 
 # Define __getattr__ to dynamically import when the attribute is accessed
 def __getattr__(name):
@@ -23,11 +23,11 @@ def __getattr__(name):
     elif name == "QuestionnaireService":
         from .questionnaire_service import QuestionnaireService as _QuestionnaireService
         return _QuestionnaireService
-    elif name == "DynamicQuestionnaireService":
-        from .dynamic_questionnaire_service import DynamicQuestionnaireService as _DynamicQuestionnaireService
-        return _DynamicQuestionnaireService
     elif name == "get_questionnaire_service":
         from .questionnaire_service import get_questionnaire_service as _get_questionnaire_service
         return _get_questionnaire_service
+    elif name == "chart_calculator":
+        from .chart_calculator_service import chart_calculator as _chart_calculator
+        return _chart_calculator
 
     raise AttributeError(f"module {__name__} has no attribute {name}")

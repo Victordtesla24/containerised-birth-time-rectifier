@@ -10,11 +10,13 @@ import sys
 import logging
 from typing import Dict, Any, List, Tuple, Type, Callable, Optional
 from datetime import datetime
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+import time
+import traceback
 
 # Setup logging
 logging.basicConfig(
@@ -46,7 +48,11 @@ app = FastAPI(
 # Root path handler
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Birth Time Rectifier AI Service", "version": "1.0.0"}
+    return {
+        "service": "Birth Time Rectifier AI Service",
+        "status": "running",
+        "version": "0.1.0"
+    }
 
 # Add a direct health endpoint for the healthcheck
 # This endpoint is not used by the wrapper but kept for compatibility
@@ -63,23 +69,38 @@ def health_check():
         "direct_access": True
     }
 
-# Initialize app on startup - this will be phased out in favor of lifespan
-# but is kept for backward compatibility
+# Run startup initialization
 @app.on_event("startup")
 async def startup_event():
-    try:
-        logger.info("Starting AI Service application")
-        initialize_application()
-        logger.info("AI Service initialized successfully")
-    except Exception as e:
-        logger.critical(f"Failed to initialize application: {e}")
-        # Log the full error trace
-        import traceback
-        logger.critical(traceback.format_exc())
+    """Run additional startup tasks."""
+    await initialize_application()
 
 # Include routers
 from ai_service.api.routers import router
 app.include_router(router)
+
+# Import API routers
+try:
+    from ai_service.api.routers.health import router as health_router
+    app.include_router(health_router)
+    logger.info("Health router included")
+except ImportError:
+    logger.warning("Health router not found")
+
+try:
+    from ai_service.api.routers.chart import router as chart_router
+    app.include_router(chart_router, prefix="/api")
+    logger.info("Chart router included")
+except ImportError:
+    logger.warning("Chart router not found")
+
+# Import V1 API router for tests
+try:
+    from ai_service.api.v1.chart_api import v1_router as chart_v1_router
+    app.include_router(chart_v1_router)  # No prefix as it already has /api/v1
+    logger.info("V1 Chart API router included - for tests")
+except ImportError:
+    logger.warning("V1 Chart API router not found - tests may fail")
 
 # Define CORS settings
 cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
@@ -101,16 +122,28 @@ app.add_middleware(PathRewriterMiddleware)
 from ai_service.api.middleware.session import session_middleware
 app.add_middleware(session_middleware)
 
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    logger.info(f"{request.method} {request.url.path} - {response.status_code} - {process_time:.4f}s")
+    return response
+
 # Error handlers
 @app.exception_handler(Exception)
-async def generic_exception_handler(request, exc):
+async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}")
-    # Log detailed error trace
-    import traceback
     logger.error(traceback.format_exc())
+
+    # Return a generic error response
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error", "message": str(exc)},
+        content={
+            "error": "Internal server error",
+            "message": str(exc) if os.environ.get("DEBUG") == "true" else "An unexpected error occurred"
+        }
     )
 
 # This will only be invoked if running this file directly

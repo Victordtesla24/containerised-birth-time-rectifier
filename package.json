@@ -6,14 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:integration": "pytest -xvs tests/integration/",
-    "test:unit": "pytest -xvs tests/unit/",
+    "test": "jest --config config/jest.config.js",
+    "test:watch": "jest --config config/jest.config.js --watch",
+    "test:integration": "python -m pytest -xvs tests/integration/ --rootdir=tests",
+    "test:unit": "python -m pytest -xvs tests/unit/ --rootdir=tests",
     "verify-api": "python tests/utils/verify_api_key.py",
     "lint": "eslint --ext .js,.jsx,.ts,.tsx src/",
     "clean": "find . -type d -name __pycache__ -exec rm -rf {} +; find . -type d -name .pytest_cache -exec rm -rf {} +; find . -type d -name *.egg-info -exec rm -rf {} +",
-    "setup": "pip install -r requirements.txt"
+    "setup": "pip install -r python/requirements.txt"
   },
   "dependencies": {
     "events": "^3.3.0",
@@ -56,7 +56,7 @@
       "^@/(.*)$": "<rootDir>/src/$1"
     },
     "setupFilesAfterEnv": [
-      "<rootDir>/jest.setup.js"
+      "<rootDir>/config/jest.setup.js"
     ]
   },
   "license": "UNLICENSED",

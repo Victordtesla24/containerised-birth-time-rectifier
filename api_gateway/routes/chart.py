@@ -188,3 +188,42 @@ async def get_chart(chart_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Chart retrieval failed: {str(exc)}"
         )
+
+@router.post("/v1/charts/generate", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+async def api_v1_generate_chart(request: Request):
+    """
+    API v1 endpoint for generating an astrological chart.
+    This endpoint is used by the integration tests and follows a different request format.
+    """
+    try:
+        # Parse the request body
+        request_data = await request.json()
+        logger.info(f"API v1 chart generation request: {request_data}")
+
+        # Extract birth details from the request
+        birth_details = request_data.get("birth_details", {})
+
+        # Convert to the format expected by the AI service
+        ai_service_request = {
+            "birth_date": birth_details.get("birth_date"),
+            "birth_time": birth_details.get("birth_time"),
+            "latitude": birth_details.get("latitude"),
+            "longitude": birth_details.get("longitude"),
+            "timezone": birth_details.get("timezone", "UTC"),
+            "location": birth_details.get("location", ""),
+            "verify_with_openai": request_data.get("verify_with_openai", False),
+            "house_system": birth_details.get("house_system", "P"),
+            "zodiac_type": birth_details.get("zodiac_type", "sidereal"),
+            "session_id": request_data.get("session_id")
+        }
+
+        # Forward to the AI service
+        result = await request_ai_service("chart/generate", ai_service_request)
+
+        return result
+    except Exception as exc:
+        logger.error(f"Error in API v1 chart generation: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chart generation failed: {str(exc)}"
+        )

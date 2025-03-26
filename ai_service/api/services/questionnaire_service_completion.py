@@ -20,10 +20,10 @@ try:
 except ImportError:
     TIMEZONE_FINDER_AVAILABLE = False
 
-from ai_service.api.services.openai import get_openai_service
+from ai_service.api.services.openai import get_openai_service, OpenAIService
 from ai_service.api.services.session_service import get_session_store
 from ai_service.services import get_chart_service
-from ai_service.api.services.questionnaire_service_chart_calculator import chart_calculator
+from ai_service.api.services.chart_calculator_service import chart_calculator
 
 async def complete_questionnaire(self, session_id: str, chart_id: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -275,41 +275,26 @@ async def _perform_comprehensive_analysis(
     birth_time_indicators: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
-    Analyze questionnaire responses comprehensively with OpenAI.
-
-    This function performs a thorough analysis of all responses to determine
-    the most likely birth time and provide detailed astrological interpretation.
+    Perform comprehensive analysis of questionnaire responses to determine birth time.
 
     Args:
         responses: List of questionnaire responses
-        birth_details: Birth details dictionary
-        birth_time_indicators: Optional list of extracted birth time indicators
+        birth_details: Dictionary of birth details
+        birth_time_indicators: Optional list of pre-extracted time indicators
 
     Returns:
-        Dictionary with comprehensive analysis
+        Comprehensive analysis dictionary
 
     Raises:
         ValueError: When OpenAI service is not available or analysis fails
     """
-    # Get OpenAI service
-    openai_service = self.openai_service
-    if not openai_service:
-        from ai_service.api.services.openai import get_openai_service
-        openai_service = get_openai_service()
-
-    if not openai_service:
-        error_msg = "OpenAI service is required for comprehensive analysis but is not available"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-
     try:
-        # Compile birth time indicators if not provided
-        if not birth_time_indicators:
-            time_indicators = await self.extract_time_indicators(responses, birth_details)
-        else:
-            time_indicators = birth_time_indicators
+        # Initialize OpenAI service
+        openai_service = await get_openai_service()
+        if not openai_service:
+            raise ValueError("OpenAI service is not available")
 
-        # Format the data for OpenAI
+        # Format data for analysis
         birth_date = birth_details.get("birth_date", "")
         birth_time = birth_details.get("birth_time", "")
         latitude = birth_details.get("latitude", 0)
@@ -323,21 +308,7 @@ async def _perform_comprehensive_analysis(
             answer = response.get("answer", "")
             formatted_responses += f"Q{idx+1}: {question}\nA{idx+1}: {answer}\n\n"
 
-        # Format time indicators
-        formatted_indicators = ""
-        for indicator in time_indicators:
-            indicator_type = indicator.get("type", "")
-            explanation = indicator.get("explanation", "")
-            suggested_time = indicator.get("suggested_time", "")
-            confidence = indicator.get("confidence", 0)
-
-            formatted_indicators += f"Type: {indicator_type}\n"
-            if suggested_time:
-                formatted_indicators += f"Suggested time: {suggested_time}\n"
-            formatted_indicators += f"Confidence: {confidence}%\n"
-            formatted_indicators += f"Explanation: {explanation}\n\n"
-
-        # System prompt
+        # Create analysis prompt
         system_prompt = """
         You are an expert Vedic astrologer specializing in birth time rectification.
 
@@ -357,7 +328,6 @@ async def _perform_comprehensive_analysis(
         Format your response as a detailed JSON object that can be parsed by our system.
         """
 
-        # User prompt
         user_prompt = f"""
         BIRTH DETAILS:
         Date: {birth_date}
@@ -366,9 +336,6 @@ async def _perform_comprehensive_analysis(
 
         QUESTIONNAIRE RESPONSES:
         {formatted_responses}
-
-        EXTRACTED TIME INDICATORS:
-        {formatted_indicators}
 
         Based on this information, please provide a comprehensive birth time rectification analysis.
         Format your response as a JSON object with these sections:
@@ -380,69 +347,111 @@ async def _perform_comprehensive_analysis(
         - house_analysis (analysis of key houses)
         """
 
-        # Call OpenAI
-        response = await openai_service.generate_completion(
-            prompt={
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            },
-            task_type="birth_time_rectification_analysis",
-            max_tokens=2000,
-            temperature=0.4
+        # Call OpenAI API
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        response = await openai_service.chat_completion(
+            messages=messages,
+            model="gpt-4",
+            temperature=0.2
         )
 
-        # Parse the response
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        # Extract and parse the response
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-        # Extract JSON from content
+        # Parse the response
+        import json
+        import re
+
         try:
             # First try direct parsing
-            result = json.loads(content)
+            analysis = json.loads(content)
         except json.JSONDecodeError:
             # Try to extract JSON using regex
-            import re
             json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
             if json_match:
                 try:
-                    result = json.loads(json_match.group(1))
+                    analysis = json.loads(json_match.group(1))
                 except json.JSONDecodeError:
-                    # If still failing, try one more approach to find valid JSON
+                    # Try another pattern
                     json_str = re.search(r'({[\s\S]*})', content)
                     if json_str:
                         try:
-                            result = json.loads(json_str.group(1))
-                        except json.JSONDecodeError:
-                            error_msg = "Failed to parse OpenAI response as JSON"
-                            logger.error(error_msg)
-                            raise ValueError(error_msg)
+                            analysis = json.loads(json_str.group(1))
+                        except Exception:
+                            # Return basic analysis if parsing fails
+                            logger.error("Could not parse JSON from response")
+                            analysis = {
+                                "birth_time_range": {
+                                    "start": birth_time,
+                                    "end": birth_time,
+                                    "most_likely_time": birth_time
+                                },
+                                "confidence": 50.0,
+                                "key_factors": ["Failed to parse structured analysis"],
+                                "error": "Failed to parse JSON response"
+                            }
                     else:
-                        error_msg = "Could not find valid JSON in OpenAI response"
-                        logger.error(error_msg)
-                        raise ValueError(error_msg)
+                        # Return basic analysis if no JSON found
+                        logger.error("No JSON found in response")
+                        analysis = {
+                            "birth_time_range": {
+                                "start": birth_time,
+                                "end": birth_time,
+                                "most_likely_time": birth_time
+                            },
+                            "confidence": 50.0,
+                            "key_factors": ["Failed to parse structured analysis"],
+                            "error": "No JSON found in response"
+                        }
             else:
-                error_msg = "Could not find valid JSON in OpenAI response"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+                # Return basic analysis if no JSON block found
+                logger.error("No JSON block found in response")
+                analysis = {
+                    "birth_time_range": {
+                        "start": birth_time,
+                        "end": birth_time,
+                        "most_likely_time": birth_time
+                    },
+                    "confidence": 50.0,
+                    "key_factors": ["Failed to parse structured analysis"],
+                    "error": "No JSON block found in response"
+                }
 
         # Ensure required fields are present
-        if "birth_time_range" not in result:
-            result["birth_time_range"] = {
+        if not isinstance(analysis, dict):
+            analysis = {}
+
+        if "birth_time_range" not in analysis:
+            analysis["birth_time_range"] = {
                 "start": birth_time,
                 "end": birth_time,
                 "most_likely_time": birth_time
             }
 
-        if "confidence" not in result:
-            result["confidence"] = 50  # Default confidence
+        if "confidence" not in analysis:
+            analysis["confidence"] = 50.0
 
-        return result
+        if "key_factors" not in analysis:
+            analysis["key_factors"] = []
+
+        return analysis
 
     except Exception as e:
-        error_msg = f"Error in comprehensive analysis: {str(e)}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
+        logger.error(f"Error in comprehensive analysis: {str(e)}")
+        # Return minimal analysis on error
+        return {
+            "birth_time_range": {
+                "start": birth_details.get("birth_time", "Unknown"),
+                "end": birth_details.get("birth_time", "Unknown"),
+                "most_likely_time": birth_details.get("birth_time", "Unknown")
+            },
+            "confidence": 50.0,
+            "error": str(e)
+        }
 
 def _generate_astrological_report(
     self,

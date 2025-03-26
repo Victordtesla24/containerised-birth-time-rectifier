@@ -125,7 +125,7 @@ EPHE_PATH = os.environ.get("SWISSEPH_PATH", "/app/ephemeris")
 
 # Attempt to import Swiss Ephemeris
 try:
-    import pyswisseph as swe
+    import swisseph as swe
     # Verify that the module has the required attributes
     required_attributes = ['julday', 'calc', 'calc_ut', 'houses', 'set_ephe_path', 'SUN']
 

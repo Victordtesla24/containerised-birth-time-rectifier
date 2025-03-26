@@ -11,6 +11,9 @@ from typing import Dict, List, Any, Optional, Union
 import logging
 import uuid
 from datetime import datetime
+import os
+import tempfile
+import json
 
 # Import utilities and models
 from ai_service.api.routers.consolidated_chart.utils import retrieve_chart
@@ -110,22 +113,54 @@ async def export_chart(
             }
         }
 
-        # For JSON format, return the data directly
+        # Create export ID
+        export_id = uuid.uuid4().hex[:8]
+
+        # Define export directory
+        export_dir = os.path.join(tempfile.gettempdir(), "chart_exports")
+        os.makedirs(export_dir, exist_ok=True)
+
+        # For JSON format, return the data directly but also save a file
         if request.format == "json":
+            # Save the JSON file
+            json_path = os.path.join(export_dir, f"{export_id}.json")
+            with open(json_path, "w") as json_file:
+                json.dump(result_data, json_file, indent=2)
+
             return {
                 "chart_id": chart_id,
                 "format": request.format,
                 "export_data": result_data,
+                "download_url": f"/export/{export_id}/download",
                 "message": "Chart exported successfully in JSON format."
             }
 
-        # For other formats, generate a download URL
-        # In a real implementation, this would generate the file and store it
-        # For this example, we'll just return a mock URL
-        export_id = uuid.uuid4().hex[:8]
-        download_url = f"/api/chart/export/{export_id}/download"
+        # For other formats, generate the appropriate file
+        file_path = os.path.join(export_dir, f"{export_id}.{request.format}")
+
+        if request.format in ["pdf", "png", "svg"]:
+            # Import chart visualization utilities
+            from ai_service.utils.chart_visualizer import generate_chart_visualization
+
+            # Generate the visualization file
+            generate_chart_visualization(
+                chart_data=exported_data,
+                output_path=file_path,
+                format=request.format
+            )
+        elif request.format == "text":
+            # Generate a text report
+            from ai_service.utils.text_formatter import format_chart_as_text
+
+            # Generate text report
+            text_content = format_chart_as_text(exported_data)
+
+            # Write to file
+            with open(file_path, "w") as text_file:
+                text_file.write(text_content)
 
         # Return the export response with download URL
+        download_url = f"/export/{export_id}/download"
         return {
             "chart_id": chart_id,
             "format": request.format,
@@ -167,18 +202,55 @@ async def download_export(
     This endpoint returns the binary data of an exported chart file.
     """
     try:
-        # In a real implementation, this would retrieve the file from storage
-        # For this example, we'll just return a mock response
+        # Determine the file path based on export ID
+        # Export files are stored in a temporary directory with their export ID
+        export_dir = os.path.join(tempfile.gettempdir(), "chart_exports")
+        os.makedirs(export_dir, exist_ok=True)
 
-        # Set content type based on export ID
-        # In a real implementation, this would be determined by the file type
-        response.headers["Content-Disposition"] = f"attachment; filename=chart_export_{export_id}.pdf"
-        response.headers["Content-Type"] = "application/pdf"
+        # Construct file path - try both PDF and JSON formats since we don't know which was requested
+        pdf_path = os.path.join(export_dir, f"{export_id}.pdf")
+        json_path = os.path.join(export_dir, f"{export_id}.json")
+        png_path = os.path.join(export_dir, f"{export_id}.png")
 
-        # Return a simple message for demonstration purposes
-        # In a real implementation, this would return the file data
-        return "This is a mock export file for demonstration purposes."
+        # Determine which file exists and should be served
+        if os.path.exists(pdf_path):
+            file_path = pdf_path
+            content_type = "application/pdf"
+            filename = f"chart_export_{export_id}.pdf"
+        elif os.path.exists(json_path):
+            file_path = json_path
+            content_type = "application/json"
+            filename = f"chart_export_{export_id}.json"
+        elif os.path.exists(png_path):
+            file_path = png_path
+            content_type = "image/png"
+            filename = f"chart_export_{export_id}.png"
+        else:
+            # Export file not found
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": {
+                        "code": ERROR_CODES["EXPORT_NOT_FOUND"],
+                        "message": f"Export file not found for ID: {export_id}",
+                        "details": {"export_id": export_id}
+                    }
+                }
+            )
 
+        # Set appropriate headers
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        response.headers["Content-Type"] = content_type
+
+        # Read and return the file content
+        with open(file_path, "rb") as file:
+            content = file.read()
+
+        # Return the file content
+        return Response(content=content, media_type=content_type, headers=response.headers)
+
+    except HTTPException:
+        raise
     except Exception as e:
         # Log the error
         logger.error(f"Error downloading export: {str(e)}", exc_info=True)

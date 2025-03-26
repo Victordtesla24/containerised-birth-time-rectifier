@@ -55,7 +55,6 @@ import matplotlib.font_manager as fm  # type: ignore
 from PIL import Image as PILImage  # type: ignore # noqa
 
 from ai_service.core.rectification.constants import PLANETS_LIST
-from ai_service.services.chart_service_verification import get_zodiac_sign
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -150,7 +149,74 @@ def format_time(time_value: Union[str, datetime], include_seconds: bool = True) 
     # If we couldn't parse the input, return it as is
     return str(time_value)
 
-from ai_service.services.chart_service_visualization import render_chart_in_subplot
+# Local implementation of render_chart_in_subplot to avoid circular imports
+def render_chart_in_subplot(ax: Any, chart_data: Dict[str, Any], title: Optional[str] = None) -> None:
+    """
+    Render a chart in a matplotlib subplot.
+
+    Args:
+        ax: The matplotlib axes to render on
+        chart_data: The chart data to render
+        title: Optional title for the chart
+    """
+    # Set title if provided
+    if title:
+        ax.set_title(title)
+
+    # Setup the plot area
+    ax.set_aspect('equal')
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(-100, 100)
+    ax.axis('off')
+
+    # Draw a basic chart representation (wheel)
+    circle = patches.Circle((0, 0), 90, fill=False, color='black')
+    ax.add_patch(circle)
+
+    # Get planets and house data
+    planets = chart_data.get("planets", {})
+    houses = chart_data.get("houses", [])
+    ascendant = chart_data.get("ascendant", {})
+
+    # Draw houses
+    num_houses = 12
+    for i in range(num_houses):
+        angle = math.radians(i * (360 / num_houses))
+        # Draw line from center to edge
+        ax.plot([0, 90 * math.cos(angle)], [0, 90 * math.sin(angle)], 'k-')
+
+        # Place house number labels
+        label_radius = 75
+        label_x = label_radius * math.cos(angle + math.radians(15))
+        label_y = label_radius * math.sin(angle + math.radians(15))
+        ax.text(label_x, label_y, str(i+1), ha='center', va='center')
+
+    # Place planets
+    if isinstance(planets, dict):
+        for planet_name, planet_data in planets.items():
+            # Get longitude or degree
+            longitude = 0
+            if isinstance(planet_data, dict):
+                longitude = planet_data.get("longitude", 0)
+
+            # Calculate position
+            angle = math.radians(longitude)
+            radius = 60  # Place inside the circle
+            x = radius * math.cos(angle)
+            y = radius * math.sin(angle)
+
+            # Add planet symbol/name
+            ax.text(x, y, planet_name[:3], ha='center', va='center',
+                  bbox=dict(facecolor='white', alpha=0.7, boxstyle='circle'))
+
+    # Add ascendant marker if available
+    if ascendant and isinstance(ascendant, dict) and "longitude" in ascendant:
+        asc_angle = math.radians(ascendant["longitude"])
+        asc_x = 90 * math.cos(asc_angle)
+        asc_y = 90 * math.sin(asc_angle)
+        ax.plot([0, asc_x], [0, asc_y], 'r-', linewidth=2)
+        ax.text(asc_x * 1.1, asc_y * 1.1, "ASC", color='red',
+              ha='center', va='center', fontweight='bold')
 
 # Constants for chart visualization
 ZODIAC_SIGNS = [
@@ -2158,3 +2224,152 @@ def create_chart_image(chart_data: Dict[str, Any], output_path: str, dpi: int = 
     except Exception as e:
         logger.error(f"Failed to create chart image: {e}")
         raise RuntimeError(f"Failed to create chart image: {e}")
+
+def generate_chart_visualization(chart_data: Dict[str, Any], output_path: str, format: str = "png") -> str:
+    """
+    Generate a chart visualization in the specified format.
+
+    This function is used by the chart export functionality to generate
+    visualizations in various formats.
+
+    Args:
+        chart_data: Chart data dictionary
+        output_path: Path to save the visualization
+        format: Output format ('png', 'pdf', 'svg')
+
+    Returns:
+        Path to the generated visualization file
+    """
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    # Set format-specific parameters
+    dpi = 300  # Default DPI for raster formats
+    if format.lower() == 'pdf':
+        # Higher DPI for PDF for better quality
+        dpi = 600
+        # Make sure file has .pdf extension
+        if not output_path.lower().endswith('.pdf'):
+            output_path = f"{output_path}.pdf"
+    elif format.lower() == 'png':
+        # Make sure file has .png extension
+        if not output_path.lower().endswith('.png'):
+            output_path = f"{output_path}.png"
+    elif format.lower() == 'svg':
+        # Make sure file has .svg extension
+        if not output_path.lower().endswith('.svg'):
+            output_path = f"{output_path}.svg"
+
+    # Choose visualization style based on chart data
+    chart_type = chart_data.get("chart_type", "").lower()
+
+    if chart_type == "vedic" or "vedic" in chart_data.get("calculation_details", {}).get("chart_type", "").lower():
+        # Generate a Vedic chart
+        if "style" in chart_data:
+            vedic_style = chart_data["style"]
+        else:
+            # Default to North Indian style
+            vedic_style = "north_indian"
+
+        # Generate the Vedic chart
+        chart_path = render_vedic_chart(chart_data, output_path, style=vedic_style)
+    else:
+        # Default to Western/Tropical wheel chart
+        fig, ax = plt.subplots(figsize=(10, 10))
+        render_chart_in_subplot(ax, chart_data, title="Astrological Chart")
+
+        # Save the chart
+        plt.savefig(output_path, dpi=dpi, format=format.lower(), bbox_inches='tight')
+        plt.close(fig)
+        chart_path = output_path
+
+    # If chart is in a different format than requested, convert it
+    if not chart_path.lower().endswith(f".{format.lower()}"):
+        try:
+            from PIL import Image
+            # Open the image
+            img = Image.open(chart_path)
+            # Save in the requested format
+            img.save(output_path, format=format.upper())
+            # Close the image
+            img.close()
+            # Use the new path
+            chart_path = output_path
+        except Exception as e:
+            logger.error(f"Failed to convert image format: {e}")
+            # Continue with the original format if conversion fails
+
+    # Add contextual information to chart if needed
+    if chart_data.get("include_annotations", False):
+        try:
+            # Add birth details annotation
+            add_chart_annotations(chart_path, chart_data)
+        except Exception as e:
+            logger.error(f"Failed to add annotations: {e}")
+
+    return chart_path
+
+def add_chart_annotations(chart_path: str, chart_data: Dict[str, Any]) -> None:
+    """
+    Add annotations to a chart image.
+
+    Args:
+        chart_path: Path to the chart image
+        chart_data: Chart data dictionary
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        # Open the image
+        img = Image.open(chart_path)
+        draw = ImageDraw.Draw(img)
+
+        # Try to get a font
+        try:
+            # Try to load a font that supports astrological symbols
+            font = ImageFont.truetype("Arial", 12)
+        except IOError:
+            # Fall back to default font
+            font = ImageFont.load_default()
+
+        # Get birth details
+        birth_details = chart_data.get("birth_details", {})
+        date_str = birth_details.get("date", "")
+        time_str = birth_details.get("time", "")
+        lat_str = f"{birth_details.get('latitude', 0):.4f}"
+        lon_str = f"{birth_details.get('longitude', 0):.4f}"
+        location = birth_details.get("location", "")
+
+        # Create annotation text
+        annotation = f"Date: {date_str}  Time: {time_str}"
+        if location:
+            annotation += f"\nLocation: {location} ({lat_str}, {lon_str})"
+        else:
+            annotation += f"\nCoordinates: {lat_str}, {lon_str}"
+
+        # Use fixed size for text - simplest approach that works across all PIL versions
+        # Estimate based on character count and line count
+        char_width = 7  # Approximate width of a character in pixels
+        line_height = 15  # Approximate height of a line in pixels
+        lines = annotation.split('\n')
+        text_width = max(len(line) * char_width for line in lines)
+        text_height = len(lines) * line_height
+
+        # Calculate position for the bottom of the image
+        position = ((img.width - text_width) // 2, img.height - text_height - 10)
+
+        # Add white background for readability with a tuple for rectangle coordinates
+        rect_coords = (
+            position[0] - 5, position[1] - 5,
+            position[0] + text_width + 5, position[1] + text_height + 5
+        )
+        draw.rectangle(rect_coords, fill="white")
+
+        # Draw the text
+        draw.text(position, annotation, fill="black", font=font)
+
+        # Save the annotated image
+        img.save(chart_path)
+    except Exception as e:
+        logger.error(f"Error adding annotations: {e}")
+        # Continue without annotations if there's an error

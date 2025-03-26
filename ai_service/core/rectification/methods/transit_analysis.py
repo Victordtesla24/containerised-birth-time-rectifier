@@ -9,7 +9,7 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional, Union
 from datetime import datetime, timedelta
 import math
-import pyswisseph as swe
+import swisseph as swe
 import json
 
 # Add proper imports for dateutil and pytz

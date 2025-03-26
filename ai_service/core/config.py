@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # Session settings
     SESSION_DIR: str = os.getenv("SESSION_DIR", "/app/sessions")
     SESSION_EXPIRY_DAYS: int = int(os.getenv("SESSION_EXPIRY_DAYS", "30"))
+    SESSION_EXPIRY: int = SESSION_EXPIRY_DAYS * 24 * 60 * 60  # Convert days to seconds
+    SECURE_COOKIES: bool = os.getenv("SECURE_COOKIES", "False").lower() == "true"
 
     # Chart calculation settings
     EPHEMERIS_PATH: str = os.getenv("EPHEMERIS_PATH", "/app/ephemeris")

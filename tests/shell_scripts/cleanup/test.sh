@@ -1,0 +1,1 @@
+../tests/shell_scripts/test_manager.sh

@@ -1,0 +1,80 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Development environments
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.venv
+venv
+env
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.py[cod]
+*$py.class
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.mypy_cache
+
+# Node
+node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Build outputs
+dist
+build
+*.egg-info
+.eggs
+*.egg
+.next
+out
+
+# Documentation
+docs
+*.md
+!README.md
+!DOCKER_README.md
+
+# Test files
+coverage
+
+# Docker
+.docker
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cache directories
+.npm
+.eslintcache
+.stylelintcache
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Misc
+.DS_Store

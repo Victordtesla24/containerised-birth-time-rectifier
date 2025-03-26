@@ -1,76 +1,92 @@
 """
-Authentication service for Birth Time Rectifier API.
-Handles user management, authentication, and authorization.
+Authentication service for Birth Time Rectifier.
+
+This module provides functions for user authentication and session management.
 """
 
 import logging
-import time
-import jwt
 import uuid
+import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, Any, Optional, List, TypedDict, cast
 
-from ai_service.models.user import User, UserCreate, UserUpdate, Token
+import jwt
+import bcrypt
+from pydantic import BaseModel
 
-# Configure logging
+# Setup logging
 logger = logging.getLogger(__name__)
 
-# Initialize in-memory database
-_users_db: Dict[str, User] = {}
-_user_emails: Dict[str, str] = {}  # email -> user_id mapping
-_user_charts: Dict[str, List[str]] = {}  # user_id -> list of chart_ids
-
-# JWT configuration
-JWT_SECRET = "dev_secret_key"  # In production, use a secure environment variable
+# JWT settings
+JWT_SECRET = os.environ.get("JWT_SECRET", "DO_NOT_USE_THIS_KEY_IN_PRODUCTION")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_MINUTES = 30
+JWT_EXPIRATION_MINUTES = 60 * 24  # 24 hours
+
+# User model
+class User(TypedDict):
+    id: str
+    email: str
+    full_name: str
+    hashed_password: str
+    created_at: datetime
+    updated_at: datetime
+    preferences: Dict[str, Any]
+
+# User creation model
+class UserCreate(BaseModel):
+    email: str
+    full_name: str
+    password: str
+
+# Database integration
+from ai_service.database.repositories import UserRepository
+user_repository = UserRepository()
 
 def create_user(user_create: UserCreate) -> User:
     """
     Create a new user.
 
     Args:
-        user_create: User creation data
+        user_create: User creation model
 
     Returns:
-        Created user object
+        Created user
 
     Raises:
-        ValueError: If email is already taken
+        ValueError: If email already exists
     """
     # Check if email exists
-    if user_create.email in _user_emails:
+    if user_repository.user_exists_by_email(user_create.email):
         raise ValueError("Email already registered")
 
     # Generate user ID
     user_id = str(uuid.uuid4())
 
-    # Hash password - in a real implementation, use a secure hashing algorithm
-    # For the mock, we'll just add a prefix to simulate hashing
-    hashed_password = f"hashed_{user_create.password}"
+    # Hash password using bcrypt
+    password_bytes = user_create.password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
     # Create timestamp
     now = datetime.now()
 
-    # Create user
-    user = User(
-        id=user_id,
-        email=user_create.email,
-        full_name=user_create.full_name,
-        hashed_password=hashed_password,
-        created_at=now,
-        updated_at=now,
-        preferences={}
-    )
+    # Create user as a dictionary (compatible with UserRepository)
+    user_dict = {
+        "id": user_id,
+        "email": user_create.email,
+        "full_name": user_create.full_name,
+        "hashed_password": hashed_password,
+        "created_at": now,
+        "updated_at": now,
+        "preferences": {}
+    }
 
-    # Store user
-    _users_db[user_id] = user
-    _user_emails[user_create.email] = user_id
-    _user_charts[user_id] = []
-
+    # Store user in repository
+    user_repository.store_user(user_dict)
     logger.info(f"Created user: {user_id}")
 
-    return user
+    # Return as User type
+    return cast(User, user_dict)
 
 def authenticate_user(email: str, password: str) -> Optional[User]:
     """
@@ -83,24 +99,20 @@ def authenticate_user(email: str, password: str) -> Optional[User]:
     Returns:
         User object if authentication successful, None otherwise
     """
-    # Check if email exists
-    if email not in _user_emails:
+    # Get user by email
+    user_dict = user_repository.get_user_by_email(email)
+    if not user_dict:
         return None
 
-    # Get user ID
-    user_id = _user_emails[email]
+    # Check password with bcrypt
+    password_bytes = password.encode('utf-8')
+    hashed_password = user_dict["hashed_password"].encode('utf-8')
 
-    # Get user
-    user = _users_db[user_id]
-
-    # Check password - in a real implementation, verify hash
-    # For the mock, just compare with our simulated hash
-    expected_hash = f"hashed_{password}"
-
-    if user.hashed_password != expected_hash:
+    if not bcrypt.checkpw(password_bytes, hashed_password):
         return None
 
-    return user
+    # Convert to User type and return
+    return cast(User, user_dict)
 
 def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
     """
@@ -149,7 +161,7 @@ def verify_token(token: str) -> Optional[str]:
         user_id = payload.get("sub")
 
         # Check if user exists
-        if user_id not in _users_db:
+        if not user_repository.user_exists(user_id):
             return None
 
         return user_id
@@ -166,7 +178,8 @@ def get_user_by_id(user_id: str) -> Optional[User]:
     Returns:
         User object if found, None otherwise
     """
-    return _users_db.get(user_id)
+    user_dict = user_repository.get_user(user_id)
+    return cast(User, user_dict) if user_dict else None
 
 def convert_to_user_out(user: User) -> Dict[str, Any]:
     """
@@ -179,12 +192,12 @@ def convert_to_user_out(user: User) -> Dict[str, Any]:
         Dictionary representation of UserOut
     """
     return {
-        "id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "created_at": user.created_at,
-        "updated_at": user.updated_at,
-        "preferences": user.preferences
+        "id": user["id"],
+        "email": user["email"],
+        "full_name": user["full_name"],
+        "created_at": user["created_at"],
+        "updated_at": user["updated_at"],
+        "preferences": user["preferences"]
     }
 
 def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> bool:
@@ -198,20 +211,7 @@ def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    # Check if user exists
-    if user_id not in _users_db:
-        return False
-
-    # Get user
-    user = _users_db[user_id]
-
-    # Update preferences
-    user.preferences.update(preferences)
-
-    # Update timestamp
-    user.updated_at = datetime.now()
-
-    return True
+    return user_repository.update_preferences(user_id, preferences)
 
 def get_user_charts(user_id: str) -> List[str]:
     """
@@ -223,11 +223,7 @@ def get_user_charts(user_id: str) -> List[str]:
     Returns:
         List of chart IDs
     """
-    # Check if user exists
-    if user_id not in _user_charts:
-        return []
-
-    return _user_charts[user_id]
+    return user_repository.get_user_charts(user_id)
 
 def add_chart_to_user(user_id: str, chart_id: str) -> bool:
     """
@@ -240,18 +236,7 @@ def add_chart_to_user(user_id: str, chart_id: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    # Check if user exists
-    if user_id not in _user_charts:
-        return False
-
-    # Check if chart already saved
-    if chart_id in _user_charts[user_id]:
-        return True
-
-    # Add chart
-    _user_charts[user_id].append(chart_id)
-
-    return True
+    return user_repository.add_chart(user_id, chart_id)
 
 def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
     """
@@ -264,15 +249,4 @@ def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    # Check if user exists
-    if user_id not in _user_charts:
-        return False
-
-    # Check if chart exists
-    if chart_id not in _user_charts[user_id]:
-        return False
-
-    # Remove chart
-    _user_charts[user_id].remove(chart_id)
-
-    return True
+    return user_repository.remove_chart(user_id, chart_id)
