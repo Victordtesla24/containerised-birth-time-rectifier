@@ -1,0 +1,107 @@
+# Environment variables
+env/*
+*.env
+.env
+.env.*
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+tests/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+reports/
+
+# Test coverage
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+pytest_cache/
+.pytest_cache/
+
+# Distribution
+dist/
+build/
+
+# Vercel
+.vercel
+.vercel/
+.next/
+out/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage/
+node_modules/
+
+# Dev Containers
+.devcontainer/
+
+# VSCode
+.vscode/
+
+# Virtual Machines and Environments
+.venv/
+venv/
+
+# Ephemeris Files
+ephemeris/*
+!ephemeris/.gitkeep
+*.cat
+*.se1
+*.txt
+.ephemeris_downloaded
+
+# Secrets and API keys
+*_key.txt
+*_secret.txt
+*apikey*
+*api_key*
+*secret_key*
+*secretkey*
