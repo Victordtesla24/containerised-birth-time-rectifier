@@ -84,7 +84,7 @@ websocket-client==1.7.0  # Added for WebSocket client connections
 
 # Data visualization and chart generation
 matplotlib==3.8.3  # For chart rendering
-Pillow==10.1.0  # PIL fork for image processing
+Pillow==10.3.0  # PIL fork for image processing
 # mpl_toolkits.mplot3d is included in matplotlib, not a separate package
 
 # PDF Generation
