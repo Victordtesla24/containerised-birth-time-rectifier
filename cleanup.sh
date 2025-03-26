@@ -29,6 +29,25 @@ fi
 # Make sure the scripts are executable
 chmod +x "$CLEANUP_SCRIPT" "$DUPLICATION_SCRIPT" 2>/dev/null || true
 
+# Check for sensitive files tracked by Git
+echo "Checking for sensitive files tracked by Git..."
+if git ls-files | grep -E '\.env$|secrets|api_key|apikey|secret_key|password'; then
+    echo -e "\033[31mWARNING: Sensitive files are tracked by Git!\033[0m"
+    echo "Consider removing these files from Git with:"
+    echo "  git rm --cached [file]"
+    echo "  git commit -m \"Remove sensitive files from tracking\""
+    echo
+    echo "To remove from Git history completely:"
+    echo "  git filter-branch --force --index-filter \"git rm --cached --ignore-unmatch [file]\" --prune-empty --tag-name-filter cat -- --all"
+    echo "  git push origin --force"
+    echo
+    read -p "Do you want to continue with cleanup? (y/n): " CONTINUE
+    if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]]; then
+        echo "Exiting cleanup script"
+        exit 1
+    fi
+fi
+
 # Show usage information
 function show_usage() {
     echo -e "\033[1mBirth Time Rectifier - Cleanup Utility\033[0m"
