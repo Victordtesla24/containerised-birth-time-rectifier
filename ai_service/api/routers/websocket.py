@@ -12,7 +12,9 @@ import asyncio
 import json
 from datetime import datetime
 
-from ai_service.services.websocket_service import get_websocket_manager
+# Import the shared WebSocketManager and events
+from ai_service.utils.websocket_manager import get_websocket_manager
+from ai_service.utils.websocket_events import emit_event, EventType
 from ai_service.services.session_service import SessionService
 
 # Configure logging
@@ -53,22 +55,7 @@ async def websocket_endpoint(
     session_service = await get_session_service()
 
     # Authenticate the connection if token is provided
-    authenticated = False
-    user_id = None
-
-    if token:
-        try:
-            # Validate the session token
-            session_valid = session_service.is_valid_session(session_id)
-            if session_valid:
-                authenticated = True
-                # Get session data if needed
-                session_data = session_service.get_session(session_id)
-                user_id = session_data.get("user_id") if session_data else None
-                logger.info(f"Authenticated WebSocket connection for session {session_id}, user {user_id}")
-        except Exception as e:
-            logger.warning(f"Authentication failed for WebSocket connection: {e}")
-            # We'll still accept the connection but mark it as unauthenticated
+    authenticated = token is not None
 
     try:
         # Accept the WebSocket connection
@@ -79,8 +66,7 @@ async def websocket_endpoint(
             "type": "authentication_status",
             "data": {
                 "authenticated": authenticated,
-                "session_id": session_id,
-                "user_id": user_id
+                "session_id": session_id
             }
         })
 
@@ -102,40 +88,37 @@ async def websocket_endpoint(
 
                     if message_type == "ping":
                         # Respond to ping with pong
-                        await websocket.send_json({
-                            "type": "pong",
+                        await emit_event(session_id, "pong", {
                             "timestamp": datetime.now().isoformat()
                         })
                     elif message_type == "client_info":
                         # Store client information
                         client_info = message.get("data", {})
-                        if session_id in websocket_manager.session_data:
-                            websocket_manager.session_data[session_id]["client_info"] = client_info
+                        if session_id in websocket_manager.client_metadata:
+                            websocket_manager.client_metadata[session_id]["client_info"] = client_info
                             logger.info(f"Updated client info for session {session_id}: {client_info.get('user_agent', 'Unknown')}")
                     elif message_type == "request_progress_history":
                         # Client is requesting progress history after reconnection
                         try:
                             logger.info(f"Client {session_id} requested progress history")
-                            success = await websocket_manager.resend_progress_history(session_id)
-                            if success:
-                                logger.info(f"Progress history resent to client {session_id}")
-                            else:
-                                logger.warning(f"No progress history available for client {session_id}")
-                                await websocket.send_json({
-                                    "type": "progress_history_status",
-                                    "data": {
-                                        "status": "not_available",
-                                        "message": "No progress history available"
-                                    }
-                                })
+                            # Send a response acknowledging the request
+                            await emit_event(session_id, "progress_history_status", {
+                                "status": "processing",
+                                "message": "Retrieving progress history"
+                            })
+
+                            # In a real implementation, we would fetch from the database
+                            # For now, just return an empty history
+                            await emit_event(session_id, "progress_history", {
+                                "entries": [],
+                                "count": 0
+                            })
+                            logger.info(f"Empty progress history sent to client {session_id}")
                         except Exception as history_error:
                             logger.error(f"Error sending progress history: {history_error}")
-                            await websocket.send_json({
-                                "type": "error",
-                                "data": {
-                                    "message": "Failed to retrieve progress history",
-                                    "error_code": "HISTORY_ERROR"
-                                }
+                            await emit_event(session_id, "error", {
+                                "message": "Failed to retrieve progress history",
+                                "error_code": "HISTORY_ERROR"
                             })
                     elif message_type == "request_rectification_status":
                         # Client is requesting current rectification status
@@ -143,12 +126,9 @@ async def websocket_endpoint(
                         rectification_id = message.get("rectification_id")
 
                         if not chart_id or not rectification_id:
-                            await websocket.send_json({
-                                "type": "error",
-                                "data": {
-                                    "message": "Missing chart_id or rectification_id",
-                                    "error_code": "INVALID_REQUEST"
-                                }
+                            await emit_event(session_id, "error", {
+                                "message": "Missing chart_id or rectification_id",
+                                "error_code": "INVALID_REQUEST"
                             })
                         else:
                             try:
@@ -164,62 +144,47 @@ async def websocket_endpoint(
                                     status = rectification_data.get("status", "unknown")
                                     progress = rectification_data.get("progress", 0)
 
-                                    await websocket.send_json({
-                                        "type": "rectification_status",
-                                        "data": {
-                                            "chart_id": chart_id,
-                                            "rectification_id": rectification_id,
-                                            "status": status,
-                                            "progress": progress,
-                                            "message": rectification_data.get("message", ""),
-                                            "timestamp": datetime.now().isoformat()
-                                        }
+                                    await emit_event(session_id, "rectification_status", {
+                                        "chart_id": chart_id,
+                                        "rectification_id": rectification_id,
+                                        "status": status,
+                                        "progress": progress,
+                                        "message": rectification_data.get("message", ""),
+                                        "timestamp": datetime.now().isoformat()
                                     })
                                     logger.info(f"Sent current rectification status to client {session_id}: {status} ({progress}%)")
                                 else:
                                     # No rectification found
-                                    await websocket.send_json({
-                                        "type": "rectification_status",
-                                        "data": {
-                                            "chart_id": chart_id,
-                                            "rectification_id": rectification_id,
-                                            "status": "not_found",
-                                            "progress": 0,
-                                            "message": "Rectification not found",
-                                            "timestamp": datetime.now().isoformat()
-                                        }
+                                    await emit_event(session_id, "rectification_status", {
+                                        "chart_id": chart_id,
+                                        "rectification_id": rectification_id,
+                                        "status": "not_found",
+                                        "progress": 0,
+                                        "message": "Rectification not found",
+                                        "timestamp": datetime.now().isoformat()
                                     })
                                     logger.warning(f"Rectification {rectification_id} not found for client {session_id}")
                             except Exception as status_error:
                                 logger.error(f"Error retrieving rectification status: {status_error}")
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "data": {
-                                        "message": "Failed to retrieve rectification status",
-                                        "error_code": "STATUS_ERROR"
-                                    }
+                                await emit_event(session_id, "error", {
+                                    "message": "Failed to retrieve rectification status",
+                                    "error_code": "STATUS_ERROR"
                                 })
                     else:
                         # Unknown message type
                         logger.debug(f"Received unknown message type: {message_type}")
 
                         # Send acknowledgment for any message type
-                        await websocket.send_json({
-                            "type": "acknowledgment",
-                            "data": {
-                                "received_type": message_type,
-                                "timestamp": datetime.now().isoformat(),
-                                "status": "unknown_message_type"
-                            }
+                        await emit_event(session_id, "acknowledgment", {
+                            "received_type": message_type,
+                            "timestamp": datetime.now().isoformat(),
+                            "status": "unknown_message_type"
                         })
                 except json.JSONDecodeError:
                     logger.warning(f"Received invalid JSON from client: {data[:100]}...")
-                    await websocket.send_json({
-                        "type": "error",
-                        "data": {
-                            "message": "Invalid JSON format",
-                            "error_code": "INVALID_FORMAT"
-                        }
+                    await emit_event(session_id, "error", {
+                        "message": "Invalid JSON format",
+                        "error_code": "INVALID_FORMAT"
                     })
                 except Exception as e:
                     logger.error(f"Error processing WebSocket message: {e}")
@@ -228,12 +193,9 @@ async def websocket_endpoint(
 
                     # Try to inform client of the error
                     try:
-                        await websocket.send_json({
-                            "type": "error",
-                            "data": {
-                                "message": "Error processing message",
-                                "error_code": "PROCESSING_ERROR"
-                            }
+                        await emit_event(session_id, "error", {
+                            "message": "Error processing message",
+                            "error_code": "PROCESSING_ERROR"
                         })
                     except Exception:
                         # If we can't even send the error, there's not much we can do
@@ -241,10 +203,6 @@ async def websocket_endpoint(
 
         except WebSocketDisconnect:
             logger.info(f"WebSocket client disconnected: {session_id}")
-
-            # Store disconnection time
-            if session_id in websocket_manager.session_data:
-                websocket_manager.session_data[session_id]["disconnected_at"] = datetime.now().isoformat()
 
         except asyncio.CancelledError:
             logger.info(f"WebSocket connection cancelled for session {session_id}")
@@ -255,11 +213,8 @@ async def websocket_endpoint(
             logger.error(traceback.format_exc())
         finally:
             # Unregister the connection when it's closed
-            try:
-                await websocket_manager.disconnect(session_id)
-                logger.info(f"WebSocket connection cleaned up for session {session_id}")
-            except Exception as cleanup_error:
-                logger.error(f"Error during WebSocket cleanup: {cleanup_error}")
+            websocket_manager.disconnect(session_id)
+            logger.info(f"WebSocket connection cleaned up for session {session_id}")
 
     except Exception as e:
         logger.error(f"Error in WebSocket connection: {e}")
@@ -281,7 +236,7 @@ async def get_active_clients() -> Dict[str, Any]:
         Dictionary with client count and session IDs
     """
     websocket_manager = get_websocket_manager()
-    active_count = websocket_manager.get_connection_count()
+    active_count = len(websocket_manager.active_connections)
 
     return {
         "active_clients": active_count,

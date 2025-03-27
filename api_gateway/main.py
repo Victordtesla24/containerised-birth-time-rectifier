@@ -7,7 +7,7 @@ Includes WebSocket proxy functionality for real-time updates.
 """
 
 from fastapi import FastAPI, Request, Depends, HTTPException, status, APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import time
@@ -21,6 +21,7 @@ import asyncio
 from datetime import datetime
 import json
 import concurrent.futures
+import starlette.requests
 
 # Import WebSocket proxy
 from api_gateway.websocket_proxy import proxy as websocket_proxy
@@ -28,6 +29,7 @@ from api_gateway.websocket_proxy import proxy as websocket_proxy
 # Import routers
 from api_gateway.routes.chart import router as chart_router
 from api_gateway.routes.questionnaire import router as questionnaire_router
+from api_gateway.routes.session import router as session_router
 
 # Import rate limiter
 from api_gateway.middleware.rate_limiter import add_rate_limiter
@@ -83,10 +85,70 @@ if redis_url:
             rate_limit=int(os.getenv("RATE_LIMIT", "60")),
             window=int(os.getenv("RATE_LIMIT_WINDOW", "60"))
         )
-        logger.info("Rate limiting middleware added")
+        logger.info("Rate limiting middleware added with Redis")
     except Exception as e:
-        logger.error(f"Failed to add rate limiting middleware: {e}")
-        logger.warning("Rate limiting will not be enforced")
+        logger.warning(f"Failed to add Redis rate limiting middleware: {e}")
+        logger.info("Falling back to in-memory rate limiting")
+        try:
+            # Add in-memory rate limiting as fallback
+            from fastapi.middleware.trustedhost import TrustedHostMiddleware
+            from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+            from starlette.middleware.base import BaseHTTPMiddleware
+            from datetime import datetime, timedelta
+            from collections import defaultdict
+            import threading
+
+            # Simple in-memory rate limiter
+            class InMemoryRateLimiter(BaseHTTPMiddleware):
+                def __init__(self, app, rate_limit: int = 60, window: int = 60):
+                    super().__init__(app)
+                    self.rate_limit = rate_limit
+                    self.window = window
+                    self.requests = defaultdict(list)
+                    self.lock = threading.Lock()
+
+                async def dispatch(self, request: Request, call_next):
+                    # Get client IP safely
+                    client_ip = "unknown"
+                    if request.client and hasattr(request.client, "host"):
+                        client_ip = request.client.host
+                    else:
+                        # Try to get IP from headers
+                        forwarded_for = request.headers.get("X-Forwarded-For")
+                        if forwarded_for:
+                            client_ip = forwarded_for.split(",")[0].strip()
+                        else:
+                            client_ip = request.headers.get("X-Real-IP", "unknown")
+
+                    now = datetime.now()
+
+                    with self.lock:
+                        # Clean old requests
+                        self.requests[client_ip] = [
+                            req_time for req_time in self.requests[client_ip]
+                            if now - req_time < timedelta(seconds=self.window)
+                        ]
+
+                        # Check rate limit
+                        if len(self.requests[client_ip]) >= self.rate_limit:
+                            return JSONResponse(
+                                status_code=429,
+                                content={"error": "Too many requests"}
+                            )
+
+                        self.requests[client_ip].append(now)
+
+                    return await call_next(request)
+
+            app.add_middleware(
+                InMemoryRateLimiter,
+                rate_limit=int(os.getenv("RATE_LIMIT", "60")),
+                window=int(os.getenv("RATE_LIMIT_WINDOW", "60"))
+            )
+            logger.info("In-memory rate limiting middleware added as fallback")
+        except Exception as fallback_error:
+            logger.error(f"Failed to add in-memory rate limiting: {fallback_error}")
+            logger.warning("Rate limiting will not be enforced")
 
 # Add security headers middleware
 @app.middleware("http")
@@ -146,22 +208,10 @@ async def health_check():
 v1_router = APIRouter(prefix="/api/v1")
 v1_router.include_router(chart_router, prefix="/chart", tags=["Chart"])
 v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
+v1_router.include_router(session_router, prefix="/session", tags=["Session"])
 
 # Make sure the v1_router is included with the app
 app.include_router(v1_router)
-
-# Add session endpoint
-@v1_router.get("/session/init")
-async def init_session():
-    """Initialize a new session and return session details"""
-    session_id = str(uuid.uuid4())
-    response = {
-        "session_id": session_id,
-        "status": "success",
-        "created_at": time.time()
-    }
-    logger.info(f"Session initialized: {session_id}")
-    return response
 
 # Add health endpoint to v1 router
 @v1_router.get("/health")
@@ -175,388 +225,98 @@ async def v1_health_check():
         "path": "/api/v1/health"
     }
 
-# Add geocode endpoint to v1 router
-@v1_router.post("/geocode/geocode")
-async def geocode_location(request: Request):
+# Specific implementation for the /api/geocode endpoint as per sequence diagram
+@app.post("/api/geocode")
+async def geocode_endpoint(request: Request):
     """
     Geocode a location and return coordinates and address details.
 
-    This endpoint forwards geocoding requests to the AI service, which
-    handles the actual geocoding through various providers.
+    Simplified implementation based on working code.
     """
-    # Parse request body
     try:
-        body = await request.json()
-        query = body.get("query", "")
-        exactly_one = body.get("exactly_one", False)
-        limit = body.get("limit", 5)
+        # Get session ID from header or cookie
+        session_id = request.headers.get("X-Session-ID", request.cookies.get(SESSION_COOKIE_NAME, ""))
 
-        if not query or not isinstance(query, str):
+        # Parse request body
+        try:
+            body = await request.json()
+            query = body.get("query", "")
+            if not query:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Missing query parameter"}
+                )
+        except Exception as e:
+            logger.error(f"Error parsing request body: {str(e)}")
             return JSONResponse(
                 status_code=400,
-                content={"error": "Missing or invalid 'query' parameter"}
+                content={"error": f"Invalid JSON format: {str(e)}"}
             )
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in request body: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Invalid JSON format: {str(e)}"}
-        )
-    except Exception as e:
-        logger.error(f"Error parsing request body: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={"error": f"Error parsing request: {str(e)}"}
-        )
 
-    # Get session ID from cookie or headers
-    session_id = request.cookies.get(SESSION_COOKIE_NAME, request.headers.get("X-Session-ID", ""))
+        # Forward to AI service with short timeout
+        timeout = httpx.Timeout(5.0, connect=3.0)
+        logger.info(f"Geocoding request for '{query}' with session: {session_id}")
 
-    # Forward request to AI service
-    try:
-        # Use increased timeout for geocoding operations
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        # Make request to AI service
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             response = await client.post(
-                f"{AI_SERVICE_URL}/api/v1/geocode/geocode",
-                json={
-                    "query": query,
-                    "exactly_one": exactly_one,
-                    "limit": limit
-                },
+                f"{AI_SERVICE_URL}/api/v1/geocode",
+                json=body,
                 headers={
+                    "Content-Type": "application/json",
                     "X-Session-ID": session_id,
-                    "X-Request-ID": str(uuid.uuid4()),
-                    "Content-Type": "application/json"
+                    "X-Request-ID": str(uuid.uuid4())
                 }
             )
 
-            # Return response from AI service
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.json()
-            )
+            # Handle response
+            if response.status_code == 200:
+                logger.info(f"Geocode successful for '{query}'")
+                return response.json()
+            else:
+                logger.error(f"Geocode error: {response.status_code} - {response.text[:100]}")
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content={"error": f"Geocode service error: {response.status_code}"}
+                )
     except httpx.TimeoutException as e:
-        logger.error(f"Geocoding request timed out for query: {query}: {str(e)}")
+        logger.error(f"Geocode request timed out: {str(e)}")
         return JSONResponse(
             status_code=504,
-            content={
-                "results": [],
-                "query": query,
-                "count": 0,
-                "status": "error",
-                "error": "Geocoding service timed out. Please try again later."
-            }
-        )
-    except httpx.RequestError as e:
-        logger.error(f"Geocoding request error for query '{query}': {e}")
-        return JSONResponse(
-            status_code=502,
-            content={
-                "results": [],
-                "query": query,
-                "count": 0,
-                "status": "error",
-                "error": f"Error connecting to geocoding service: {str(e)}"
-            }
+            content={"error": "Geocode service timed out"}
         )
     except Exception as e:
-        logger.error(f"Unexpected error in geocoding request for query '{query}': {e}")
+        logger.error(f"Error in geocode endpoint: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={
-                "results": [],
-                "query": query,
-                "count": 0,
-                "status": "error",
-                "error": f"Internal server error: {str(e)}"
-            }
+            content={"error": str(e)}
         )
 
-@v1_router.post("/geocode/geocode/reverse")
-async def reverse_geocode(request: Request):
-    """
-    Reverse geocode coordinates to address details.
-
-    This endpoint forwards reverse geocoding requests to the AI service.
-    """
-    # Parse request body
-    try:
-        body = await request.json()
-        latitude = body.get("latitude")
-        longitude = body.get("longitude")
-
-        # Validate coordinates
-        if latitude is None or longitude is None:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "results": [],
-                    "query": f"{latitude},{longitude}" if latitude is not None and longitude is not None else "",
-                    "count": 0,
-                    "status": "error",
-                    "error": "Missing 'latitude' or 'longitude' parameters"
-                }
-            )
-
-        try:
-            latitude = float(latitude)
-            longitude = float(longitude)
-
-            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "results": [],
-                        "query": f"{latitude},{longitude}",
-                        "count": 0,
-                        "status": "error",
-                        "error": "Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180"
-                    }
-                )
-        except (ValueError, TypeError):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "results": [],
-                    "query": f"{latitude},{longitude}" if latitude is not None and longitude is not None else "",
-                    "count": 0,
-                    "status": "error",
-                    "error": "Invalid coordinates: latitude and longitude must be numbers"
-                }
-            )
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in request body: {e}")
+# API v1 routes - exclude /api/geocode from this catch-all
+@app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
+async def api_proxy_v1(request: Request, path: str):
+    """Proxy requests to AI service"""
+    # Skip proxying if this is a geocode request (we handle it directly above)
+    if request.url.path == "/api/geocode" and request.method == "POST":
         return JSONResponse(
-            status_code=400,
-            content={
-                "results": [],
-                "query": "",
-                "count": 0,
-                "status": "error",
-                "error": f"Invalid JSON format: {str(e)}"
-            }
+            status_code=405,
+            content={"error": "Method not allowed for this path"}
         )
-    except Exception as e:
-        logger.error(f"Error parsing request body: {e}")
+
+    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/api/v1/{path}")
+
+# Legacy API routes (without /api/v1 prefix) - exclude /api/geocode from this catch-all
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
+async def api_proxy(request: Request, path: str):
+    """Proxy requests to AI service"""
+    # Skip proxying if this is a geocode request (we handle it directly above)
+    if request.url.path == "/api/geocode" and request.method == "POST":
         return JSONResponse(
-            status_code=400,
-            content={
-                "results": [],
-                "query": "",
-                "count": 0,
-                "status": "error",
-                "error": f"Error parsing request: {str(e)}"
-            }
+            status_code=405,
+            content={"error": "Method not allowed for this path"}
         )
 
-    # Get session ID from cookie or headers
-    session_id = request.cookies.get(SESSION_COOKIE_NAME, request.headers.get("X-Session-ID", ""))
-
-    # Forward request to AI service
-    try:
-        # Use increased timeout for geocoding operations
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{AI_SERVICE_URL}/api/v1/geocode/geocode/reverse",
-                json={
-                    "latitude": latitude,
-                    "longitude": longitude
-                },
-                headers={
-                    "X-Session-ID": session_id,
-                    "X-Request-ID": str(uuid.uuid4()),
-                    "Content-Type": "application/json"
-                }
-            )
-
-            # Return response from AI service
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.json()
-            )
-    except httpx.TimeoutException:
-        logger.error(f"Reverse geocoding request timed out for coordinates: {latitude}, {longitude}")
-        return JSONResponse(
-            status_code=504,
-            content={
-                "results": [],
-                "query": f"{latitude},{longitude}",
-                "count": 0,
-                "status": "error",
-                "error": "Reverse geocoding service timed out. Please try again later."
-            }
-        )
-    except httpx.RequestError as e:
-        logger.error(f"Reverse geocoding request error for coordinates {latitude}, {longitude}: {e}")
-        return JSONResponse(
-            status_code=502,
-            content={
-                "results": [],
-                "query": f"{latitude},{longitude}",
-                "count": 0,
-                "status": "error",
-                "error": f"Error connecting to reverse geocoding service: {str(e)}"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error in reverse geocoding request for coordinates {latitude}, {longitude}: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "results": [],
-                "query": f"{latitude},{longitude}",
-                "count": 0,
-                "status": "error",
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
-
-@v1_router.post("/geocode/geocode/timezone")
-async def get_timezone(request: Request):
-    """
-    Get timezone information for coordinates.
-
-    This endpoint forwards timezone requests to the AI service.
-    """
-    # Parse request body
-    try:
-        body = await request.json()
-        latitude = body.get("latitude")
-        longitude = body.get("longitude")
-
-        # Validate coordinates
-        if latitude is None or longitude is None:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "coordinates": "",
-                    "status": "error",
-                    "error": "Missing 'latitude' or 'longitude' parameters"
-                }
-            )
-
-        try:
-            latitude = float(latitude)
-            longitude = float(longitude)
-
-            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "coordinates": f"{latitude},{longitude}",
-                        "status": "error",
-                        "error": "Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180"
-                    }
-                )
-        except (ValueError, TypeError):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "coordinates": f"{latitude},{longitude}" if latitude is not None and longitude is not None else "",
-                    "status": "error",
-                    "error": "Invalid coordinates: latitude and longitude must be numbers"
-                }
-            )
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in request body: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={
-                "coordinates": "",
-                "status": "error",
-                "error": f"Invalid JSON format: {str(e)}"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error parsing request body: {e}")
-        return JSONResponse(
-            status_code=400,
-            content={
-                "coordinates": "",
-                "status": "error",
-                "error": f"Error parsing request: {str(e)}"
-            }
-        )
-
-    # Get session ID from cookie or headers
-    session_id = request.cookies.get(SESSION_COOKIE_NAME, request.headers.get("X-Session-ID", ""))
-
-    # Forward request to AI service
-    try:
-        # Use increased timeout for timezone operations
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{AI_SERVICE_URL}/api/v1/geocode/geocode/timezone",
-                json={
-                    "latitude": latitude,
-                    "longitude": longitude
-                },
-                headers={
-                    "X-Session-ID": session_id,
-                    "X-Request-ID": str(uuid.uuid4()),
-                    "Content-Type": "application/json"
-                }
-            )
-
-            # Return response from AI service
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.json()
-            )
-    except httpx.TimeoutException:
-        logger.error(f"Timezone request timed out for coordinates: {latitude}, {longitude}")
-        return JSONResponse(
-            status_code=504,
-            content={
-                "coordinates": f"{latitude},{longitude}",
-                "timezone": {
-                    "timezone_id": "UTC",
-                    "timezone_name": "Coordinated Universal Time",
-                    "dst_offset": 0,
-                    "raw_offset": 0,
-                    "total_offset": 0,
-                    "source": "utc_standard"
-                },
-                "status": "error",
-                "error": "Timezone service timed out. Please try again later."
-            }
-        )
-    except httpx.RequestError as e:
-        logger.error(f"Timezone request error for coordinates {latitude}, {longitude}: {e}")
-        return JSONResponse(
-            status_code=502,
-            content={
-                "coordinates": f"{latitude},{longitude}",
-                "timezone": {
-                    "timezone_id": "UTC",
-                    "timezone_name": "Coordinated Universal Time",
-                    "dst_offset": 0,
-                    "raw_offset": 0,
-                    "total_offset": 0,
-                    "source": "utc_standard"
-                },
-                "status": "error",
-                "error": f"Error connecting to timezone service: {str(e)}"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error in timezone request for coordinates {latitude}, {longitude}: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "coordinates": f"{latitude},{longitude}",
-                "timezone": {
-                    "timezone_id": "UTC",
-                    "timezone_name": "Coordinated Universal Time",
-                    "dst_offset": 0,
-                    "raw_offset": 0,
-                    "total_offset": 0,
-                    "source": "utc_standard"
-                },
-                "status": "error",
-                "error": f"Internal server error: {str(e)}"
-            }
-        )
+    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/{path}")
 
 # WebSocket endpoints
 @app.websocket("/ws/{session_id}")
@@ -684,48 +444,123 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as cleanup_error:
             logger.warning(f"Error during WebSocket cleanup: {str(cleanup_error)}")
 
-# API v1 routes
-@app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
-async def api_proxy_v1(request: Request, path: str):
-    """Proxy requests to AI service"""
-    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/api/v1/{path}")
-
-# Legacy API routes (without /api/v1 prefix)
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
-async def api_proxy(request: Request, path: str):
-    """Proxy requests to AI service"""
-    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/{path}")
-
 # Proxy function to forward requests to AI service
 async def proxy_to_ai_service(request: Request, path: str, target_url: str):
-    """Proxy requests to AI service with proper error handling"""
+    """
+    Proxy requests to AI service.
+
+    Args:
+        request: The incoming request
+        path: The path of the request
+        target_url: The target URL to proxy to
+
+    Returns:
+        Response from AI service
+    """
     try:
-        body = await request.body()
-        method = request.method
-        headers = dict(request.headers)
+        # Get session ID from cookie or headers
+        session_id = request.cookies.get(SESSION_COOKIE_NAME, request.headers.get("X-Session-ID", ""))
 
-        # Remove host header to avoid conflicts
-        headers.pop("host", None)
+        # Get request headers, removing CORS headers and adding session ID
+        headers = {k: v for k, v in request.headers.items()
+                  if k.lower() not in ["host", "cookie", "connection", "content-length"]}
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(
-                method=method,
-                url=target_url,
-                headers=headers,
-                content=body,
-                follow_redirects=True,
-            )
+        # Add request ID and session ID if available
+        if session_id:
+            headers["X-Session-ID"] = session_id
+        headers["X-Request-ID"] = str(uuid.uuid4())
 
+        # Create HTTP client with appropriate timeout
+        timeout = 60.0  # Default timeout in seconds
+        if "stream" in path.lower() or "export" in path.lower():
+            timeout = 300.0  # Higher timeout for streaming and export endpoints
+
+        # Include query parameters in the target URL
+        query_string = request.url.query
+        if query_string:
+            target_url = f"{target_url}?{query_string}"
+
+        logger.info(f"Proxying {request.method} request to {target_url}")
+
+        # Get request body with proper error handling
+        try:
+            body = await request.body()
+        except starlette.requests.ClientDisconnect:
+            logger.warning(f"Client disconnected while reading request body for {path}")
             return JSONResponse(
-                content=response.json() if response.headers.get("content-type") == "application/json" else response.text,
-                status_code=response.status_code,
-                headers=dict(response.headers)
+                status_code=499,  # Client Closed Request
+                content={"error": "Client disconnected"}
             )
-    except Exception as e:
-        logger.error(f"Proxy error for {path}: {str(e)}")
+
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            try:
+                response = await client.request(
+                    method=request.method,
+                    url=target_url,
+                    headers=headers,
+                    content=body
+                )
+
+                # Handle streaming responses differently
+                if "stream" in path.lower():
+                    return StreamingResponse(
+                        response.aiter_bytes(),
+                        status_code=response.status_code,
+                        headers=dict(response.headers)
+                    )
+
+                # For regular responses, try to parse JSON
+                try:
+                    content = response.json() if response.headers.get("content-type", "").startswith("application/json") else {"message": response.text}
+                except json.JSONDecodeError:
+                    content = {"message": response.text}
+
+                # Log non-200 responses
+                if response.status_code >= 400:
+                    logger.error(f"AI service returned error for {path}: {response.status_code} - {response.text[:500]}")
+
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content=content
+                )
+
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP status error for {path}: {e}")
+                return JSONResponse(
+                    status_code=e.response.status_code,
+                    content={"error": f"AI service returned error: {e.response.text}"}
+                )
+            except httpx.TimeoutException as e:
+                logger.error(f"Request timeout for {path}: {e}")
+                return JSONResponse(
+                    status_code=504,
+                    content={"error": "Request timed out"}
+                )
+            except Exception as e:
+                logger.error(f"Error proxying request to AI service: {e}")
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": f"Error communicating with AI service: {str(e)}"}
+                )
+
+    except starlette.requests.ClientDisconnect:
+        logger.warning(f"Client disconnected during request processing for {path}")
         return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content={"detail": "Error connecting to backend service"}
+            status_code=499,  # Client Closed Request
+            content={"error": "Client disconnected"}
+        )
+    except httpx.RequestError as e:
+        logger.error(f"Proxy error for {path}: {e}")
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"Could not connect to AI service: {str(e)}"}
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error proxying {path}: {e}")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Internal server error: {str(e)}"}
         )
 
 # Global exception handler
@@ -763,7 +598,94 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=3000,
         reload=True,
         log_level="info"
+    )
+
+@app.post("/api/geocode/simple")
+async def geocode_endpoint_simple(request: Request):
+    """Simplified geocoding endpoint for debugging"""
+
+    try:
+        # Simple fixed query to test service
+        query = "New York City"
+
+        # Log what we're doing
+        logger.info(f"Simple geocode test with fixed query: '{query}'")
+
+        # Forward directly to AI service with shorter timeout
+        timeout = httpx.Timeout(7.0, connect=3.0)
+
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            endpoint = f"{AI_SERVICE_URL}/api/v1/geocode"
+
+            logger.info(f"Sending test request to: {endpoint}")
+
+            response = await client.post(
+                endpoint,
+                json={"query": query, "limit": 1, "exactly_one": True},
+                headers={"Content-Type": "application/json"}
+            )
+
+            logger.info(f"Response status: {response.status_code}")
+
+            if response.status_code == 200:
+                logger.info("Geocode test successful!")
+                return response.json()
+            else:
+                logger.error(f"Geocode test failed: {response.text[:100]}")
+                return {
+                    "error": "Geocode test failed",
+                    "status_code": response.status_code,
+                    "details": response.text[:100]
+                }
+
+    except httpx.TimeoutException as e:
+        logger.error(f"Timeout in simple geocode test: {str(e)}")
+        return {"error": f"Timeout: {str(e)}"}
+    except Exception as e:
+        logger.error(f"Error in simple geocode test: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {"error": str(e)}
+
+@app.post("/api/geocode/minimal")
+async def geocode_endpoint_minimal(request: Request):
+    """Most minimal geocoding endpoint possible for testing."""
+    await asyncio.sleep(0.1)  # Minimal delay
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "message": "Hardcoded test response",
+            "query": "New York City",
+            "results": [
+                {
+                    "address": "New York City, NY, USA",
+                    "latitude": 40.7128,
+                    "longitude": -74.006,
+                    "provider": "test"
+                }
+            ]
+        }
+    )
+
+@app.post("/api/geocode/static")
+async def geocode_static():
+    """Static geocode endpoint that doesn't call any external service."""
+    await asyncio.sleep(0.1)  # Small delay
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "message": "Static geocode response",
+            "results": [
+                {
+                    "address": "New York City, NY, USA",
+                    "latitude": 40.7128,
+                    "longitude": -74.006,
+                    "provider": "static"
+                }
+            ]
+        }
     )

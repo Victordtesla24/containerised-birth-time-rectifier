@@ -22,7 +22,7 @@ from ai_service.utils.flatlib_compat import BasicChartCalculator
 from ai_service.api.services.openai import get_openai_service
 
 # Import WebSocket for realtime updates
-from ai_service.services.websocket_service import get_websocket_manager
+from ai_service.utils.websocket_events import emit_event, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -804,36 +804,33 @@ Structure your response as follows:
         return corrected_chart
 
     async def _send_verification_status(self, session_id: str, status: str,
-                                     message: str, progress: float) -> None:
+                                     message: str, progress: float) -> bool:
         """
-        Send verification status updates via WebSocket.
+        Send a verification status update via WebSocket.
 
         Args:
-            session_id: Session ID for WebSocket channel
-            status: Current verification status
-            message: Status message
-            progress: Progress as a float between 0 and 1
+            session_id: The session ID to send the update to
+            status: The current status of verification
+            message: A human-readable status message
+            progress: Progress value between 0 and 1
+
+        Returns:
+            True if update was sent successfully, False otherwise
         """
         try:
-            websocket_manager = get_websocket_manager()
-            if not websocket_manager:
-                logger.warning("WebSocket manager not available for sending verification updates")
-                return
-
-            # Create the message payload
-            payload = {
-                "type": "chart_verification_status",
+            # Create verification status data
+            data = {
                 "status": status,
                 "message": message,
                 "progress": progress,
                 "timestamp": datetime.now().isoformat()
             }
 
-            # Send the message via WebSocket
-            await websocket_manager.send_message(session_id, message_type="chart_verification_status", data=payload)
-            logger.debug(f"Sent verification status update to session {session_id}: {status}")
+            # Use the shared emit_event function
+            return await emit_event(session_id, EventType.VERIFICATION_PROGRESS, data)
         except Exception as e:
-            logger.error(f"Error sending verification status update: {e}")
+            logger.error(f"Error sending verification status: {e}")
+            return False
 
 
 # Create a singleton instance

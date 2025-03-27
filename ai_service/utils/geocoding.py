@@ -71,7 +71,7 @@ async def get_http_client() -> httpx.AsyncClient:
         _http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=10.0),
             follow_redirects=True,
-            http2=True
+            http2=False
         )
         logger.info("Created shared HTTP client for geocoding services")
     return _http_client

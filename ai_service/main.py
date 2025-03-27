@@ -20,7 +20,7 @@ import traceback
 
 # Setup logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
@@ -28,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Local imports
-from ai_service.utils.env_loader import load_env_file
+from ai_service.utils.env_loader import load_env_file, get_env_with_fallback
 from ai_service.app_startup import initialize_application, lifespan
 
 # Load environment variables
@@ -69,6 +69,42 @@ def health_check():
         "direct_access": True
     }
 
+# Add a debug endpoint to check if OpenAI API key is being loaded
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variables."""
+    # Get the OpenAI API key with fallback to .env file
+    api_key = get_env_with_fallback("OPENAI_API_KEY")
+
+    # Mask the API key for security
+    masked_key = "Not set"
+    if api_key:
+        masked_key = f"{api_key[:5]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
+
+    # Check if .env file exists
+    env_file_exists = os.path.exists("/.env")
+    app_env_exists = os.path.exists("/app/.env")
+    cwd_env_exists = os.path.exists(".env")
+
+    # Get current directory
+    current_dir = os.getcwd()
+
+    # List environment paths that are checked
+    env_paths = [
+        {"path": "/.env", "exists": env_file_exists},
+        {"path": "/app/.env", "exists": app_env_exists},
+        {"path": ".env", "exists": cwd_env_exists},
+        {"path": "../.env", "exists": os.path.exists("../.env")},
+    ]
+
+    return {
+        "env_paths": env_paths,
+        "current_directory": current_dir,
+        "openai_api_key_masked": masked_key,
+        "openai_api_key_set": bool(api_key),
+        "environment": os.environ.get("ENVIRONMENT", "unknown")
+    }
+
 # Run startup initialization
 @app.on_event("startup")
 async def startup_event():
@@ -93,6 +129,17 @@ try:
     logger.info("Chart router included")
 except ImportError:
     logger.warning("Chart router not found")
+
+# Explicitly include the geocode router
+try:
+    from ai_service.api.routers.geocode import router as geocode_router
+    # Include it directly with the proper prefix
+    app.include_router(geocode_router, prefix="/api/geocode")
+    # Also include it with the v1 prefix for API versioning
+    app.include_router(geocode_router, prefix="/api/v1/geocode")
+    logger.info("Geocode router explicitly included")
+except ImportError as e:
+    logger.error(f"Geocode router import failed: {e}")
 
 # Import V1 API router for tests
 try:
@@ -119,7 +166,32 @@ from ai_service.api.middleware.legacy_support import PathRewriterMiddleware
 app.add_middleware(PathRewriterMiddleware)
 
 # Import and add session middleware
-from ai_service.api.middleware.session import session_middleware
+from ai_service.api.middleware.session import session_middleware, enable_test_mode
+
+# Check if Redis is available, if not enable test mode for in-memory sessions
+try:
+    import redis
+    from ai_service.utils.env_loader import get_env_with_fallback
+    redis_url = get_env_with_fallback("REDIS_URL", "redis://localhost:6379")
+
+    if redis_url:
+        try:
+            redis_client = redis.from_url(redis_url)
+            if redis_client:
+                redis_client.ping()  # Test connection
+                logger.info("Redis connection successful, using Redis for sessions")
+            else:
+                raise Exception("Redis client is None")
+        except Exception as e:
+            logger.warning(f"Redis connection failed: {e}, enabling in-memory session storage")
+            enable_test_mode()  # Enable in-memory sessions as fallback
+    else:
+        logger.warning("No Redis URL provided, enabling in-memory session storage")
+        enable_test_mode()
+except ImportError:
+    logger.warning("Redis package not installed, enabling in-memory session storage")
+    enable_test_mode()  # Enable in-memory sessions as fallback
+
 app.add_middleware(session_middleware)
 
 # Add request logging middleware

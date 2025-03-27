@@ -1,5 +1,8 @@
 """
-Chart service implementation.
+Chart service adapter for API layer.
+
+This module provides a thin wrapper around the canonical ChartService implementation
+to handle database operations and API-specific concerns.
 """
 
 import logging
@@ -11,11 +14,16 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class ChartService:
-    """Service for accessing and managing chart data."""
+    """
+    Database and API adapter for the canonical ChartService.
+
+    This class handles database operations and delegates chart generation
+    to the canonical ChartService implementation.
+    """
 
     def __init__(self, db_connection=None):
         """
-        Initialize the chart service.
+        Initialize the chart service adapter.
 
         Args:
             db_connection: Database connection (required)
@@ -24,11 +32,31 @@ class ChartService:
             raise ValueError("Database connection is required for chart service")
 
         self.db_connection = db_connection
-        logger.info("Chart service initialized with database connection")
+        logger.info("Chart service adapter initialized with database connection")
 
         # Initialize cache for improved performance
-        # Note: This is not a fallback - just a performance optimization
         self.chart_cache = {}
+
+        # The canonical chart service (lazy-loaded)
+        self._canonical_service = None
+
+    async def _get_canonical_service(self):
+        """
+        Get or initialize the canonical chart service.
+
+        Returns:
+            The canonical ChartService instance
+        """
+        if self._canonical_service is None:
+            # Import here to avoid circular imports
+            from ai_service.services import get_chart_service
+            self._canonical_service = get_chart_service()
+
+            # Ensure it's initialized
+            if hasattr(self._canonical_service, 'ensure_initialized'):
+                await self._canonical_service.ensure_initialized()
+
+        return self._canonical_service
 
     async def get_chart(self, chart_id: str) -> Dict[str, Any]:
         """
@@ -213,7 +241,7 @@ class ChartService:
         chart_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Generate an astrological chart based on birth details with OpenAI verification.
+        Generate an astrological chart based on birth details.
 
         Args:
             birth_date: Date of birth (YYYY-MM-DD)
@@ -232,38 +260,112 @@ class ChartService:
         Returns:
             Dict containing chart data
         """
-        logger.info("ChartService.generate_chart called - using delegated implementation")
+        logger.info("ChartService.generate_chart called - delegating to canonical implementation")
 
         try:
-            # Import here to avoid circular imports
-            from ai_service.services import get_chart_service
-            from ai_service.services.chart_service import ChartService as MainChartService
+            # Get canonical service
+            canonical_service = await self._get_canonical_service()
 
-            # Use the complete implementation from the main chart service
-            main_chart_service = get_chart_service()
+            # Map house system from API format to canonical format
+            house_system_map = {
+                "P": "placidus",
+                "K": "koch",
+                "R": "regiomontanus",
+                "C": "campanus",
+                "E": "equal",
+                "W": "whole_sign",
+                "B": "equal",  # Bharatiya Jyotish uses equal houses
+                "A": "alcabitius"
+            }
+            canonical_house_system = house_system_map.get(house_system, "placidus")
 
-            # Type hint to fix linter error
-            assert isinstance(main_chart_service, MainChartService)
+            # Map zodiac type
+            chart_type = "vedic" if zodiac_type.lower() == "sidereal" else "tropical"
 
-            # Call the main chart service implementation with proper parameters
-            chart_data = main_chart_service.calculate_chart(
+            # Call the canonical chart service with mapped parameters
+            chart_data = canonical_service.calculate_chart(
                 birth_date=birth_date,
                 birth_time=birth_time,
                 latitude=latitude,
                 longitude=longitude,
                 timezone=timezone,
-                chart_type="vedic",
-                house_system="placidus",
+                chart_type=chart_type,
+                house_system=canonical_house_system,
                 verify_with_openai=verify_with_openai
             )
 
-            # Save the chart in our database as well
-            if chart_data and "chart_id" in chart_data:
+            # Use provided chart_id if specified
+            if chart_id and chart_data:
+                chart_data["chart_id"] = chart_id
+
+            # Add location if provided
+            if location and chart_data:
+                chart_data["location"] = location
+
+            # Store additional parameters that might be useful
+            if chart_data:
+                chart_data["calculation_parameters"] = {
+                    "zodiac_type": zodiac_type,
+                    "house_system": house_system,
+                    "ayanamsa": ayanamsa,
+                    "node_type": node_type
+                }
+
+            # Save the chart to database
+            if chart_data:
                 await self.save_chart(chart_data)
 
             return chart_data
+
         except Exception as e:
             logger.error(f"Error in ChartService.generate_chart: {e}")
+            raise
+
+    async def generate_chart_visualization(self, chart_data: Dict[str, Any], format: str = "vedic") -> Dict[str, Any]:
+        """
+        Generate a chart visualization.
+
+        Args:
+            chart_data: Chart data to visualize
+            format: Visualization format ('vedic' or 'western')
+
+        Returns:
+            Dict with visualization metadata including file path
+        """
+        try:
+            # Get canonical service
+            canonical_service = await self._get_canonical_service()
+
+            # Delegate to the appropriate visualization method
+            if format.lower() == "vedic":
+                return canonical_service.generate_vedic_kundli_chart(chart_data)
+            else:
+                return canonical_service.generate_western_chart(chart_data)
+
+        except Exception as e:
+            logger.error(f"Error generating chart visualization: {e}")
+            raise
+
+    async def export_chart(self, chart_data: Dict[str, Any], format: str = "pdf") -> Dict[str, Any]:
+        """
+        Export a chart to the specified format.
+
+        Args:
+            chart_data: Chart data to export
+            format: Export format (pdf, png, jpg, svg)
+
+        Returns:
+            Dict with export metadata including file path
+        """
+        try:
+            # Get canonical service
+            canonical_service = await self._get_canonical_service()
+
+            # Delegate to the canonical export method
+            return canonical_service.export_chart(chart_data, format=format)
+
+        except Exception as e:
+            logger.error(f"Error exporting chart: {e}")
             raise
 
 # Singleton instance

@@ -22,7 +22,7 @@ from ai_service.core.rectification.chart_calculator import calculate_verified_ch
 from ai_service.api.routers.consolidated_chart.utils import store_chart, retrieve_chart
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES
 from ai_service.models.unified_model import UnifiedRectificationModel
-from ai_service.api.websocket_events import emit_event, emit_rectification_progress, EventType
+from ai_service.utils.websocket_events import emit_event, emit_rectification_progress, EventType
 import asyncio
 import os
 

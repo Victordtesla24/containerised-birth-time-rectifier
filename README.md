@@ -606,3 +606,50 @@ docker build -f docker/frontend.Dockerfile -t birth-rectifier-frontend:latest .
    # Start frontend
    npm run dev
    ```
+
+## Development Tools
+
+### Containerized Duplication Analysis
+
+A containerized tool is available for detecting code duplications and quality issues. The tool runs in Docker with GPU acceleration (if available) to free up your main machine resources.
+
+```bash
+# Run analysis on specific directories
+./run_duplication_analysis.sh ai_service api_gateway
+
+# Run in quick mode
+./run_duplication_analysis.sh -q ai_service
+
+# Run with visualization server
+./run_duplication_analysis.sh -s
+```
+
+The tool generates comprehensive HTML reports with visualizations. For more details, see [Containerized Duplication Analysis](docs/containerized_duplication_analysis.md).
+
+### Additional Tools
+
+# Code Duplication Removal
+
+As part of ongoing code quality improvements, we've addressed and resolved several areas of duplication in the codebase:
+
+1. **Geocoding Services**: Consolidated duplicate geocoding logic into a single canonical implementation in `ai_service/utils/geocoding.py`.
+
+2. **WebSocket Management**:
+   - Enhanced the WebSocketManager to support both services in a shared implementation
+   - Consolidated WebSocket event handling into a single shared module
+   - Standardized event types across all services with a comprehensive EventType enum
+
+3. **Chart Services**: Implemented a proper delegation pattern for the API service's chart service that calls the canonical implementation.
+
+4. **Authentication**: Created a shared JWT authentication utilities module to ensure consistent token handling across all services.
+
+5. **Error Handling**:
+   - Created a common error handler module in `/ai_service/utils/error_handler.py`
+   - Both the API service and API Gateway now use this module
+   - Fixed serialization issues with the error details
+   - Updated the API Gateway error middleware to use the shared error handler
+   - This provides consistent error responses across all endpoints
+
+6. **Data Validation**: Implemented shared validation models for consistent data validation across the application.
+
+These improvements have significantly enhanced code maintainability by following DRY (Don't Repeat Yourself) principles and ensuring consistent behavior across all components of the application.

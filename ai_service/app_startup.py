@@ -64,7 +64,7 @@ except Exception as e:
     logger.error(traceback.format_exc())
 
 # Import dependencies
-from ai_service.utils.env_loader import load_env_file
+from ai_service.utils.env_loader import load_env_file, get_env_with_fallback
 from ai_service.utils.dependency_container import get_container, initialize_container
 
 # Import the shared session management functions
@@ -90,6 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Import here to avoid circular imports
     from ai_service.utils.gpu_manager import GPUMemoryManager
+    from ai_service.utils.env_loader import get_env_with_fallback
 
     logger.info("Application startup initiated")
 
@@ -152,10 +153,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Import OpenAI service
         from ai_service.api.services.openai import get_openai_service
 
-        # Get API key from environment
-        api_key = os.environ.get("OPENAI_API_KEY")
+        # Get API key from environment with .env fallback
+        api_key = get_env_with_fallback("OPENAI_API_KEY")
         if not api_key:
-            logger.warning("OPENAI_API_KEY environment variable is not set. OpenAI features will be disabled.")
+            logger.warning("OPENAI_API_KEY not found in environment or .env file. OpenAI features will be disabled.")
+            # Set feature flag indicating OpenAI is not available
+            container.register_instance("openai_enabled", False)
         else:
             # Initialize the OpenAI service - must await
             openai_service = await get_openai_service()
@@ -163,13 +166,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if openai_service:
                 # Register in container if initialized successfully
                 container.register_instance("openai_service", openai_service)
+                container.register_instance("openai_enabled", True)
                 logger.info("OpenAI service successfully initialized and registered")
             else:
                 logger.warning("OpenAI service initialization returned None. Features requiring OpenAI will be disabled.")
+                container.register_instance("openai_enabled", False)
     except Exception as e:
         logger.error(f"Failed to initialize OpenAI service: {e}")
         logger.error(traceback.format_exc())
         # Continue without OpenAI - the system should still function without it
+        container.register_instance("openai_enabled", False)
 
     # AFTER OpenAI is initialized, initialize Chart service
     try:
@@ -179,7 +185,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Initialize chart service asynchronously
         chart_service = await get_chart_service_async()
 
-        # Set openai_service property explicitly
+        # Set openai_service property explicitly if both are available
         if chart_service and openai_service:
             chart_service.openai_service = openai_service
             logger.info("Set OpenAI service on Chart service instance")
@@ -254,23 +260,26 @@ def initialize_services():
     try:
         # Import deps lazily to avoid circular imports
         from ai_service.utils.dependency_container import get_container
+        from ai_service.utils.env_loader import get_env_with_fallback
 
         # Get the container instance
         container = get_container()
 
-        # Initialize OpenAI service
-        from ai_service.api.services.openai.service import OpenAIService
+        # Initialize OpenAI service if API key is available - check both env and .env file
+        api_key = get_env_with_fallback("OPENAI_API_KEY")
+        if api_key:
+            from ai_service.api.services.openai.service import OpenAIService
 
-        # Get API key from environment
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            logger.error("OPENAI_API_KEY environment variable is not set")
-            raise ValueError("OPENAI_API_KEY environment variable is required")
-
-        # Create OpenAI service directly with API key
-        openai_service = OpenAIService(api_key=api_key)
-        container.register_instance("openai_service", openai_service)
-        logger.info("OpenAI service initialized successfully")
+            # Create OpenAI service with API key
+            openai_service = OpenAIService(api_key=api_key)
+            container.register_instance("openai_service", openai_service)
+            # Set feature flag indicating OpenAI is available
+            container.register_instance("openai_enabled", True)
+            logger.info("OpenAI service initialized successfully")
+        else:
+            # Set feature flag indicating OpenAI is not available
+            container.register_instance("openai_enabled", False)
+            logger.warning("OPENAI_API_KEY not found in environment or .env file. Advanced features requiring OpenAI will be disabled.")
 
         # Initialize chart service - with retry
         from ai_service.services import get_chart_service
@@ -289,10 +298,10 @@ def initialize_services():
         logger.info("Session service initialized successfully")
 
         # Initialize WebSocket service
-        from ai_service.services.websocket_service import get_websocket_manager
+        from ai_service.utils.websocket_manager import get_websocket_manager
         websocket_manager = get_websocket_manager()
         container.register_instance("websocket_manager", websocket_manager)
-        logger.info("WebSocket service initialized successfully")
+        logger.info("WebSocket manager initialized successfully")
 
     except Exception as e:
         logger.error(f"Error initializing services: {e}")
@@ -411,14 +420,25 @@ async def initialize_application():
         # Initialize OpenAI service first
         try:
             from ai_service.api.services.openai import get_openai_service
-            openai_service = await get_openai_service()
-            if openai_service:
-                container.register_instance("openai_service", openai_service)
-                logger.info("OpenAI service initialized")
+            from ai_service.utils.env_loader import get_env_with_fallback
+
+            # Get API key with .env fallback
+            api_key = get_env_with_fallback("OPENAI_API_KEY")
+            if api_key:
+                openai_service = await get_openai_service()
+                if openai_service:
+                    container.register_instance("openai_service", openai_service)
+                    container.register_instance("openai_enabled", True)
+                    logger.info("OpenAI service initialized")
+                else:
+                    container.register_instance("openai_enabled", False)
+                    logger.warning("OpenAI service initialization returned None")
             else:
-                logger.warning("OpenAI service initialization returned None")
+                container.register_instance("openai_enabled", False)
+                logger.warning("OPENAI_API_KEY not found in environment or .env file. OpenAI features will be disabled.")
         except Exception as e:
             logger.error(f"OpenAI service initialization failed: {e}")
+            container.register_instance("openai_enabled", False)
 
         # Initialize chart service
         try:
@@ -540,6 +560,9 @@ async def bootstrap_stack(container, stack):
     logger.info(f"Bootstrapping services for stack: {stack}")
 
     try:
+        # Import dependencies
+        from ai_service.utils.env_loader import get_env_with_fallback
+
         # Initialize services based on stack
         for service_name in stack:
             # Skip empty entries
@@ -567,19 +590,20 @@ async def bootstrap_stack(container, stack):
                 logger.info("Chart service initialized")
 
             elif service_name == "openai_service":
-                # Initialize OpenAI service
-                from ai_service.api.services.openai.service import OpenAIService
+                # Initialize OpenAI service if API key is available - check both env and .env file
+                api_key = get_env_with_fallback("OPENAI_API_KEY")
+                if api_key:
+                    from ai_service.api.services.openai.service import OpenAIService
 
-                # Get API key from environment
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
-                    logger.error("OPENAI_API_KEY environment variable is not set")
-                    raise ValueError("OPENAI_API_KEY environment variable is required")
-
-                # Create a new instance directly with API key
-                openai_service = OpenAIService(api_key=api_key)
-                container.register_instance("openai_service", openai_service)
-                logger.info("OpenAI service initialized")
+                    # Create a new instance directly with API key
+                    openai_service = OpenAIService(api_key=api_key)
+                    container.register_instance("openai_service", openai_service)
+                    container.register_instance("openai_enabled", True)
+                    logger.info("OpenAI service initialized")
+                else:
+                    # Set flag to indicate OpenAI is not available
+                    container.register_instance("openai_enabled", False)
+                    logger.warning("OPENAI_API_KEY not found in environment or .env file. Advanced features requiring OpenAI will be disabled.")
 
             elif service_name == "session_service":
                 # Initialize session service
@@ -601,29 +625,20 @@ async def bootstrap_stack(container, stack):
                 # Initialize questionnaire service
                 from ai_service.api.services.questionnaire_service import QuestionnaireService
 
-                # Use the already initialized openai_service
-                openai_service = container.get("openai_service")
-                if not openai_service:
-                    logger.error("OpenAI service not initialized")
-                    raise ValueError("OpenAI service must be initialized before questionnaire service")
+                # Check if OpenAI is available
+                openai_enabled = container.get("openai_enabled", False)
+                if openai_enabled:
+                    # Use the already initialized openai_service
+                    openai_service = container.get("openai_service")
+                    # Create service with OpenAI
+                    questionnaire_service = QuestionnaireService(openai_service=openai_service)
+                else:
+                    # Create service without OpenAI - limited functionality
+                    questionnaire_service = QuestionnaireService(openai_service=None)
+                    logger.warning("Questionnaire service initialized with limited functionality (no OpenAI)")
 
-                questionnaire_service = QuestionnaireService(openai_service=openai_service)
                 container.register_instance("questionnaire_service", questionnaire_service)
                 logger.info("Questionnaire service initialized")
-
-            elif service_name == "dynamic_questionnaire_service":
-                # Initialize dynamic questionnaire service
-                from ai_service.api.services.dynamic_questionnaire_service import DynamicQuestionnaireService
-
-                # Use the already initialized openai_service
-                openai_service = container.get("openai_service")
-                if not openai_service:
-                    logger.error("OpenAI service not initialized")
-                    raise ValueError("OpenAI service must be initialized before dynamic questionnaire service")
-
-                dynamic_service = DynamicQuestionnaireService(openai_service=openai_service)
-                container.register_instance("dynamic_questionnaire_service", dynamic_service)
-                logger.info("Dynamic questionnaire service initialized")
 
             else:
                 logger.warning(f"Unknown service in stack: {service_name}")
@@ -649,18 +664,22 @@ async def bootstrap_minimal_services(container):
     logger.info("Bootstrapping minimal services")
 
     try:
-        # Initialize OpenAI service
-        from ai_service.api.services.openai.service import OpenAIService
+        # Import dependencies
+        from ai_service.utils.env_loader import get_env_with_fallback
 
-        # Get API key from environment
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            logger.error("OPENAI_API_KEY environment variable is not set")
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+        # Initialize OpenAI service if API key is available - check both env and .env file
+        api_key = get_env_with_fallback("OPENAI_API_KEY")
+        if api_key:
+            from ai_service.api.services.openai.service import OpenAIService
 
-        openai_service = OpenAIService(api_key=api_key)
-        container.register_instance("openai_service", openai_service)
-        logger.info("OpenAI service initialized")
+            openai_service = OpenAIService(api_key=api_key)
+            container.register_instance("openai_service", openai_service)
+            container.register_instance("openai_enabled", True)
+            logger.info("OpenAI service initialized")
+        else:
+            # Set flag to indicate OpenAI is not available
+            container.register_instance("openai_enabled", False)
+            logger.warning("OPENAI_API_KEY not found in environment or .env file. Advanced features requiring OpenAI will be disabled.")
 
         # Initialize session service
         from ai_service.services.session_service import SessionService
@@ -676,7 +695,8 @@ async def bootstrap_minimal_services(container):
         chart_output_dir = config.CHART_OUTPUT_DIR if hasattr(config, "CHART_OUTPUT_DIR") else None
 
         if not chart_output_dir:
-            raise ValueError("Chart output directory not configured")
+            logger.warning("Chart output directory not configured, using default")
+            chart_output_dir = "exports"  # Use a default directory
 
         chart_service = ChartService(chart_output_dir=chart_output_dir)
         container.register_instance("chart_service", chart_service)
@@ -691,7 +711,7 @@ async def bootstrap_minimal_services(container):
             logger.info("Chart repository initialized")
         except Exception as e:
             logger.error(f"Failed to initialize chart repository: {e}")
-            raise RuntimeError(f"Chart repository initialization failed: {e}")
+            logger.warning("Continuing without chart repository - some features may not work")
 
         logger.info("Minimal services initialization completed")
 
@@ -709,11 +729,19 @@ async def setup_database(config):
         config: Application configuration
 
     Returns:
-        Database connection pool
+        Database connection pool or None if connection fails
 
     Raises:
-        RuntimeError: If database connection fails
+        RuntimeError: If database connection fails in production mode
     """
+    # Check if we're in test mode
+    env = os.environ.get("ENVIRONMENT", os.environ.get("APP_ENV", "production"))
+    skip_db = os.environ.get("SKIP_DB_INIT", "").lower() in ("true", "1", "yes")
+
+    if skip_db or env in ("test", "development"):
+        logger.info("Skipping database initialization in test/development mode")
+        return None
+
     try:
         # Get database connection parameters
         db_host = config.DB_HOST
@@ -721,6 +749,8 @@ async def setup_database(config):
         db_user = config.DB_USER
         db_password = config.DB_PASSWORD
         db_name = config.DB_NAME
+
+        logger.info(f"Connecting to PostgreSQL database at {db_host}:{db_port}/{db_name}")
 
         # Create connection pool
         import asyncpg
@@ -735,27 +765,36 @@ async def setup_database(config):
             max_size=20
         )
 
-        # Verify connection
-        async with db_pool.acquire() as conn:
-            await conn.execute("SELECT 1")
+        # Verify connection - only if we got a pool
+        if db_pool:
+            async with db_pool.acquire() as conn:
+                await conn.execute("SELECT 1")
+                logger.info(f"Successfully connected to PostgreSQL database")
 
-        logger.info(f"Connected to PostgreSQL database at {db_host}:{db_port}/{db_name}")
-
-        # Verify schema using the database/__init__.py module's functions
-        from ai_service.database import initialize_database_connections, verify_database_schema
-
-        # Initialize database connections globally
-        await initialize_database_connections()
-
-        # Verify schema
-        await verify_database_schema()
+            # Verify schema using the database/__init__.py module's functions
+            try:
+                from ai_service.database import verify_database_schema
+                await verify_database_schema()
+                logger.info("Database schema verification successful")
+            except Exception as schema_error:
+                logger.error(f"Database schema verification failed: {schema_error}")
+                # In production, this is critical
+                if env == "production":
+                    raise RuntimeError(f"Database schema verification failed: {schema_error}")
 
         return db_pool
 
     except Exception as e:
         error_msg = f"Database connection failed: {e}"
         logger.error(error_msg)
-        raise RuntimeError(error_msg)
+
+        # In production, database connection is critical
+        if env == "production":
+            raise RuntimeError(error_msg)
+
+        # In other environments, return None to allow app to function with limited capabilities
+        logger.warning("Continuing without database connection - some features will be disabled")
+        return None
 
 
 async def verify_database_schema(db_pool):

@@ -16,7 +16,7 @@ import swisseph as swe
 logger = logging.getLogger(__name__)
 
 # Set ephemeris path from environment variable or use a default
-EPHEMERIS_PATH = os.environ.get("SWISSEPH_PATH", "/app/ephemeris")
+EPHEMERIS_PATH = os.environ.get("SWISSEPH_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "ephemeris"))
 try:
     swe.set_ephe_path(EPHEMERIS_PATH)
     logger.info(f"Swiss Ephemeris path set to: {EPHEMERIS_PATH}")

@@ -1,106 +1,105 @@
-import torch
-from typing import Optional, Dict, Any
-import logging
+"""
+GPU Memory Management for PyTorch.
 
+This module provides utilities for managing GPU memory when running PyTorch.
+When torch is not available, it provides mock implementations.
+"""
+
+import os
+import logging
+from typing import Optional, Dict, Any, Union
+
+# Configure logging
 logger = logging.getLogger(__name__)
 
+# Check if torch is available
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    logger.warning("PyTorch not found. Using mock GPU manager.")
+    TORCH_AVAILABLE = False
+
 class GPUMemoryManager:
-    def __init__(self, model_allocation: float = 0.7, viz_allocation: float = 0.3):
-        """Initialize GPU memory manager.
+    """
+    Manages GPU memory allocation for PyTorch.
+
+    This class helps control how much GPU memory is allocated to PyTorch,
+    which is useful when running on shared systems or when you want to
+    limit memory usage.
+    """
+
+    def __init__(self, memory_fraction: float = 0.7):
+        """
+        Initialize the GPU memory manager.
 
         Args:
-            model_allocation: Fraction of GPU memory to allocate for AI model
-            viz_allocation: Fraction of GPU memory to allocate for visualization
+            memory_fraction: Fraction of GPU memory to allocate (0.0 to 1.0)
         """
-        self.model_allocation = model_allocation
-        self.viz_allocation = viz_allocation
+        self.memory_fraction = memory_fraction
+        self.is_cuda_available = TORCH_AVAILABLE and self._check_cuda_available() if TORCH_AVAILABLE else False
 
-        # Check for GPU and raise error if not available
-        if not torch.cuda.is_available():
-            error_msg = "GPU is required but not available. Cannot proceed with CPU-only mode."
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
+        if self.is_cuda_available:
+            logger.info(f"CUDA is available. Setting memory fraction to {memory_fraction}")
+            self._set_memory_fraction(memory_fraction)
+        else:
+            logger.info("CUDA is not available or torch is not installed. GPU memory management disabled.")
 
-        self.device = "cuda"
-        self.total_memory = torch.cuda.get_device_properties(0).total_memory
-        self._setup_memory_allocation()
-        logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
-        logger.info(f"Total GPU memory: {self.total_memory / 1e9:.2f} GB")
+    def _check_cuda_available(self) -> bool:
+        """Check if CUDA is available."""
+        if TORCH_AVAILABLE:
+            return torch.cuda.is_available()
+        return False
 
-    def _setup_memory_allocation(self):
-        """Set up GPU memory allocation."""
-        try:
-            # Set memory fraction for model
-            torch.cuda.set_per_process_memory_fraction(self.model_allocation)
-
-            # Empty cache
-            torch.cuda.empty_cache()
-
-            logger.info(f"GPU memory allocated for model: {self.model_allocation * 100:.1f}%")
-            logger.info(f"GPU memory allocated for visualization: {self.viz_allocation * 100:.1f}%")
-        except Exception as e:
-            logger.error(f"Error setting up GPU memory allocation: {e}")
-            raise
-
-    def get_memory_info(self) -> Dict[str, Any]:
-        """Get current GPU memory usage information."""
-        try:
-            allocated = torch.cuda.memory_allocated()
-            cached = torch.cuda.memory_reserved()
-
-            return {
-                "device": self.device,
-                "total": self.total_memory,
-                "allocated": allocated,
-                "allocated_gb": allocated / 1e9,
-                "cached": cached,
-                "cached_gb": cached / 1e9,
-                "utilization": allocated / self.total_memory * 100
-            }
-        except Exception as e:
-            logger.error(f"Error getting GPU memory info: {e}")
-            return {"device": self.device, "error": str(e)}
-
-    def optimize_memory(self, model: Optional[torch.nn.Module] = None):
-        """Optimize GPU memory usage.
+    def _set_memory_fraction(self, memory_fraction: float) -> None:
+        """
+        Set the memory fraction for all available GPUs.
 
         Args:
-            model: PyTorch model to optimize
+            memory_fraction: Fraction of GPU memory to allocate (0.0 to 1.0)
         """
+        if not self.is_cuda_available or not TORCH_AVAILABLE:
+            return
+
         try:
-            # Clear cache
-            torch.cuda.empty_cache()
-
-            if model is not None:
-                # Use mixed precision if available
-                if hasattr(torch.cuda, 'amp'):
-                    model.half()
-                    logger.info("Using mixed precision (FP16)")
-
-                # Enable gradient checkpointing if available
-                if hasattr(model, 'gradient_checkpointing_enable'):
-                    model.gradient_checkpointing_enable()
-                    logger.info("Gradient checkpointing enabled")
-
-            logger.info("Memory optimization completed")
-            logger.info(f"Current memory usage: {self.get_memory_info()}")
+            for device in range(torch.cuda.device_count()):
+                torch.cuda.set_per_process_memory_fraction(memory_fraction, device)
+                logger.info(f"Set memory fraction to {memory_fraction} for GPU {device}")
         except Exception as e:
-            logger.error(f"Error optimizing GPU memory: {e}")
-            raise
+            logger.error(f"Error setting GPU memory fraction: {e}")
 
-    def cleanup(self):
-        """Clean up GPU memory."""
+    def get_gpu_info(self) -> Union[Dict[str, Dict[str, float]], Dict[str, str]]:
+        """
+        Get information about available GPUs.
+
+        Returns:
+            Dictionary with GPU info (total memory, used memory, free memory)
+            or status dictionary if GPUs are not available
+        """
+        if not self.is_cuda_available or not TORCH_AVAILABLE:
+            return {"status": "no_gpu_available"}
+
         try:
-            torch.cuda.empty_cache()
-            logger.info("GPU memory cache cleared")
+            info = {}
+            for device in range(torch.cuda.device_count()):
+                props = torch.cuda.get_device_properties(device)
+                total_memory = props.total_memory / 1024**3  # Convert to GB
+                memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
+                memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
+
+                info[f"gpu_{device}"] = {
+                    "name": props.name,
+                    "total_memory_gb": round(total_memory, 2),
+                    "allocated_memory_gb": round(memory_allocated, 2),
+                    "reserved_memory_gb": round(memory_reserved, 2),
+                    "free_memory_gb": round(total_memory - memory_reserved, 2)
+                }
+            return info
         except Exception as e:
-            logger.error(f"Error cleaning up GPU memory: {e}")
-            raise
+            logger.error(f"Error getting GPU info: {e}")
+            return {"status": "error", "message": str(e)}
 
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.cleanup()
+# Create a singleton instance
+gpu_manager = GPUMemoryManager(
+    memory_fraction=float(os.getenv("GPU_MEMORY_FRACTION", "0.7"))
+)

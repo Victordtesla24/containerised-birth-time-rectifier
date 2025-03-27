@@ -278,3 +278,348 @@ We avoid using sleeps or time-dependent waits in tests (since even our rectifica
 Another implementation guideline is the use of **Pytest fixtures** to reduce repetition. For example, if several tests need a `birth_details` object or a `client` to call the API, we use a fixture to supply that. This keeps the *Arrange* section of tests focused only on the unique things for that test, while common setup (like launching an app instance or seeding a database) is handled in the background by fixtures. We ensure our fixtures are well scoped (function or module level as needed) to prevent unintended interactions between tests.
 
 In conclusion, the test cases are written to be **readable specifications** of what the code should do. Any developer or QA engineer reading the tests should be able to understand the intended behavior of the system. The combination of the AAA pattern, meaningful test and fixture naming, and straightforward assertions contributes to a test suite that doubles as documentation for the Birth Time Rectifier’s expected functionality.
+
+
+
+
+## CONTEXT:
+YOU ARE A 10x ENGINEER, AND WORKING ON BIRTH TIME RECTIFIER WEB APPLICATION FEATURING AI-DRIVEN ADVANCED VEDIC ASTROLOGICAL CALCULATIONS, BIRTH CHART GENERATOR, VERIFICATION, AND BIRTH TIME RECTIFICATION ALGORITHMS USING DYNAMIC, REAL TIME AND PERSONLISED QUESTIONNAIRE.
+
+## TASKS:
+1. USING 'cURL' COMMANDS ONLY, YOU ARE REQUIRED TO TEST INDIVIUAL COMPONENTS AND EVERY SINGLE API ENDPONTS AND VERIFY EVERY SINGLE API ENDPOINT WITHIN  @ai_service @api IS:
+   - CORRECTLY STRUCTURED, IMPLEMENTED AND INTEGRATED EXACRTLY HOW THEY ARE DETAILED IN THE ARCHITECTURE DOCUEMNTATION LIKE @api_architecture.md & @unified_api_gateway_diagram.md
+   - CORRECTLY INTEGRATED WITH THE WEBSOCKET API ENDPOINTS IN @api_gateway EXACRTLY HOW THEY ARE DETAILED IN THE ARCHITECTURE DOCUEMNTATION LIKE @api_architecture.md & @unified_api_gateway_diagram.mdAND COMMUNICATION IS FULL AND COMPLETE
+   - CORRECTLY MAPPED AND IMPLEMENTED EXACTLY INLINE WITH THE FULL & END TO END APPLICATION FLOW, EXACTLY HOW IT IS DETAILED IN THE "ORIGINAL SEQUENCE DIAGRAM - THE FULL IMPLEMENTATION" SECTION IN THE @sequence_diagram.md
+   - CORRECTLY CONFIGURED & EXPOSED WITH CORRECT INPUT AND RESPONSE STRUCTURE INLINE WITH THE ARCHITECTURE DOCUMENTATION AND ALWAYS RETURN EXACT SAME RESPOSE WITH CORRECT INPUTS. DOCUMENT 'CURL' TESTNG RESULTS FOR EVERY SINGLE SEQUENCE FLOW STEPS DOCUMENTED IN THE @sequence_diagram.md AND FOR EVERY SINGLE API ENDPOINT ASSOCIATED WITH THE SEQUENCE FLOW STEP. DOCUMENT TESTING RESULTS USING CURL COMMANDS IN THE FOLLOWING FORMAT:
+ ```markdown
+ ## Original Sequence Diagram - Full Implementation
+ ### SEQ - 1
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Visit App      |                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | GET /session/init |                  |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Create Session   |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   |                  | Store Session     |                   |
+ |                |                   |                  |-------------------------------------->|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |     Session ID    |                   |
+ |                |                   |                  |<--------------------------------------|
+ |                |                   |   Session Data   |                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                |    Session Token  |                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 2
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Enter Location |                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | POST /geocode     |                  |                   |                   |
+ |                | {query: "NYC"}    |                  |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Process Location |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   |                  | Query Location DB |                   |
+ |                |                   |                  |-------------------------------------->|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |    Coordinates    |                   |
+ |                |                   |                  |<--------------------------------------|
+ |                |                   | Location Data    |                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                | {results: [{...}]}|                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Enter Date/Time|                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 3
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ |                | POST /chart/validate                 |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Validate Details |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   | Validation Result|                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                | {valid: true}     |                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 4
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Request Chart  |                   |                  |                   |                   |
+ |--------------->|                   |                  |                   |                   |
+ |                | POST /chart/generate                 |                   |                   |
+ |                | {verify_with_openai: true}           |                   |                   |
+ |                |------------------>|                  |                   |                   |
+ |                |                   | Calculate Chart  |                   |                   |
+ |                |                   |----------------->|                   |                   |
+ |                |                   |                  | Initial Chart     |                   |
+ |                |                   |                  | Calculation       |                   |
+ |                |                   |                  |-------------------|                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  | Verify Chart      |                   |
+ |                |                   |                  |------------------>|                   |
+ |                |                   |                  |                   | Multi-technique   |
+ |                |                   |                  |                   | Vedic Analysis    |
+ |                |                   |                  |                   |-------------------|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   | Verification      |
+ |                |                   |                  |                   | Result            |
+ |                |                   |                  |<------------------|                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  | Apply Corrections |                   |
+ |                |                   |                  | (if needed)       |                   |
+ |                |                   |                  |-------------------|                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  | Store Chart       |                   |
+ |                |                   |                  |-------------------------------------->|
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |     Chart ID      |                   |
+ |                |                   |                  |<--------------------------------------|
+ |                |                   |   Verified       |                   |                   |
+ |                |                   |   Chart Data     |                   |                   |
+ |                |                   |<-----------------|                   |                   |
+ |                | {chart_id: "...", |                  |                   |                   |
+ |                |  verification: {  |                  |                   |                   |
+ |                |    confidence: 97,|                  |                   |                   |
+ |                |    verified: true,|                  |                   |                   |
+ |                |  }}               |                  |                   |                   |
+ |                |<------------------|                  |                   |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 5
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |
+ |                | GET /chart/{id}   |                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Retrieve Chart   |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Query Chart Data  |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |                  |   Chart Details   |
+ |                |                   |                  |<------------------|
+ |                |                   | Complete Data    |                   |
+ |                |                   |<-----------------|                   |
+ |                | Chart with Aspects|                  |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 6
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | To Questionnaire                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | GET /questionnaire|                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   |          Generate Questions          |
+ |                |                   |----------------->|<----------------->|
+ |                |                   |          Question Data               |
+ |                |                   |<-------------------------------------|
+ |                | {questions: [...]}|                  |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 7
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Answer: Yes    |                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | POST /questionnaire/{id}/answer      |                   |
+ |                |------------------>|                  |                   |
+ |                |                   |           Process Answer             |
+ |                |                   |----------------->|<----------------->|
+ |                |                   |                  | Store Answer      |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   | Next Question    |                   |
+ |                |                   |<-------------------------------------|
+ |                | {next_question}   |                  |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ | Complete Quest.|                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | POST /questionnaire/complete         |                   |
+ |                |------------------>|                  |                   |
+ |                |                   |          Finalize Question           |
+ |                |                   |----------------->|<----------------->|
+ |                |                   |        Completion Status             |
+ |                |                   |<-----------------|<----------------->|
+ |                | {status: "processing"}               |                   |
+ |                |<------------------|                  |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 8
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |
+ |                | POST /chart/rectify                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Rectify Process  |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Process Data      |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |     AI Analysis  |                   |
+ |                |                   |     Determines   |                   |
+ |                |                   |    Birth Time    |                   |
+ |                |                   |                  |                   |
+ |                |                   |                  | Analysis Results  |
+ |                |                   |                  |<------------------|
+ |                |                   | Rectification    |                   |
+ |                |                   |<-----------------|                   |
+ |                | {rectified_time: "15:12:00", confidence: 87.5%}          |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ |                | GET /chart/compare?chart1=X&chart2=Y |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Compare Charts   |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Retrieve Charts   |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |                  | Charts Data       |
+ |                |                   |                  |<------------------|
+ |                |                   | Comparison Data  |                   |
+ |                |                   |<-----------------|                   |
+ |                | {differences: [...]}                 |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+
+ ### SEQ - 9
+
+ User          Frontend            API Layer           Backend             OpenAI             Database
+ |                |                   |                  |                   |                   |
+ |                |                   |                  |                   |                   |
+ | Request Export |                   |                  |                   |
+ |--------------->|                   |                  |                   |
+ |                | POST /chart/export|                  |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Generate Export  |                   |
+ |                |                   |----------------->|                   |
+ |                |                   |                  | Get Chart Data    |
+ |                |                   |                  |------------------>|
+ |                |                   |                  |                   |
+ |                |                   |                  | Chart Details     |
+ |                |                   |                  |<------------------|
+ |                |                   | Export Data      |                   |
+ |                |                   |<-----------------|                   |
+ |                | {download_url: "/api/export/..."}    |                   |
+ |                |<------------------|                  |                   |
+ |                |                   |                  |                   |
+ |                | GET /export/{id}/download            |                   |
+ |                |------------------>|                  |                   |
+ |                |                   | Retrieve File    |                   |
+ |                |                   |----------------->|                   |
+ |                |                   | PDF File         |                   |
+ |                |                   |<-----------------|                   |
+ |                | Binary PDF Data   |                  |                   |
+ |                |<------------------|                  |                   |
+ | View Result    |                   |                  |                   |
+ |<---------------|                   |                  |                   |
+ |                |                   |                  |                   |
+ =========== cURL TEST REPORT ===========
+  1. AI SERVICE API ENDPOINT: <<PATH>>
+  2. AI SERVICE API ENDPOINT INPUT: <<CURL COMMAND>>
+  3. AI SERVICE API ENDPOINT RESPONSE STRUCTUER: <<RESPONSE JSON>>
+  4. AI SERVICE <-> API GATEWAY API ENDPOINT INTEGRATOIN: <<PATH>>
+  5. AI SERVICE API ENDPOINT PRODUCTION IMPLEMENTATION WITH OUT MOCKUPS & FAKE POSITIVEDS VERIFIED: <<YES/NO>>
+ ========================================
+```
+2. DURING THE cURL TESTING, WHEN YOU ENCOUNTER ERRORS, YOU MUST NOT JUMP TO CONCLUSION, INSTEAD CONDUCT A COMPREHENSIVE ROOT CAUSE ANALYSIS, IDENTIFY THE ROOT CAUSE FOR THE ERROR AND IMPELEMNT A ROBUST SOLUTION TO FIX THE ROOT CAUSE WTHIN THE PRODUCTON PYTHON FILES, INSTAEAD OF MOCKING UP TESTS OR CREATING MOCKUP CODE JUST SO THE TEST PASSES, JUST LIKE A 10x ENGINEER WOULD DO, NOT USE SHORTCUTS.
+
+## ERROR RESOLUTION:
+  1. YOU ARE REQUIRED VERIFY THE APPLICATION WORKSA AND FUNCTIONS ACCORDING THE SEQUENCE DIAGRAMS AND NOT JUST DOING THIS TO PASS TESTS - SO NO SHORTCUTS
+  2. YOU MUST IMPLEMENT/REPLACE PRODUCTION CODE IN PYTHON FILES EXACTLY INLINE WITH THE FUNCTIONAL REQUIREMENTS FOR THE APPLICATION FLOW DETAILED IN THE "ORIGINAL SEQUENCE DIAGRAM - THE FULL IMPLEMENTATION" SECTION OF THE @sequence_diagram.md,
+  3. THE APPLICATION ARCHITECTURE MUST ADHERES TO THE API & WEBSOCKET ARCHITECTURE DETAILED ON @api_architecture.md @unified_api_gateway_diagram.md
+  4. THE APPLICATION MUST SATISFYING TESTING REQUIREMENTS DETAILED IN @testing_approach.md DOCUMENT.
+  5. REMOVE MOCKEDUP/DUPLICATE OR SIMULATED CODE FORM PYTHON FILE EVERYTIME YOU IMPLEMENT OR REPLACE CODE BY RUNNING THE FOLLOWING TERMINAL COMMAND
+     ```bash
+    
+     ```
+  6. YOU ARE REQUIRED TO IMPLEMENT/REPLACE PRODUCTION CODE WHICH IS REAL, ACTUAL AND PRODUCTION LEVEL CODE WITH REAL API CALLS, API ENDPOINTS, API INPUT AND RESPOSE STRUCTURES, REAL API KEYS (@.env ), ACTUAL & ACCURATE ASTROLOGICAL CALCULATIONS, BIRTH CHART & PLANETARY POSITIONS, REALTIME GEOCODES AND OPENAI CHART VERIFICATIONS USING OPENAI API KEY (@.env ), REAL TIME DYNAMIC, AND PERSONALISED QUESTIONNAIRE AND BIRTH TIME RECTIFICATION ALGORITHM IMPLEMENTATION WITH ACCORDANCE TO THE DOCUMENTATION PROVIDED.
+
+3. DO NOT CONSIDER YOUR TASK "COMPLETED" UNTIL EVERUY SINGLE PRODUCTION PYTHON FILE (OUT OF 180+) IS TESTED, EXAMINED, INSPECTED, REVIEWED ENSURE NO DUPLICATE/MOCKEDUP/SIMULATED FALLBACK MECHANISM IN THE CODE/HARD CODED VALUES IN FUNCTIONS, LINES OF CODE, FILES, CODE SNNIPPETS OR SCRIPTS EXIST IN THE PRODUCTION DIRECTORIES
+
+## CONTRAINTS
+1. WHILST YOU ARE WORKING ON THE ABOVE TASKS, YOU MUST NOT:
+    a. CREATE NEW/ADDITIONAL UNNECESSARY DUPLICATE FILES, INSTEAD REUSE EXISTING ONES; ADHERING TO THE @my-directory-management-protocols.mdc .
+    b. INTRODUCE NEW/ADDITIONAL ERRORS, IN CASE OF ANY ERRORS, YOU MUST CONDUCT A COMPREHENSIVE ROOT CAUSE ANALYSIS BEFORE JUMPING ONTO CONCLUSIONS JUST LIKE A 10x ENGINEER WOULD DO, ADHERING TO THE @my-error-fixing-protocols.mdc  PROTOCOLS.
+2. YOU ARE STRICTLY, NEVER ALLOWED TO USE ANY KIND OF MOCKUPS, SIMULATED FALLBACK MECHANISMS, MASK ERRORS, SUPPRESS WARNNGS JUST SO THAT THE TESTS PASS, BUT INSTEAD FOLLOW THE ABOVE CONSTRAINT '1a' & '1b' AT ALL TIMES WHILST WORKING ON THE TASKS ABOVE! - THIS IS NON-NEGOTIABLE AND WILL BE TESTED THOROUHGLY!!

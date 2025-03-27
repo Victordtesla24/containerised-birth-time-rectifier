@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  duplication-analyzer:
+    build:
+      context: .
+      dockerfile: docker/duplication_identifier.Dockerfile
+    image: ${CONTAINER_PREFIX:-birth-rectifier}-duplication-analyzer:latest
+    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-duplication-analyzer
+    volumes:
+      - .:/code
+      - ./reports/duplication:/mounted_reports
+    ports:
+      - "8050:8050"
+    environment:
+      - SERVER_MODE=${SERVER_MODE:-false}
+      - PYTHONPATH=/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: "${ANALYZER_ARGS:-/code}"
+
+networks:
+  default:
+    name: birth-rectifier-net
+    external: true

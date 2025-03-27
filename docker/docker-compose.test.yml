@@ -3,65 +3,43 @@ version: '3.8'
 services:
   # Redis service for caching and messaging
   redis:
-    image: redis:alpine
-    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-redis
-    ports:
-      - "6379:6379"
-    networks:
-      - test-network
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    image: redis:7.0-alpine
+    container_name: birth-rectifier-redis
     restart: unless-stopped
+    networks:
+      - birth-rectifier-net
 
   # AI Service - Main application backend
   ai-service:
+    container_name: birth-rectifier-ai
+    image: birth-rectifier-ai-service:test
     build:
-      context: ..
+      context: .
       dockerfile: docker/ai_service.Dockerfile
-    image: ${CONTAINER_PREFIX:-birth-rectifier}-ai-service:test
-    container_name: ${CONTAINER_PREFIX:-birth-rectifier}-ai
-    depends_on:
-      - redis
+    restart: unless-stopped
     ports:
       - "8000:8000"
+    depends_on:
+      - redis
+    networks:
+      - birth-rectifier-net
+    volumes:
+      - ./ai_service:/app/ai_service
+      - ./tests:/app/tests
+      - ./.env:/app/.env
     environment:
+      - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LOG_LEVEL=DEBUG
-      - PYTHONPATH=/app
-      - SWISSEPH_PATH=/app/ephemeris
-      - ENABLE_CACHE=true
-      - CACHE_TTL=3600
-      - REQUEST_RETRY_ATTEMPTS=3
-    volumes:
-      - ../ai_service:/app/ai_service
-      - ../scripts:/app/scripts
-      - ../tests:/app/tests
-      - ephemeris-data:/app/ephemeris
-      - media-data:/app/media
-      - temp-data:/app/temp
-      - exports-data:/app/exports
-      - logs-data:/app/logs
-    networks:
-      - test-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 20s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
-    restart: unless-stopped
+      - SKIP_DB_INIT=true
+      - ENVIRONMENT=test
+    command: >
+      uvicorn ai_service.api.main:app --host 0.0.0.0 --port 8000 --reload
 
   # API Gateway - Front-facing API service
   api-gateway:
     build:
-      context: ..
+      context: .
       dockerfile: docker/api_gateway.Dockerfile
       target: development
     image: ${CONTAINER_PREFIX:-birth-rectifier}-api-gateway:test
@@ -76,9 +54,9 @@ services:
       - REDIS_PORT=6379
       - LOG_LEVEL=DEBUG
     volumes:
-      - ../api_gateway:/app/api_gateway
+      - ./api_gateway:/app/api_gateway
     networks:
-      - test-network
+      - birth-rectifier-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 20s
@@ -90,7 +68,7 @@ services:
   # Test Runner - Container for running tests
   test-runner:
     build:
-      context: ..
+      context: .
       dockerfile: docker/test.Dockerfile
     image: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner:latest
     container_name: ${CONTAINER_PREFIX:-birth-rectifier}-test-runner
@@ -108,24 +86,40 @@ services:
       - REDIS_PORT=6379
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
-      - ../ai_service:/app/ai_service
-      - ../tests:/app/tests
-      - ../scripts:/app/scripts
+      - ./ai_service:/app/ai_service
+      - ./tests:/app/tests
+      - ./scripts:/app/scripts
       - ephemeris-data:/app/ephemeris
       - media-data:/app/media
       - temp-data:/app/temp
       - exports-data:/app/exports
       - logs-data:/app/logs
     networks:
-      - test-network
+      - birth-rectifier-net
     command: ["python", "-c", "import time; time.sleep(2); print('Test runner container is ready.')"]
 
+  postgres:
+    container_name: birth-rectifier-postgres
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=astro_user
+      - POSTGRES_PASSWORD=astro_password
+      - POSTGRES_DB=astrology_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - birth-rectifier-net
+
 networks:
-  test-network:
+  birth-rectifier-net:
     driver: bridge
 
 volumes:
   redis-data:
+  postgres-data:
   ephemeris-data:
   media-data:
   temp-data:

@@ -1,0 +1,1 @@
+from datetime import datetime; from ai_service.utils.swisseph import generate_mock_chart; dt = datetime(1990, 1, 15, 12, 30, 0); chart = generate_mock_chart(dt, 40.7, -74.0); print(f"Generated chart: {chart[\"chart_id\"]}")

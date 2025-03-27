@@ -1,28 +1,36 @@
 """
-Authentication middleware for API Gateway.
+Authentication middleware for Birth Time Rectifier API Gateway.
 
-This module provides utilities for JWT token verification and authentication.
+This module provides JWT authentication for the API Gateway.
+It delegates JWT verification to the shared authentication service.
 """
 
-import os
 import logging
-import json
-from typing import Dict, Any, Optional
+import time
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Union
+
 import jwt
-from fastapi import HTTPException, status, Request
+from fastapi import Request, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+# Import shared auth service from ai_service
+from ai_service.services.auth import (
+    verify_token as canonical_verify_token,
+    create_access_token,
+    JWT_SECRET,
+    JWT_ALGORITHM
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# JWT settings
-JWT_SECRET = os.environ.get("JWT_SECRET", "insecure_jwt_secret_key_replace_in_production")
-JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "720"))  # 12 hours by default
-
-def verify_token(token: str) -> Optional[str]:
+def verify_token(token: str) -> str:
     """
-    Verify and decode a JWT token.
+    Verify and decode a JWT token, raising appropriate HTTP exceptions.
+
+    This function adapts the canonical verify_token implementation to throw
+    appropriate HTTP exceptions for the API gateway.
 
     Args:
         token: JWT token to verify
@@ -34,27 +42,14 @@ def verify_token(token: str) -> Optional[str]:
         HTTPException: If token is invalid or expired
     """
     try:
-        # Decode token
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-
-        # Extract user ID
-        user_id = payload.get("sub")
+        # Use the canonical implementation which returns None for invalid tokens
+        user_id = canonical_verify_token(token)
 
         if not user_id:
-            logger.warning("Token verification failed: missing sub claim")
+            logger.warning("Token verification failed: invalid token")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Check token expiration
-        exp = payload.get("exp")
-        if exp and datetime.fromtimestamp(exp) < datetime.now():
-            logger.warning(f"Token expired for user {user_id}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token expired",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -93,5 +88,53 @@ async def authenticate_request(request: Request) -> Optional[str]:
 
     try:
         return verify_token(token)
+    except HTTPException:
+        return None
+
+# Security scheme for Swagger docs
+security = HTTPBearer(auto_error=False)
+
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = None) -> str:
+    """
+    Get the current user from credentials.
+
+    This dependency can be used in FastAPI routes to require authentication.
+
+    Args:
+        credentials: HTTPAuthorizationCredentials from security scheme
+
+    Returns:
+        User ID if authentication is successful
+
+    Raises:
+        HTTPException: If authentication fails
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = verify_token(credentials.credentials)
+    return user_id
+
+async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = None) -> Optional[str]:
+    """
+    Get the current user from credentials if available.
+
+    This dependency can be used in FastAPI routes where authentication is optional.
+
+    Args:
+        credentials: HTTPAuthorizationCredentials from security scheme
+
+    Returns:
+        User ID if authentication is successful, None otherwise
+    """
+    if not credentials:
+        return None
+
+    try:
+        return verify_token(credentials.credentials)
     except HTTPException:
         return None

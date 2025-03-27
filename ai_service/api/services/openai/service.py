@@ -204,6 +204,30 @@ class OpenAIService:
             await self._http_client.close()
             self._http_client = None
 
+    def get_usage_statistics(self) -> Dict[str, Any]:
+        """
+        Get usage statistics for the OpenAI API.
+
+        Returns:
+            Dictionary with usage statistics or empty dict if unavailable
+        """
+        try:
+            # Check if we have an API key
+            if not self.api_key:
+                self.logger.warning("Cannot get usage statistics: No API key")
+                return {}
+
+            # For now, return basic information
+            return {
+                "models": [self.default_model],
+                "available": True,
+                "last_check": datetime.now().isoformat(),
+                "status": "operational"
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting OpenAI usage statistics: {str(e)}")
+            return {}
+
     async def verify_chart(self, chart_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Verify astrological chart data for accuracy using OpenAI.

@@ -22,18 +22,7 @@ from ai_service.api.services.questionnaire_service import get_questionnaire_serv
 from ai_service.api.services.chart import get_chart_service
 from ai_service.api.services.openai import get_openai_service
 from ai_service.utils.geocoding import get_coordinates
-from ai_service.api.services.session_service import get_session_store
-from ai_service.core.rectification.main import comprehensive_rectification
-from ai_service.utils.json_encoder import DateTimeEncoder
-from ai_service.api.models.question import QuestionModel
-from ai_service.api.models.questionnaire import QuestionnaireModel
-from ai_service.common.constants import QUESTION_TEMPLATES
 
-# Configure logging
-logger = logging.getLogger(__name__)
-
-# Create router
-router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
 
 async def get_question_text(question_id: str, questionnaire_id: Optional[str] = None) -> str:
     """

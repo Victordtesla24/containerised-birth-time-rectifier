@@ -6,7 +6,7 @@ This module provides the API endpoints for chart generation and management.
 
 import logging
 from typing import Dict, Any, Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Query, Path, Body, Request, Response, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Query, Path, Body, Request, Response, BackgroundTasks, Header
 from pydantic import BaseModel, Field
 import os
 import json
@@ -29,6 +29,9 @@ from ai_service.utils.chart_visualizer import generate_comparison_chart, generat
 from ai_service.database.repositories import ChartRepository
 
 from ai_service.core.config import settings
+
+# Import WebSocket manager
+from ai_service.utils.websocket_manager import manager as ws_manager
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -124,46 +127,65 @@ async def generate_chart_visualization(chart_data: Dict[str, Any]) -> None:
 async def generate_chart(
     chart_request: ChartGenerationRequest,
     background_tasks: BackgroundTasks,
-    request: Request
-) -> ChartResponse:
+    session_id: Optional[str] = Header(None, alias="X-Session-ID")
+) -> Dict[str, Any]:
     """
-    Generate a new astrological chart based on birth details.
-
-    This endpoint follows the sequence diagram flow:
-    1. Validate input (already done by Pydantic)
-    2. Calculate initial chart
-    3. Verify with OpenAI if requested
-    4. Apply corrections if needed
-    5. Store in database
-    6. Return chart data
+    Generate a birth chart based on birth details.
 
     Args:
         chart_request: Birth details and options
-        background_tasks: FastAPI background tasks
-        request: FastAPI request object
+        background_tasks: Background tasks to run
+        session_id: Session ID from header
 
     Returns:
-        ChartResponse: Generated chart data with verification status
+        Generated chart data or processing status
     """
-    logger.info(f"Generating chart with request: {chart_request}")
+    if not session_id and chart_request.session_id:
+        session_id = chart_request.session_id
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session ID is required")
+
+    # Generate a chart ID (would normally come from a database)
+    chart_id = f"chart_{uuid.uuid4().hex[:10]}"
+
+    # Send initial processing message via WebSocket
+    background_tasks.add_task(
+        ws_manager.send_update,
+        session_id,
+        {
+            "type": "chart_calculation_status",
+            "status": "processing",
+            "chart_id": chart_id,
+            "message": "Chart calculation started"
+        }
+    )
+
+    # Extract birth details
+    birth_date = chart_request.birth_details.birth_date
+    birth_time = chart_request.birth_details.birth_time
+    latitude = chart_request.birth_details.latitude
+    longitude = chart_request.birth_details.longitude
+    timezone = chart_request.birth_details.timezone
+    location = chart_request.birth_details.location
+    verify_with_openai = chart_request.verify_with_openai
+
+    logger.info(f"Generating chart for {birth_date} {birth_time} at {latitude}, {longitude}")
 
     try:
         # Get chart service using the async method to ensure proper initialization
         from ai_service.services import get_chart_service_async
         chart_service = await get_chart_service_async()
 
-        # Get or create session ID
-        session_id = request.headers.get("X-Session-ID") or chart_request.session_id
-
         # 1. Generate the chart with the service
         chart_data = await chart_service.generate_chart(
-            birth_date=chart_request.birth_details.birth_date,
-            birth_time=chart_request.birth_details.birth_time,
-            latitude=chart_request.birth_details.latitude,
-            longitude=chart_request.birth_details.longitude,
-            timezone=chart_request.birth_details.timezone,
-            location=chart_request.birth_details.location,
-            verify_with_openai=chart_request.verify_with_openai,
+            birth_date=birth_date,
+            birth_time=birth_time,
+            latitude=latitude,
+            longitude=longitude,
+            timezone=timezone,
+            location=location,
+            verify_with_openai=verify_with_openai,
             session_id=session_id
         )
 
@@ -201,16 +223,25 @@ async def generate_chart(
         )
 
 @router.get("/{chart_id}", response_model=ChartResponse, tags=["Chart"])
-async def get_chart(chart_id: str = Path(..., description="Chart ID")) -> Dict[str, Any]:
+async def get_chart(
+    chart_id: str,
+    session_id: Optional[str] = Header(None, alias="X-Session-ID")
+) -> Dict[str, Any]:
     """
-    Get a chart by ID.
+    Retrieve a previously generated chart.
 
     Args:
-        chart_id: The ID of the chart to retrieve
+        chart_id: Chart ID to retrieve
+        session_id: Session ID from header
 
     Returns:
         Chart data
     """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Session ID is required")
+
+    logger.info(f"Retrieving chart {chart_id}")
+
     try:
         # Get chart service
         chart_service = get_chart_service()

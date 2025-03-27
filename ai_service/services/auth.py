@@ -1,151 +1,148 @@
 """
-Authentication service for Birth Time Rectifier.
+Authentication service for Birth Time Rectifier AI Service.
 
-This module provides functions for user authentication and session management.
+This module provides authentication functionality for the AI service
+using the shared authentication utilities in ai_service/utils/auth_utils.py.
 """
 
 import logging
-import uuid
-import os
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List, TypedDict, cast
+from typing import Dict, Any, Optional, List, cast, Union
 
 import jwt
-import bcrypt
-from pydantic import BaseModel
 
-# Setup logging
+# Import the repository
+from ai_service.services import user_repository
+
+# Import shared authentication utilities
+from ai_service.utils.auth_utils import (
+    create_access_token as shared_create_access_token,
+    verify_token as shared_verify_token,
+    JWT_SECRET,
+    JWT_ALGORITHM
+)
+
+# Configure logging
 logger = logging.getLogger(__name__)
 
-# JWT settings
-JWT_SECRET = os.environ.get("JWT_SECRET", "DO_NOT_USE_THIS_KEY_IN_PRODUCTION")
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_MINUTES = 60 * 24  # 24 hours
+# User type
+User = Dict[str, Any]
 
-# User model
-class User(TypedDict):
-    id: str
-    email: str
-    full_name: str
-    hashed_password: str
-    created_at: datetime
-    updated_at: datetime
-    preferences: Dict[str, Any]
+def authenticate_user(email: str, password: str) -> Optional[User]:
+    """
+    Authenticate a user with email and password.
 
-# User creation model
-class UserCreate(BaseModel):
-    email: str
-    full_name: str
-    password: str
+    Args:
+        email: User's email
+        password: User's password
 
-# Database integration
-from ai_service.database.repositories import UserRepository
-user_repository = UserRepository()
+    Returns:
+        User object if authentication is successful, None otherwise
+    """
+    # Get user from repository
+    user = user_repository.get_user_by_email(email)
 
-def create_user(user_create: UserCreate) -> User:
+    # Check if user exists
+    if not user:
+        return None
+
+    # Verify password
+    if not verify_password(password, user["password"]):
+        return None
+
+    return cast(User, user)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a password against a hash.
+
+    Args:
+        plain_password: Plain text password
+        hashed_password: Hashed password
+
+    Returns:
+        True if password is correct, False otherwise
+    """
+    from ai_service.utils.dependency_container import get_container
+    container = get_container()
+    password_service = container.get("password_service")
+    return password_service.verify_password(plain_password, hashed_password)
+
+def hash_password(password: str) -> str:
+    """
+    Hash a password.
+
+    Args:
+        password: Plain text password
+
+    Returns:
+        Hashed password
+    """
+    from ai_service.utils.dependency_container import get_container
+    container = get_container()
+    password_service = container.get("password_service")
+    return password_service.hash_password(password)
+
+def create_user(email: str, password: str, full_name: str) -> Optional[User]:
     """
     Create a new user.
 
     Args:
-        user_create: User creation model
+        email: User's email
+        password: User's password
+        full_name: User's full name
 
     Returns:
-        Created user
-
-    Raises:
-        ValueError: If email already exists
+        Created user object if successful, None if user already exists
     """
-    # Check if email exists
-    if user_repository.user_exists_by_email(user_create.email):
-        raise ValueError("Email already registered")
+    # Check if user already exists
+    if user_repository.get_user_by_email(email):
+        return None
 
-    # Generate user ID
-    user_id = str(uuid.uuid4())
+    # Hash password
+    hashed_password = hash_password(password)
 
-    # Hash password using bcrypt
-    password_bytes = user_create.password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hashed_password = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
-
-    # Create timestamp
-    now = datetime.now()
-
-    # Create user as a dictionary (compatible with UserRepository)
-    user_dict = {
-        "id": user_id,
-        "email": user_create.email,
-        "full_name": user_create.full_name,
-        "hashed_password": hashed_password,
-        "created_at": now,
-        "updated_at": now,
+    # Create user
+    user = {
+        "email": email,
+        "password": hashed_password,
+        "full_name": full_name,
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
         "preferences": {}
     }
 
-    # Store user in repository
-    user_repository.store_user(user_dict)
-    logger.info(f"Created user: {user_id}")
-
-    # Return as User type
-    return cast(User, user_dict)
-
-def authenticate_user(email: str, password: str) -> Optional[User]:
-    """
-    Authenticate a user by email and password.
-
-    Args:
-        email: User email
-        password: User password
-
-    Returns:
-        User object if authentication successful, None otherwise
-    """
-    # Get user by email
-    user_dict = user_repository.get_user_by_email(email)
-    if not user_dict:
+    # Save user
+    user_id = user_repository.create_user(user)
+    if not user_id:
         return None
 
-    # Check password with bcrypt
-    password_bytes = password.encode('utf-8')
-    hashed_password = user_dict["hashed_password"].encode('utf-8')
+    # Add ID to user object
+    user["id"] = user_id
 
-    if not bcrypt.checkpw(password_bytes, hashed_password):
-        return None
+    return cast(User, user)
 
-    # Convert to User type and return
-    return cast(User, user_dict)
-
-def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    user_id: str,
+    expires_delta: Optional[timedelta] = None,
+    additional_data: Optional[Dict[str, Any]] = None
+) -> str:
     """
-    Create a JWT access token for the user.
+    Create a JWT access token using the shared implementation.
 
     Args:
-        user_id: User ID
-        expires_delta: Token expiration time
+        user_id: User ID to include in the token
+        expires_delta: Optional custom expiration time
+        additional_data: Optional additional data to include in the token
 
     Returns:
-        JWT access token
+        JWT token string
     """
-    # Set expiration
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=JWT_EXPIRATION_MINUTES)
-
-    # Create token payload
-    payload = {
-        "sub": user_id,
-        "exp": expire.timestamp(),
-        "iat": datetime.utcnow().timestamp()
-    }
-
-    # Create token
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-    return token
+    return shared_create_access_token(user_id, expires_delta, additional_data)
 
 def verify_token(token: str) -> Optional[str]:
     """
-    Verify and decode a JWT token.
+    Verify and decode a JWT token using the shared implementation.
 
     Args:
         token: JWT token to verify
@@ -154,14 +151,12 @@ def verify_token(token: str) -> Optional[str]:
         User ID if token is valid, None otherwise
     """
     try:
-        # Decode token
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        # Use shared implementation
+        user_id = shared_verify_token(token)
 
-        # Extract user ID
-        user_id = payload.get("sub")
-
-        # Check if user exists
-        if not user_repository.user_exists(user_id):
+        # Additional check: verify that user exists in our database
+        if user_id and not user_repository.user_exists(user_id):
+            logger.warning(f"User ID {user_id} from token does not exist in database")
             return None
 
         return user_id

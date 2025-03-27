@@ -2,7 +2,8 @@
 WebSocket Proxy for Birth Time Rectifier API Gateway
 
 This module provides WebSocket proxy functionality to forward WebSocket connections
-from the API Gateway to the AI service.
+from the API Gateway to the AI service, using the canonical WebSocketManager
+implementation for connection management.
 """
 
 import asyncio
@@ -24,6 +25,10 @@ import re
 from fastapi import WebSocket, WebSocketDisconnect, status
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
+
+# Import the canonical WebSocketManager and events
+from ai_service.utils.websocket_manager import WebSocketManager, get_websocket_manager
+from ai_service.utils.websocket_events import emit_event, EventType
 
 # Type checking imports
 if TYPE_CHECKING:
@@ -56,144 +61,90 @@ class WebSocketProxy:
 
     def __init__(self):
         """Initialize the WebSocket proxy."""
-        # Store active connections by session ID
-        self.active_connections: Dict[str, List[WebSocket]] = {}
-        # Store connection status
-        self.connection_status: Dict[str, Dict[str, Any]] = {}
-        # Store failed events for retry
-        self.failed_events: Dict[str, List[Dict[str, Any]]] = {}
-        # Store reconnection tokens
+        # Use the canonical WebSocketManager for connection management
+        self.ws_manager = get_websocket_manager()
+
+        # Additional proxy-specific attributes
         self.reconnection_tokens: Dict[str, str] = {}
-        # Track message queues for each client
-        self.message_queues: Dict[str, List[Dict[str, Any]]] = {}
-        # Store client metadata
         self.client_metadata: Dict[str, Dict[str, Any]] = {}
+        self.connection_status: Dict[str, Dict[str, Any]] = {}
+        self.failed_events: Dict[str, List[Dict[str, Any]]] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str) -> None:
         """
-        Accept a new WebSocket connection and register it.
+        Accept a new WebSocket connection and register it using the canonical manager.
 
         Args:
             websocket: The WebSocket connection to accept
             session_id: Session ID for this connection
         """
-        await websocket.accept()
+        # Use the canonical WebSocketManager
+        success = await self.ws_manager.connect(websocket, session_id)
 
-        if session_id not in self.active_connections:
-            self.active_connections[session_id] = []
-
-        self.active_connections[session_id].append(websocket)
-        self.connection_status[session_id] = {
-            "client_connected": True,
-            "upstream_connected": False,
-            "last_client_message": time.time(),
-            "last_upstream_message": time.time(),
-            "reconnect_count": 0,
-            "client_id": "",
-            "errors": []
-        }
-
-        # Initialize client metadata
-        if session_id not in self.client_metadata:
-            self.client_metadata[session_id] = {
-                "connected_at": datetime.now().isoformat(),
-                "last_activity": datetime.now().isoformat(),
+        if success:
+            # Initialize connection status tracking specifically for the proxy
+            self.connection_status[session_id] = {
+                "client_connected": True,
+                "upstream_connected": False,
+                "last_client_message": time.time(),
+                "last_upstream_message": time.time(),
                 "reconnect_count": 0,
-                "client_info": {}
+                "client_id": "",
+                "errors": []
             }
-        else:
-            # Update existing metadata for reconnection
-            self.client_metadata[session_id]["reconnect_count"] += 1
-            self.client_metadata[session_id]["last_connected_at"] = datetime.now().isoformat()
 
-        logger.info(f"WebSocket connection accepted for session: {session_id}")
+            # Initialize client metadata
+            if session_id not in self.client_metadata:
+                self.client_metadata[session_id] = {
+                    "connected_at": datetime.now().isoformat(),
+                    "last_activity": datetime.now().isoformat(),
+                    "reconnect_count": 0,
+                    "client_info": {}
+                }
+            else:
+                # Update existing metadata for reconnection
+                self.client_metadata[session_id]["reconnect_count"] += 1
+                self.client_metadata[session_id]["last_connected_at"] = datetime.now().isoformat()
 
-        # Send any queued messages upon reconnection
-        if session_id in self.message_queues and self.message_queues[session_id]:
-            queued_messages = self.message_queues[session_id].copy()
-            self.message_queues[session_id] = []
-
-            for message in queued_messages:
-                try:
-                    await websocket.send_json(message)
-                    logger.info(f"Sent queued message to reconnected client {session_id}")
-                except Exception as e:
-                    logger.error(f"Failed to send queued message on reconnection: {e}")
-                    # Re-queue the message
-                    if session_id not in self.message_queues:
-                        self.message_queues[session_id] = []
-                    self.message_queues[session_id].append(message)
+            logger.info(f"WebSocket connection accepted for session: {session_id}")
 
     async def disconnect(self, websocket: WebSocket, session_id: str) -> None:
         """
-        Remove a WebSocket connection.
+        Remove a WebSocket connection using the canonical manager.
 
         Args:
             websocket: The WebSocket connection to remove
             session_id: Session ID for this connection
         """
-        try:
-            if session_id in self.active_connections and websocket in self.active_connections[session_id]:
-                self.active_connections[session_id].remove(websocket)
+        # Use canonical WebSocketManager's disconnect method
+        self.ws_manager.disconnect(session_id)
 
-                # Update metadata
-                if session_id in self.client_metadata:
-                    self.client_metadata[session_id]["disconnected_at"] = datetime.now().isoformat()
+        # Update proxy-specific state
+        if session_id in self.connection_status:
+            self.connection_status[session_id]["client_connected"] = False
 
-                if not self.active_connections[session_id]:
-                    self.connection_status[session_id]["client_connected"] = False
-                    logger.info(f"No active connections for session: {session_id}")
+        # Update metadata
+        if session_id in self.client_metadata:
+            self.client_metadata[session_id]["disconnected_at"] = datetime.now().isoformat()
 
-                # Don't delete queued messages to allow for reconnection
-        except (KeyError, ValueError) as e:
-            logger.warning(f"Error removing connection: {e}")
+        logger.info(f"WebSocket connection disconnected for session: {session_id}")
 
     async def broadcast(self, session_id: str, message: Dict[str, Any]) -> None:
         """
-        Broadcast a message to all connected clients for a specific session.
+        Broadcast a message to all connected clients for a specific session
+        using the canonical WebSocketManager.
 
         Args:
             session_id: The session ID to broadcast to
             message: The message to broadcast
         """
-        if session_id in self.active_connections:
-            if not self.active_connections[session_id]:
-                # Queue message for disconnected client
-                if session_id not in self.message_queues:
-                    self.message_queues[session_id] = []
-                self.message_queues[session_id].append(message)
-                logger.info(f"Queued message for disconnected session {session_id}")
-                return
+        # Use the canonical WebSocketManager to send the update
+        success = await self.ws_manager.send_update(session_id, message)
 
-            disconnected_clients = []
-
-            for websocket in self.active_connections[session_id]:
-                try:
-                    # Add message ID and timestamp if not present
-                    if "message_id" not in message:
-                        message["message_id"] = str(uuid.uuid4())
-                    if "timestamp" not in message:
-                        message["timestamp"] = datetime.now().isoformat()
-
-                    await websocket.send_json(message)
-
-                    # Update last activity
-                    if session_id in self.client_metadata:
-                        self.client_metadata[session_id]["last_activity"] = datetime.now().isoformat()
-
-                except Exception as e:
-                    logger.error(f"Error broadcasting message: {str(e)}")
-                    disconnected_clients.append(websocket)
-
-            # Clean up disconnected clients
-            for websocket in disconnected_clients:
-                await self.disconnect(websocket, session_id)
+        if not success:
+            logger.warning(f"Failed to send message to session {session_id}, will be queued for reconnection")
         else:
-            # Queue message for client that may reconnect later
-            if session_id not in self.message_queues:
-                self.message_queues[session_id] = []
-            self.message_queues[session_id].append(message)
-            logger.info(f"Queued message for session {session_id} (not currently connected)")
+            logger.debug(f"Message sent to session {session_id}")
 
     async def handle_websocket(
         self,
@@ -704,40 +655,47 @@ class WebSocketProxy:
 
     async def retry_failed_messages(self, session_id: str) -> None:
         """
-        Retry sending previously failed messages to a client.
+        Retry sending failed messages for a session.
 
         Args:
-            session_id: The session ID to retry messages for
+            session_id: Session ID to retry messages for
         """
         if session_id not in self.failed_events or not self.failed_events[session_id]:
+            # No failed events to retry
             return
 
-        if session_id not in self.active_connections or not self.active_connections[session_id]:
+        if session_id not in self.connection_status or not self.connection_status[session_id]["client_connected"]:
             logger.info(f"Can't retry messages for session {session_id} - not connected")
             return
 
         # Get the client's websocket
-        websocket = self.active_connections[session_id][0]
+        websocket = self.ws_manager.get_websocket(session_id)
+        if not websocket:
+            logger.warning(f"Can't retry messages for session {session_id} - no websocket found")
+            return
 
         # Copy failed events to retry
-        events_to_retry = self.failed_events[session_id].copy()
+        retry_events = self.failed_events[session_id].copy()
         self.failed_events[session_id] = []
 
-        retry_count = 0
-        for event in events_to_retry:
+        # Retry each failed event
+        success_count = 0
+        for event in retry_events:
             try:
-                # Update timestamp
-                event["timestamp"] = datetime.now().isoformat()
-                event["is_retry"] = True
-
                 await websocket.send_json(event)
-                retry_count += 1
+                success_count += 1
             except Exception as e:
-                logger.error(f"Failed to retry message: {e}")
-                # Add back to failed events
-                self.failed_events[session_id].append(event)
+                logger.error(f"Failed to retry event for session {session_id}: {e}")
+                # Add back to queue with increased retry count
+                if "retry_count" in event:
+                    event["retry_count"] += 1
+                else:
+                    event["retry_count"] = 1
 
-        logger.info(f"Retried {retry_count}/{len(events_to_retry)} failed messages for session {session_id}")
+                if event.get("retry_count", 0) < 3:  # Limit retries
+                    self.failed_events[session_id].append(event)
+
+        logger.info(f"Retried {success_count}/{len(retry_events)} failed events for session {session_id}")
 
     async def _send_heartbeats(self, websocket: WebSocket, session_id: str, client_id: str, interval: int) -> None:
         """
@@ -808,12 +766,13 @@ class WebSocketProxy:
         # Clean up stale sessions
         for session_id in stale_sessions:
             # Remove from all tracking structures
-            self.active_connections.pop(session_id, None)
             self.connection_status.pop(session_id, None)
             self.client_metadata.pop(session_id, None)
             self.reconnection_tokens.pop(session_id, None)
-            self.message_queues.pop(session_id, None)
             self.failed_events.pop(session_id, None)
+
+            # Use canonical WebSocketManager to disconnect
+            self.ws_manager.disconnect(session_id)
 
         if stale_sessions:
             logger.info(f"Cleaned up {len(stale_sessions)} stale sessions")
@@ -825,93 +784,53 @@ class WebSocketProxy:
         Connect to the upstream WebSocket service.
 
         Args:
-            upstream_url: URL of the upstream WebSocket service
-            session_id: Session ID to use for the connection
-            token: Authentication token, if any
+            upstream_url: WebSocket URL of the upstream service
+            session_id: Session ID for this connection
+            token: Authentication token
 
         Returns:
-            Connected WebSocket instance
-
-        Raises:
-            Exception: If the connection could not be established after retries
+            WebSocket connection to upstream service
         """
-        import websockets
+        try:
+            # Add session ID and token to URL as query parameters
+            parsed_url = urlparse(upstream_url)
+            query_params = parse_qs(parsed_url.query)
 
-        # Parse the URL and add session_id if not already in the path
-        parsed_url = urlparse(upstream_url)
+            # Add or update session_id parameter
+            query_params["session_id"] = [session_id]
 
-        # Check if the URL already includes session_id
-        if session_id not in parsed_url.path:
-            # Append session_id to the path
-            if parsed_url.path.endswith('/'):
-                path = f"{parsed_url.path}{session_id}"
-            else:
-                path = f"{parsed_url.path}/{session_id}"
+            # Add token if provided
+            if token:
+                query_params["token"] = [token]
 
-            # Reconstruct the URL
-            scheme = parsed_url.scheme
-            netloc = parsed_url.netloc
-            query = parsed_url.query
+            # Reconstruct URL with updated query parameters
+            updated_url = urlunparse((
+                parsed_url.scheme,
+                parsed_url.netloc,
+                parsed_url.path,
+                parsed_url.params,
+                urlencode(query_params, doseq=True),
+                parsed_url.fragment
+            ))
 
-            # Build the final URL
-            if query:
-                upstream_url = f"{scheme}://{netloc}{path}?{query}"
-            else:
-                upstream_url = f"{scheme}://{netloc}{path}"
+            # Configure connection with appropriate timeouts and settings
+            extra_headers = {"X-Client-ID": f"api-gateway-{session_id}"}
 
-        # Add token as query parameter if provided
-        if token:
-            if '?' in upstream_url:
-                upstream_url = f"{upstream_url}&token={token}"
-            else:
-                upstream_url = f"{upstream_url}?token={token}"
+            # Connect to the upstream WebSocket with proper parameters
+            upstream_ws = await websockets.connect(
+                updated_url,
+                ping_interval=WS_PING_INTERVAL,
+                ping_timeout=WS_PING_TIMEOUT,
+                max_size=WS_MAX_SIZE,
+                extra_headers=extra_headers,
+                close_timeout=5.0
+            )
 
-        # Implement retry logic with exponential backoff
-        max_retries = WS_RETRY_ATTEMPTS
-        retry_delay = WS_RETRY_DELAY
-        attempt = 0
-        last_exception = None
-
-        # Connection options with proper timeouts
-        connection_options = {
-            "ping_interval": WS_PING_INTERVAL,
-            "ping_timeout": WS_PING_TIMEOUT,
-            "max_size": WS_MAX_SIZE,
-            "close_timeout": 10,  # Ensure clean connection close
-            "max_queue": WS_MAX_QUEUE
-        }
-
-        while attempt < max_retries:
-            try:
-                logger.info(f"Connecting to upstream WebSocket: {upstream_url} (attempt {attempt+1}/{max_retries})")
-
-                # Connect with proper timeout settings
-                ws = await websockets.connect(
-                    upstream_url,
-                    **connection_options
-                )
-
-                # Log successful connection
-                logger.info(f"Successfully connected to upstream WebSocket for session {session_id}")
-                return ws
-
-            except (ConnectionRefusedError, ConnectionError, socket.gaierror, OSError) as e:
-                attempt += 1
-                last_exception = e
-                if attempt < max_retries:
-                    wait_time = retry_delay * (2 ** (attempt - 1))  # Exponential backoff
-                    logger.warning(f"Connection to upstream WebSocket failed: {e}. Retrying in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"Failed to connect to upstream WebSocket after {max_retries} attempts: {e}")
-            except Exception as e:
-                logger.error(f"Unexpected error connecting to upstream WebSocket: {e}")
-                logger.error(traceback.format_exc())
-                last_exception = e
-                break
-
-        # If we get here, all retries failed
-        raise ConnectionError(f"Failed to connect to upstream WebSocket: {last_exception}")
+            logger.info(f"Connected to upstream WebSocket for session {session_id}")
+            return upstream_ws
+        except Exception as e:
+            logger.error(f"Error connecting to upstream WebSocket: {e}")
+            raise
 
     async def forward_to_upstream(self, websocket: WebSocket, upstream_ws: Any, session_id: str) -> None:
         """

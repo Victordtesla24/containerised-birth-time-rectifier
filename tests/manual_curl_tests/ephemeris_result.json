@@ -1,0 +1,101 @@
+{
+  "chart_id": "chart_bf9c4ada43",
+  "date": "1990-01-15",
+  "time": "12:30",
+  "latitude": 40.7128,
+  "longitude": -74.006,
+  "calculation_type": "real_ephemeris",
+  "houses": [
+    343.0084970997485,
+    22.408656974583025,
+    50.63116684589278,
+    72.74276819694876,
+    93.31976586839801,
+    117.12767433182586,
+    163.00849709974852,
+    202.40865697458304,
+    230.63116684589278,
+    252.74276819694876,
+    273.319765868398
+  ],
+  "angles": {
+    "asc": {
+      "name": "Ascendant",
+      "longitude": 297.12767433182586,
+      "sign": "Capricorn",
+      "degree": 27.127674331825858
+    },
+    "mc": {
+      "name": "Midheaven",
+      "longitude": 230.63116684589278,
+      "sign": "Scorpio",
+      "degree": 20.63116684589278
+    }
+  },
+  "planets": {
+    "sun": {
+      "name": "Sun",
+      "error": "list index out of range"
+    },
+    "moon": {
+      "name": "Moon",
+      "longitude": 167.76097731885574,
+      "latitude": -2.7253147908136284,
+      "speed": 12.48364821148522,
+      "sign": "Virgo",
+      "house": 7,
+      "retrograde": false
+    },
+    "mercury": {
+      "name": "Mercury",
+      "error": "list index out of range"
+    },
+    "venus": {
+      "name": "Venus",
+      "error": "list index out of range"
+    },
+    "mars": {
+      "name": "Mars",
+      "longitude": 259.9239284031514,
+      "latitude": -0.19231941068183087,
+      "speed": 0.7119620697679813,
+      "sign": "Sagittarius",
+      "house": 10,
+      "retrograde": false
+    },
+    "jupiter": {
+      "name": "Jupiter",
+      "longitude": 93.3635508465197,
+      "latitude": -0.08262807707654893,
+      "speed": -0.11722621509220758,
+      "sign": "Cancer",
+      "house": 5,
+      "retrograde": true
+    },
+    "saturn": {
+      "name": "Saturn",
+      "error": "list index out of range"
+    },
+    "uranus": {
+      "name": "Uranus",
+      "error": "list index out of range"
+    },
+    "neptune": {
+      "name": "Neptune",
+      "error": "list index out of range"
+    },
+    "pluto": {
+      "name": "Pluto",
+      "longitude": 227.42863099862242,
+      "latitude": 15.378810771650427,
+      "speed": 0.020310379602632895,
+      "sign": "Scorpio",
+      "house": 8,
+      "retrograde": false
+    },
+    "north node": {
+      "name": "North Node",
+      "error": "list index out of range"
+    }
+  }
+}

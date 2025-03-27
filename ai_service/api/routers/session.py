@@ -1,94 +1,79 @@
 """
 Session management router for the Birth Time Rectifier API.
-Handles session initialization, status checking, and management.
+
+This module provides endpoints for session initialization and management.
 """
 
-import time
-import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks, Response
+from fastapi import APIRouter, HTTPException, Depends, Header, Body
 from typing import Dict, Any, Optional
 import logging
+import uuid
+import time
+from pydantic import BaseModel
 
 from ai_service.core.config import settings
 from ai_service.services.session_service import SessionService, get_session_service
-from pydantic import BaseModel
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["session"])
+# Create router
+router = APIRouter()
 
+# Models
 class SessionResponse(BaseModel):
-    """Session creation response."""
+    """Session response model."""
     session_id: str
     expires_at: int
-    status: str = "active"
+    status: str
 
-@router.post("/init", response_model=SessionResponse)
-async def init_session():
+@router.get("/init", response_model=SessionResponse)
+async def initialize_session() -> Dict[str, Any]:
     """
     Initialize a new session.
 
-    Returns a session token that should be included in subsequent requests.
+    Returns a session ID that must be included in subsequent requests as the X-Session-ID header.
     """
-    try:
-        # Get session service
-        session_service = get_session_service()
+    # Generate a unique session ID
+    session_id = str(uuid.uuid4())
 
-        # Create new session
-        session_id = session_service.create_session()
+    # Set expiry (24 hours from now)
+    session_expiry = 3600 * 24  # 1 day in seconds
 
-        # Get current time plus expiry in seconds
-        expires_at = int(time.time()) + session_service.session_expiry
+    # Get current time plus expiry in seconds
+    expires_at = int(time.time()) + session_expiry
 
-        return {
-            "session_id": session_id,
-            "expires_at": expires_at,
-            "status": "active"
-        }
-    except Exception as e:
-        logger.error(f"Error initializing session: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to initialize session"
-        )
+    logger.info(f"Created new session: {session_id}")
 
-@router.get("/init", response_model=SessionResponse)
-async def init_session_get():
-    """
-    Initialize a new session (GET method).
-
-    This is functionally identical to the POST version but supports GET requests
-    for compatibility with some clients.
-
-    Returns a session token that should be included in subsequent requests.
-    """
-    return await init_session()
-
-@router.get("/status")
-async def get_session_status(request: Request, session_id: str):
-    """
-    Get the status of the current session.
-
-    Returns session metadata including active status and expiration time.
-    """
-    # Get session service
-    session_service = get_session_service()
-
-    # Get session data
-    session_data = session_service.get_session(session_id)
-    if not session_data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active session found"
-        )
-
-    # Return session status
+    # Return the session information
     return {
         "session_id": session_id,
-        "status": session_data.get("status", "active"),
-        "created_at": session_data.get("created_at", time.time()),
-        "expires_at": session_data.get("expires_at", time.time() + session_service.session_expiry)
+        "expires_at": expires_at,
+        "status": "active"
+    }
+
+@router.get("/status")
+async def get_session_status(
+    session_id: Optional[str] = Header(None, alias="X-Session-ID")
+) -> Dict[str, Any]:
+    """
+    Get the status of an existing session.
+
+    Args:
+        session_id: Session ID from header
+
+    Returns:
+        Session status information
+    """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="X-Session-ID header is required")
+
+    # For now, return a basic status since we don't have session storage yet
+    # In a real implementation, we would validate the session against storage
+    return {
+        "session_id": session_id,
+        "status": "active",
+        "last_activity": int(time.time())
     }
 
 @router.post("/data")

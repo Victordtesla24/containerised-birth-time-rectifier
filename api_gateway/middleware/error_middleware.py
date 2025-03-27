@@ -1,9 +1,14 @@
-import json
+"""
+API Gateway Error Handling Middleware
+
+This module provides error handling middleware for the API Gateway service,
+using the shared error handler module from the AI service.
+"""
+
 import logging
-import traceback
-import time
 import asyncio
-from typing import Callable, Dict, Any, Optional, Type, Union, List
+import time
+from typing import Callable, Dict, Any, Optional, List
 from datetime import datetime
 
 from fastapi import FastAPI, Request, Response, status
@@ -14,140 +19,20 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 from httpx import TimeoutException, HTTPStatusError, RequestError, Response as HTTPXResponse
 
+# Import the shared error handler
+from ai_service.utils.error_handler import (
+    AppError,
+    ErrorCode,
+    convert_exception_to_error_response
+)
+
 # Configure logging
 logger = logging.getLogger("api_gateway.error_middleware")
-
-# Define standard error response structure
-class StandardErrorResponse:
-    """Standard structure for all API error responses."""
-
-    def __init__(
-        self,
-        status_code: int,
-        error_code: str,
-        message: str,
-        details: Optional[Dict[str, Any]] = None,
-        request_id: Optional[str] = None,
-        path: Optional[str] = None,
-        timestamp: Optional[str] = None,
-        retryable: bool = False,
-        suggestion: Optional[str] = None
-    ):
-        self.status_code = status_code
-        self.error_code = error_code
-        self.message = message
-        self.details = details or {}
-        self.request_id = request_id
-        self.path = path
-        self.timestamp = timestamp or datetime.now().isoformat()
-        self.retryable = retryable
-        self.suggestion = suggestion
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary representation."""
-        result = {
-            "error": {
-                "status_code": self.status_code,
-                "code": self.error_code,
-                "message": self.message,
-                "timestamp": self.timestamp,
-                "retryable": self.retryable
-            }
-        }
-
-        if self.details:
-            result["error"]["details"] = self.details
-
-        if self.request_id:
-            result["error"]["request_id"] = self.request_id
-
-        if self.path:
-            result["error"]["path"] = self.path
-
-        if self.suggestion:
-            result["error"]["suggestion"] = self.suggestion
-
-        return result
-
-    def to_response(self) -> JSONResponse:
-        """Convert to FastAPI JSON response."""
-        return JSONResponse(
-            status_code=self.status_code,
-            content=self.to_dict()
-        )
-
-# Error classification mappings
-ERROR_CLASSIFICATION = {
-    # Network errors
-    TimeoutException: {
-        "status_code": status.HTTP_504_GATEWAY_TIMEOUT,
-        "error_code": "GATEWAY_TIMEOUT",
-        "message": "Request timed out while waiting for upstream service",
-        "retryable": True,
-        "suggestion": "Please try again later"
-    },
-    ConnectionError: {
-        "status_code": status.HTTP_503_SERVICE_UNAVAILABLE,
-        "error_code": "SERVICE_UNAVAILABLE",
-        "message": "Failed to connect to upstream service",
-        "retryable": True,
-        "suggestion": "Please try again later"
-    },
-    # HTTP errors
-    RequestError: {
-        "status_code": status.HTTP_502_BAD_GATEWAY,
-        "error_code": "BAD_GATEWAY",
-        "message": "Error communicating with upstream service",
-        "retryable": True,
-        "suggestion": "Please try again in a few minutes"
-    },
-    HTTPStatusError: {
-        "status_code": status.HTTP_502_BAD_GATEWAY,
-        "error_code": "UPSTREAM_ERROR",
-        "message": "Upstream service returned an error",
-        "retryable": False
-    },
-    # Validation errors
-    RequestValidationError: {
-        "status_code": status.HTTP_422_UNPROCESSABLE_ENTITY,
-        "error_code": "VALIDATION_ERROR",
-        "message": "Request validation failed",
-        "retryable": False,
-        "suggestion": "Please check your request parameters"
-    },
-    ValueError: {
-        "status_code": status.HTTP_400_BAD_REQUEST,
-        "error_code": "INVALID_REQUEST",
-        "message": "Invalid request data",
-        "retryable": False
-    },
-    # Authentication errors
-    PermissionError: {
-        "status_code": status.HTTP_403_FORBIDDEN,
-        "error_code": "FORBIDDEN",
-        "message": "Permission denied",
-        "retryable": False,
-        "suggestion": "Please check your authorization credentials"
-    },
-    # Generic errors
-    Exception: {
-        "status_code": status.HTTP_500_INTERNAL_SERVER_ERROR,
-        "error_code": "INTERNAL_SERVER_ERROR",
-        "message": "An unexpected error occurred",
-        "retryable": False,
-        "suggestion": "Please contact support if the issue persists"
-    }
-}
 
 class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     """
     Middleware for handling and standardizing error responses across the API.
-
-    Features:
-    - Standardized error response format
-    - Proper error classification and logging
-    - Retry logic for transient failures
-    - Detailed error information for debugging
+    Uses the shared error handler module from the AI service.
     """
 
     def __init__(
@@ -283,12 +168,20 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     if retry_attempted:
                         self.retry_stats["failed_retries"] += 1
 
-                    # Return enhanced error response
-                    return self._create_error_response(e, request_id, path, retries)
+                    # Create error response using shared error handler
+                    error_dict = self._create_error_dict(e, request_id, path, retries)
+                    return JSONResponse(
+                        status_code=error_dict.get("status_code", 500),
+                        content={"error": error_dict.get("error", {})}
+                    )
 
             except Exception as e:
                 # Handle other errors (non-retryable)
-                return self._create_error_response(e, request_id, path, retries)
+                error_dict = self._create_error_dict(e, request_id, path, retries)
+                return JSONResponse(
+                    status_code=error_dict.get("status_code", 500),
+                    content={"error": error_dict.get("error", {})}
+                )
 
     def _should_use_enhanced_retry(self, request: Request) -> bool:
         """
@@ -323,25 +216,70 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         # Default to false for mutation methods on non-critical paths
         return False
 
-    def _create_error_response(
+    def _create_error_dict(
         self,
         exc: Exception,
         request_id: str,
         path: str,
         retry_count: int = 0
-    ) -> JSONResponse:
-        """Create a standardized error response based on the exception type."""
+    ) -> Dict[str, Any]:
+        """
+        Convert an exception to an error dictionary using the shared error handler.
+
+        Args:
+            exc: The exception that occurred
+            request_id: The request ID
+            path: The request path
+            retry_count: Number of retries attempted
+
+        Returns:
+            Error dictionary
+        """
         # Log the error
         logger.error(
             f"Error processing request {request_id} to {path}: {str(exc)}",
             exc_info=True
         )
 
-        # Get error classification based on exception type
-        error_info = self._get_error_classification(exc)
-        error_info_copy = error_info.copy()  # Make a copy to avoid modifying the original
+        # Determine error code and status code based on exception type
+        if isinstance(exc, TimeoutException):
+            code = ErrorCode.SERVICE_UNAVAILABLE
+            status_code = status.HTTP_504_GATEWAY_TIMEOUT
+            message = "Request timed out while waiting for upstream service"
+        elif isinstance(exc, ConnectionError):
+            code = ErrorCode.SERVICE_UNAVAILABLE
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            message = "Failed to connect to upstream service"
+        elif isinstance(exc, RequestError):
+            code = ErrorCode.DEPENDENCY_ERROR
+            status_code = status.HTTP_502_BAD_GATEWAY
+            message = "Error communicating with upstream service"
+        elif isinstance(exc, HTTPStatusError):
+            code = ErrorCode.DEPENDENCY_ERROR
+            status_code = status.HTTP_502_BAD_GATEWAY
+            message = "Upstream service returned an error"
+        elif isinstance(exc, RequestValidationError):
+            code = ErrorCode.INVALID_REQUEST
+            status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+            message = "Request validation failed"
+        elif isinstance(exc, ValueError):
+            code = ErrorCode.INVALID_PARAM
+            status_code = status.HTTP_400_BAD_REQUEST
+            message = "Invalid request data"
+        elif isinstance(exc, PermissionError):
+            code = ErrorCode.UNAUTHORIZED
+            status_code = status.HTTP_403_FORBIDDEN
+            message = "Permission denied"
+        elif isinstance(exc, StarletteHTTPException):
+            code = ErrorCode.INTERNAL_ERROR
+            status_code = exc.status_code
+            message = str(exc.detail) if exc.detail else "HTTP error"
+        else:
+            code = ErrorCode.INTERNAL_ERROR
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            message = "An unexpected error occurred"
 
-        # Create error details
+        # Create details
         details: Dict[str, Any] = {
             "exception_type": type(exc).__name__,
             "request_id": request_id,
@@ -355,9 +293,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
 
         # Add exception-specific details
         if isinstance(exc, StarletteHTTPException):
-            details["status_code"] = str(exc.status_code)
-            error_info_copy["status_code"] = exc.status_code
-            error_info_copy["message"] = str(exc.detail) if exc.detail else error_info_copy["message"]
+            details["status_code"] = exc.status_code
 
         elif isinstance(exc, RequestValidationError):
             details["validation_errors"] = []
@@ -369,11 +305,11 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                 })
 
         elif isinstance(exc, HTTPStatusError):
-            # Type hint the variable to tell the linter what it is
+            # Get the upstream response
             http_exc_response: HTTPXResponse = getattr(exc, "response")
 
             if http_exc_response:
-                details["upstream_status"] = str(http_exc_response.status_code)
+                details["upstream_status"] = http_exc_response.status_code
                 try:
                     details["upstream_body"] = http_exc_response.json()
                 except Exception:
@@ -382,97 +318,21 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     except Exception:
                         pass
 
-        # Add stack trace in debug mode
-        if self.debug_mode:
-            details["stack_trace"] = traceback.format_exc()
+        # Use convert_exception_to_error_response from shared error handler if appropriate
+        if isinstance(exc, (StarletteHTTPException, RequestValidationError)):
+            return convert_exception_to_error_response(exc)
 
-        # Create standardized recovery instructions
-        recovery_instructions = self._generate_recovery_instructions(exc, error_info_copy, retry_count)
-        if recovery_instructions:
-            details["recovery_instructions"] = recovery_instructions
-
-        # Create the standardized error response
-        error_response = StandardErrorResponse(
-            status_code=error_info_copy["status_code"],
-            error_code=error_info_copy["error_code"],
-            message=error_info_copy.get("message", str(exc)),
-            details=details,
-            request_id=request_id,
-            path=path,
-            retryable=error_info_copy.get("retryable", False),
-            suggestion=error_info_copy.get("suggestion")
-        )
-
-        response = error_response.to_response()
-
-        # Add appropriate headers for retryable errors
-        if error_info_copy.get("retryable", False):
-            retry_after = 5 if isinstance(exc, TimeoutException) else 1
-            response.headers["Retry-After"] = str(retry_after)
-
-        return response
-
-    def _generate_recovery_instructions(
-        self,
-        exc: Exception,
-        error_info: Dict[str, Any],
-        retry_count: int
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Generate recovery instructions based on error type.
-
-        Args:
-            exc: The exception that occurred
-            error_info: The error classification information
-            retry_count: Number of retries already attempted
-
-        Returns:
-            Recovery instructions or None if not applicable
-        """
-        if not error_info.get("retryable", False):
-            return None
-
-        # Generate instructions based on error type
-        if isinstance(exc, TimeoutException):
-            return {
-                "action": "retry_with_backoff",
-                "suggestion": "The server is currently experiencing high load. Please try again in a few seconds.",
-                "retry_after": 5,
-                "exponential_backoff": True
+        # Create error dictionary
+        error_dict = {
+            "status_code": status_code,
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details
             }
-        elif isinstance(exc, ConnectionError):
-            return {
-                "action": "check_and_retry",
-                "suggestion": "Please check your network connection and try again.",
-                "retry_after": 2,
-                "max_retries": 3
-            }
-        elif isinstance(exc, RequestError):
-            return {
-                "action": "wait_and_retry",
-                "suggestion": "The service is temporarily unavailable. Please try again later.",
-                "retry_after": 10,
-                "max_retries": 2
-            }
-        elif retry_count > 0:
-            # Generic instructions for retried requests
-            return {
-                "action": "contact_support",
-                "suggestion": f"Request failed after {retry_count} retries. Please try again later or contact support if the issue persists.",
-                "retry_after": 30
-            }
+        }
 
-        return None
-
-    def _get_error_classification(self, exc: Exception) -> Dict[str, Any]:
-        """Get error classification based on exception type."""
-        # Check if the exception type is directly mapped
-        for error_type, classification in ERROR_CLASSIFICATION.items():
-            if isinstance(exc, error_type):
-                return classification
-
-        # If not found, use the base Exception classification
-        return ERROR_CLASSIFICATION[Exception]
+        return error_dict
 
     @staticmethod
     def _clone_request_with_body(request: Request, body: bytes) -> Request:
@@ -489,7 +349,7 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
 
 def add_error_handler(app: FastAPI, **kwargs) -> None:
     """
-    Add error handling middleware and exception handlers to the FastAPI app.
+    Add error handling middleware to the FastAPI app.
 
     Args:
         app: The FastAPI application
@@ -497,70 +357,6 @@ def add_error_handler(app: FastAPI, **kwargs) -> None:
     """
     # Add error handling middleware to the ASGI app
     app.add_middleware(ErrorHandlerMiddleware, **kwargs)
-
-    # Register exception handlers for FastAPI specific exceptions
-    @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        request_id = request.headers.get("X-Request-ID", f"req-{time.time()}")
-        return StandardErrorResponse(
-            status_code=exc.status_code,
-            error_code=f"HTTP_{exc.status_code}",
-            message=str(exc.detail),
-            request_id=request_id,
-            path=request.url.path,
-            retryable=exc.status_code in [502, 503, 504]
-        ).to_response()
-
-    @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-        request_id = request.headers.get("X-Request-ID", f"req-{time.time()}")
-        details = {
-            "validation_errors": []
-        }
-
-        for error in exc.errors():
-            details["validation_errors"].append({
-                "loc": error.get("loc", []),
-                "msg": error.get("msg", ""),
-                "type": error.get("type", "")
-            })
-
-        return StandardErrorResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            error_code="VALIDATION_ERROR",
-            message="Request validation failed",
-            details=details,
-            request_id=request_id,
-            path=request.url.path,
-            retryable=False,
-            suggestion="Please check your request parameters"
-        ).to_response()
-
-    @app.exception_handler(Exception)
-    async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        request_id = request.headers.get("X-Request-ID", f"req-{time.time()}")
-        error_info = ERROR_CLASSIFICATION.get(type(exc), ERROR_CLASSIFICATION[Exception])
-
-        details = {
-            "exception_type": type(exc).__name__
-        }
-
-        # Log the error
-        logger.error(
-            f"Unhandled exception in request {request_id} to {request.url.path}: {str(exc)}",
-            exc_info=True
-        )
-
-        return StandardErrorResponse(
-            status_code=error_info["status_code"],
-            error_code=error_info["error_code"],
-            message=str(exc) if str(exc) else error_info["message"],
-            details=details,
-            request_id=request_id,
-            path=request.url.path,
-            retryable=error_info.get("retryable", False),
-            suggestion=error_info.get("suggestion")
-        ).to_response()
 
     # Add a route to get error handling statistics
     @app.get("/api/_internal/error-stats", include_in_schema=False)

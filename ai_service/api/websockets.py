@@ -3,113 +3,130 @@ WebSocket Connection Manager for Birth Time Rectifier API
 
 This module provides WebSocket functionality for real-time updates
 during long-running processes like birth time rectification.
+
+This module delegates to the canonical implementation in ai_service.utils.websocket_manager.
 """
 
-from fastapi import WebSocket
-from typing import Dict, List, Any
+from fastapi import WebSocket, WebSocketDisconnect, HTTPException, Depends, status
+from typing import Dict, List, Any, Optional, cast
 import logging
-import asyncio
 import json
+import time
+from datetime import datetime
+
+# Import the canonical WebSocket manager
+from ai_service.utils.websocket_manager import manager as ws_manager, get_websocket_manager
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-class ConnectionManager:
+# Re-export the manager instance
+# This ensures backwards compatibility with existing code
+# Usage: from ai_service.api.websockets import manager
+
+# Export handler function for FastAPI WebSocket endpoints
+async def handle_websocket_connection(websocket: WebSocket, session_id: str):
     """
-    WebSocket connection manager for handling real-time updates.
+    Handle a WebSocket connection according to the sequence diagram.
 
-    This class manages WebSocket connections and provides methods
-    for sending updates to specific clients or broadcasting to all.
+    Args:
+        websocket: The WebSocket connection
+        session_id: The session ID to associate with this connection
     """
+    # Connect using the canonical manager
+    connected = await ws_manager.connect(websocket, session_id)
 
-    def __init__(self):
-        """Initialize the connection manager with an empty connections dictionary."""
-        # Store active connections by session ID
-        self.active_connections: Dict[str, WebSocket] = {}
+    if not connected:
+        logger.error(f"Failed to establish WebSocket connection for session {session_id}")
+        if websocket.client_state != websocket.client_state.DISCONNECTED:
+            await websocket.close(code=1011)  # Internal error
+        return
 
-    async def connect(self, websocket: WebSocket, session_id: str):
-        """
-        Accept a WebSocket connection and store it.
-
-        Args:
-            websocket: The WebSocket connection
-            session_id: The session ID to associate with this connection
-        """
-        await websocket.accept()
-        self.active_connections[session_id] = websocket
-        logger.info(f"WebSocket connection established for session {session_id}")
-
-        # Send initial connection confirmation
-        await websocket.send_json({
-            "type": "connection_status",
-            "status": "connected",
-            "session_id": session_id,
-            "message": "WebSocket connection established"
-        })
-
-    def disconnect(self, session_id: str):
-        """
-        Remove a WebSocket connection.
-
-        Args:
-            session_id: The session ID of the connection to remove
-        """
-        if session_id in self.active_connections:
-            del self.active_connections[session_id]
-            logger.info(f"WebSocket connection closed for session {session_id}")
-
-    async def send_update(self, session_id: str, data: Any):
-        """
-        Send an update to a specific client.
-
-        Args:
-            session_id: The session ID of the client
-            data: The data to send (will be converted to JSON)
-
-        Returns:
-            bool: True if the update was sent, False if the session was not found
-        """
-        if session_id in self.active_connections:
+    try:
+        # Main message processing loop
+        while True:
+            data = await websocket.receive_text()
             try:
-                await self.active_connections[session_id].send_json(data)
-                logger.info(f"Update sent to session {session_id}")
-                return True
+                # Parse and process the message
+                message = json.loads(data)
+                message_type = message.get("type", "")
+
+                # Handle ping messages
+                if message_type == "ping":
+                    await websocket.send_json({
+                        "type": "pong",
+                        "timestamp": time.time(),
+                        "message": "Server is alive"
+                    })
+
+                    # Update activity timestamp in metadata
+                    if session_id in ws_manager.client_metadata:
+                        ws_manager.client_metadata[session_id]["last_activity"] = datetime.now().isoformat()
+
+                # Handle subscription messages
+                elif message_type == "subscribe" and "channel" in message:
+                    channel = message.get("channel", "")
+                    if isinstance(channel, str) and channel:
+                        success = await ws_manager.subscribe(session_id, channel)
+                        await websocket.send_json({
+                            "type": "subscription_status",
+                            "channel": channel,
+                            "status": "subscribed" if success else "failed",
+                            "timestamp": time.time()
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Invalid channel name",
+                            "timestamp": time.time()
+                        })
+
+                # Handle unsubscription messages
+                elif message_type == "unsubscribe" and "channel" in message:
+                    channel = message.get("channel", "")
+                    if isinstance(channel, str) and channel:
+                        success = await ws_manager.unsubscribe(session_id, channel)
+                        await websocket.send_json({
+                            "type": "subscription_status",
+                            "channel": channel,
+                            "status": "unsubscribed" if success else "failed",
+                            "timestamp": time.time()
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Invalid channel name",
+                            "timestamp": time.time()
+                        })
+
+                # Echo other messages for debugging
+                else:
+                    await websocket.send_json({
+                        "type": "echo",
+                        "original_message": message,
+                        "timestamp": time.time()
+                    })
+
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON received: {data}")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Invalid JSON format",
+                    "timestamp": time.time()
+                })
             except Exception as e:
-                logger.error(f"Error sending update to session {session_id}: {e}")
-                # Connection might be broken, remove it
-                self.disconnect(session_id)
-                return False
-        else:
-            logger.warning(f"Attempted to send update to unknown session {session_id}")
-            return False
+                logger.error(f"Error processing WebSocket message: {e}")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": str(e),
+                    "timestamp": time.time()
+                })
+    except WebSocketDisconnect:
+        # Handle normal client disconnection
+        ws_manager.disconnect(session_id)
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+        ws_manager.disconnect(session_id)
 
-    async def broadcast(self, data: Any):
-        """
-        Broadcast an update to all connected clients.
 
-        Args:
-            data: The data to broadcast (will be converted to JSON)
-
-        Returns:
-            int: The number of clients that received the update
-        """
-        disconnected_sessions = []
-        successful_broadcasts = 0
-
-        for session_id, connection in self.active_connections.items():
-            try:
-                await connection.send_json(data)
-                successful_broadcasts += 1
-            except Exception as e:
-                logger.error(f"Error broadcasting to session {session_id}: {e}")
-                disconnected_sessions.append(session_id)
-
-        # Clean up disconnected sessions
-        for session_id in disconnected_sessions:
-            self.disconnect(session_id)
-
-        logger.info(f"Broadcast sent to {successful_broadcasts} connections")
-        return successful_broadcasts
-
-# Create a global instance
-manager = ConnectionManager()

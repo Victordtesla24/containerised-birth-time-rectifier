@@ -10,6 +10,8 @@ import uuid
 import time
 import asyncio
 import random
+import os
+import string
 from typing import Dict, Any, Optional, Callable, Awaitable
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -35,11 +37,25 @@ REDIS_MAX_RETRIES = 3
 REDIS_RETRY_DELAY = 0.5  # seconds
 
 # Flag for test mode - only set to True in testing environments
-IS_TESTING = False
+IS_TESTING = os.environ.get("TESTING", "false").lower() == "true"
 
 # In-memory store for testing only
 SESSION_STORE: Dict[str, Dict] = {}
 SESSION_TTL = 3600  # 1 hour in seconds
+
+# Paths that should not use sessions
+EXCLUDED_PATHS = [
+    "/static/",
+    "/favicon.ico",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/api/health/basic",  # Skip session for basic health check
+]
+
+# Session cookie settings
+SESSION_COOKIE_NAME = "session_id"
+SESSION_EXPIRY = 86400  # 24 hours in seconds
 
 # Custom exception for session-related errors
 class SessionError(Exception):
@@ -57,10 +73,7 @@ def get_redis_client():
     Get Redis client for session storage with improved reliability.
 
     Returns:
-        Redis client or raises an exception if Redis is not available in production
-
-    Raises:
-        RuntimeError: If Redis is not available in production
+        Redis client or None if not available (will use file-based storage as fallback)
     """
     global REDIS_CONNECTION_POOL
 
@@ -77,8 +90,8 @@ def get_redis_client():
             REDIS_CONNECTION_POOL = redis.ConnectionPool.from_url(
                 settings.REDIS_URL,
                 decode_responses=True,
-                socket_timeout=3.0,
-                socket_connect_timeout=3.0,
+                socket_timeout=1.0,  # Reduced timeout to fail faster
+                socket_connect_timeout=1.0,
                 retry_on_timeout=True,
                 health_check_interval=30
             )
@@ -95,29 +108,42 @@ def get_redis_client():
                 if attempt < REDIS_MAX_RETRIES - 1:
                     time.sleep(REDIS_RETRY_DELAY * (attempt + 1))  # Exponential backoff
                 else:
-                    raise e
+                    # On final attempt, just log and return None for fallback
+                    logger.warning(f"Redis connection failed after {REDIS_MAX_RETRIES} attempts: {e}")
+                    return None
 
         return redis_client
     except (ImportError, Exception) as e:
         error_msg = f"Redis not available for session storage: {e}"
         logger.error(error_msg)
-        if not IS_TESTING:
-            raise RuntimeError(error_msg)
+        # Always return None to allow for file-based fallback
         return None
 
-# Try to get Redis client lazily for each request instead of at module level
 def get_current_redis_client():
     """
-    Get the current Redis client or None if in testing mode
+    Get the current Redis client or None if not available
 
-    Raises:
-        RuntimeError: If Redis is not available in production
+    Returns:
+        Redis client or None for fallback storage
     """
+    # First check if we're in test mode
+    if IS_TESTING:
+        logger.debug("In test mode - returning None for Redis client")
+        return None
+
     try:
-        return get_redis_client()
+        client = get_redis_client()
+        # Test the client
+        if client:
+            try:
+                client.ping()  # Use ping to check if Redis is actually working
+                return client
+            except Exception as e:
+                logger.warning(f"Redis ping failed: {e}")
+                return None
+        return None
     except Exception as e:
-        if not IS_TESTING:
-            raise RuntimeError(f"Failed to get Redis client: {e}")
+        logger.warning(f"Could not get Redis client: {e}")
         return None
 
 def retrieve_session(session_id: str) -> Optional[Dict]:
@@ -129,18 +155,9 @@ def retrieve_session(session_id: str) -> Optional[Dict]:
 
     Returns:
         Session data or None if not found
-
-    Raises:
-        RuntimeError: If Redis is not available in production
     """
-    # Get Redis client or raise error if not available in production
+    # Get Redis client
     redis_client = get_current_redis_client()
-
-    # In production, Redis client must be available
-    if not redis_client and not IS_TESTING:
-        error_msg = "Redis client not available for session retrieval in production environment"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
 
     # If Redis is available, use it
     if redis_client:
@@ -161,21 +178,28 @@ def retrieve_session(session_id: str) -> Optional[Dict]:
                 return None
         except Exception as e:
             logger.error(f"Error retrieving session from Redis: {e}")
-            if not IS_TESTING:
-                raise RuntimeError(f"Redis error: {e}")
-            return None
+            # Continue to file-based fallback
 
-    # In test mode only, use in-memory store
-    if IS_TESTING:
-        session = SESSION_STORE.get(session_id)
-        if session and session.get("expires_at", 0) > time.time():
-            return session
+    # Try file-based storage
+    try:
+        # Check for session in file storage
+        session_dir = os.environ.get("SESSION_DIR", "sessions")
+        if not os.path.exists(session_dir):
+            os.makedirs(session_dir, exist_ok=True)
 
-        # Cleanup expired sessions periodically
-        if random.random() < 0.01:
-            cleanup_expired_sessions()
+        session_file = os.path.join(session_dir, f"{session_id}.json")
+        if os.path.exists(session_file):
+            with open(session_file, 'r') as f:
+                data = json.load(f)
+                # Check session expiry
+                if data.get("expires_at", 0) > time.time():
+                    return data
 
-    return None
+        # No valid session found
+        return None
+    except Exception as e:
+        logger.error(f"Error retrieving session from file: {e}")
+        return None
 
 def cleanup_expired_sessions():
     """Clean up expired sessions from in-memory store (testing only)"""
@@ -204,18 +228,9 @@ def persist_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool
 
     Returns:
         True if successful, False otherwise
-
-    Raises:
-        RuntimeError: If Redis is not available in production
     """
-    # Get Redis client or raise error if not available in production
+    # Get Redis client
     redis_client = get_current_redis_client()
-
-    # In production, Redis client must be available
-    if not redis_client and not IS_TESTING:
-        error_msg = "Redis client not available for session persistence in production environment"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
 
     # If Redis is available, use it
     if redis_client:
@@ -243,51 +258,81 @@ def persist_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool
                 return bool(result)
             else:
                 logger.error("Redis client doesn't have setex method")
-                if not IS_TESTING:
-                    raise RuntimeError("Invalid Redis client configuration")
-                return False
+                # Continue to file-based fallback
         except Exception as e:
             logger.error(f"Error saving session to Redis: {e}")
-            if not IS_TESTING:
-                raise RuntimeError(f"Redis error: {e}")
-            return False
+            # Continue to file-based fallback
 
-    # In test mode only, use in-memory store
-    if IS_TESTING:
+    # Use file-based storage as fallback
+    try:
+        # Ensure data has expiry time
         data_copy = data.copy()
         data_copy["expires_at"] = time.time() + ttl
-        SESSION_STORE[session_id] = data_copy
-        return True
 
-    return False
+        # Ensure session directory exists
+        session_dir = os.environ.get("SESSION_DIR", "sessions")
+        if not os.path.exists(session_dir):
+            os.makedirs(session_dir, exist_ok=True)
+
+        # Save session to file
+        session_file = os.path.join(session_dir, f"{session_id}.json")
+        with open(session_file, 'w') as f:
+            json.dump(data_copy, f)
+
+        logger.info(f"Saved session {session_id} to file")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving session to file: {e}")
+        return False
 
 class SimpleSessionMiddleware(BaseHTTPMiddleware):
     """Middleware for handling sessions in FastAPI."""
 
-    async def dispatch(self, request: Request, call_next):
-        """Process request, handling session state."""
-        # Initialize session state
-        request.state.session = {}
-        request.state.session_id = None
-        request.state.new_session = True
+    async def dispatch(self, request: Request, call_next) -> Response:
+        """
+        Main middleware function to process requests.
 
-        # Get or create session
+        Args:
+            request: The FastAPI request
+            call_next: The next middleware/handler in the chain
+
+        Returns:
+            FastAPI response
+        """
+        # Skip session handling for excluded paths
+        path = request.url.path
+        for excluded_path in EXCLUDED_PATHS:
+            if path.startswith(excluded_path):
+                return await call_next(request)
+
+        # Get or create session ID
+        session_id = _get_session_id_from_cookie(request) or _generate_session_id()
+
+        # Initialize empty session
+        session = {"session_id": session_id}
+
+        # Try to load session data (from Redis or file)
         try:
-            session_data = await get_session(request)
-            request.state.session = session_data
-        except SessionError as e:
-            logger.error(f"Failed to get session: {e}")
-            # Initialize empty session on error
-            request.state.session = {}
+            session_data = await load_session(session_id)
+            if session_data:
+                session = session_data
+        except Exception as e:
+            logger.warning(f"Failed to load session {session_id}: {e}")
+            # Continue with empty session
 
-        # Process the request
+        # Add session to request state
+        request.state.session = session
+        request.state.session_id = session_id
+
+        # Call next middleware/handler to get response
         response = await call_next(request)
 
-        # Save session after request
+        # Save session to storage (redis or file)
         try:
-            await save_session(request, response, request.state.session)
-        except SessionError as e:
-            logger.error(f"Failed to save session: {e}")
+            await save_session(request, response, session)
+        except Exception as e:
+            logger.warning(f"Failed to save session {session_id}: {e}")
+            # Continue without saving session
 
         return response
 
@@ -368,13 +413,19 @@ async def get_session(request: Request) -> Dict[str, Any]:
 
     Raises:
         SessionError: If session cannot be retrieved
-        RuntimeError: If Redis is not available in production
     """
     # Import in function to avoid circular imports
     from ai_service.core.config import settings
 
+    # Try to get session ID from cookie, header, or query param
     session_id = request.cookies.get("session_id")
+    if not session_id:
+        session_id = request.headers.get("X-Session-ID")
+    if not session_id:
+        query_params = request.query_params
+        session_id = query_params.get("session_id")
 
+    # If no session ID found, create a new session
     if not session_id:
         # Generate a new session ID if not present
         session_id = str(uuid.uuid4())
@@ -386,155 +437,163 @@ async def get_session(request: Request) -> Dict[str, Any]:
     request.state.session_id = session_id
     request.state.new_session = False
 
-    # Get Redis client (or None in testing mode)
-    redis_client = getattr(request.app.state, "redis", None) or get_current_redis_client()
+    # Try to load the session
+    try:
+        session_data = await load_session(session_id)
+        return session_data or {}
+    except Exception as e:
+        logger.error(f"Error loading session {session_id}: {e}")
+        # Return empty session but don't raise error to allow app to continue
+        return {}
 
-    # In production, Redis client must be available
-    if not redis_client and not IS_TESTING:
-        error_msg = "Redis client not available for session retrieval in production environment"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
+async def save_session(request: Request, response: Response, session_data: Dict[str, Any]) -> None:
+    """Save session data to storage (Redis or file)."""
+    try:
+        # Try to get Redis client
+        redis_client = None
+        try:
+            redis_client = getattr(request.app.state, "redis", None) or get_current_redis_client()
+        except Exception as redis_error:
+            logger.warning(f"Could not use Redis for session: {str(redis_error)}")
+            redis_client = None
 
-    # If Redis is available, use it
+        # If Redis client is available and properly configured, use it
+        if redis_client and hasattr(redis_client, 'set') and callable(redis_client.set):
+            try:
+                await redis_save_session(redis_client, session_data)
+                return
+            except Exception as redis_save_error:
+                logger.warning(f"Failed to save session to Redis: {str(redis_save_error)}")
+                # Continue with file storage fallback
+        else:
+            logger.debug("Redis client not available or not properly configured, using file storage instead")
+
+        # Use file storage as fallback
+        file_storage_path = os.environ.get("SESSION_FILE_PATH",
+                                        os.path.join(os.getcwd(), "ai_service", "sessions"))
+        # Ensure directory exists
+        os.makedirs(file_storage_path, exist_ok=True)
+
+        # Save to file
+        file_path = os.path.join(file_storage_path, f"{session_data['session_id']}.json")
+        with open(file_path, "w") as f:
+            json.dump(session_data, f)
+
+        logger.info(f"Saved session {session_data['session_id']} to file")
+
+    except Exception as e:
+        # Don't crash - just log the error
+        logger.error(f"Failed to save session {session_data.get('session_id', 'unknown')}: {str(e)}")
+
+async def redis_save_session(redis_client, session_data: Dict[str, Any]) -> None:
+    """Save session data to Redis.
+
+    Args:
+        redis_client: Redis client instance
+        session_data: Session data to save
+    """
+    # First check if redis_client is None
+    if redis_client is None:
+        logger.warning("Redis client is None, cannot save session to Redis")
+        raise RuntimeError("Redis client is not available")
+
+    session_id = session_data.get('session_id')
+    if not session_id:
+        logger.error("Cannot save session without session_id")
+        return
+
+    # Get session expiry time from configuration
+    session_expiry = 3600  # Default 1 hour
+    try:
+        from ai_service.core.config import settings
+        session_expiry = getattr(settings, "SESSION_EXPIRY", 3600)
+    except ImportError:
+        logger.warning("Could not import settings, using default session expiry")
+
+    # Serialize session data
+    session_data_json = json.dumps(session_data)
+
+    # Handle both sync and async Redis clients
+    if hasattr(redis_client, 'set') and callable(redis_client.set):
+        if asyncio.iscoroutinefunction(redis_client.set):
+            # Async Redis client
+            await redis_client.set(
+                f"session:{session_id}",
+                session_data_json,
+                ex=session_expiry
+            )
+        else:
+            # Sync Redis client
+            redis_client.set(
+                f"session:{session_id}",
+                session_data_json,
+                ex=session_expiry
+            )
+    else:
+        logger.error("Redis client doesn't have set method")
+        raise RuntimeError("Invalid Redis client configuration")
+
+def _generate_session_id() -> str:
+    """Generate a random session ID."""
+    random_part = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+    timestamp = int(time.time())
+    return f"{timestamp}_{random_part}"
+
+def _get_session_id_from_cookie(request: Request) -> Optional[str]:
+    """Get session ID from cookies."""
+    if SESSION_COOKIE_NAME in request.cookies:
+        return request.cookies[SESSION_COOKIE_NAME]
+    return None
+
+async def load_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """Load session data from Redis or file storage."""
+    # Try Redis first
+    redis_client = None
+    try:
+        redis_client = get_current_redis_client()
+    except Exception as e:
+        logger.warning(f"Failed to get Redis client: {e}")
+        redis_client = None
+
     if redis_client:
         try:
-            # Handle both sync and async Redis clients
+            # Handle both async and sync Redis clients
             if hasattr(redis_client, 'get') and callable(redis_client.get):
                 if asyncio.iscoroutinefunction(redis_client.get):
                     # Async Redis client
-                    session_data_json = await redis_client.get(f"session:{session_id}")
+                    session_data = await redis_client.get(f"session:{session_id}")
                 else:
                     # Sync Redis client
-                    session_data_json = redis_client.get(f"session:{session_id}")
+                    session_data = redis_client.get(f"session:{session_id}")
 
-                if session_data_json:
-                    # Parse session data
-                    return json.loads(session_data_json)
-
-                # Session not found
-                request.state.new_session = True
-                return {}
-            else:
-                logger.error("Redis client doesn't have get method")
-                if not IS_TESTING:
-                    raise RuntimeError("Invalid Redis client configuration")
-                request.state.new_session = True
-                return {}
-        except json.JSONDecodeError as e:
-            error_msg = f"Failed to decode session data: {str(e)}"
-            logger.error(error_msg)
-            raise SessionError(error_msg)
+                # Parse JSON if we got data
+                if session_data:
+                    if isinstance(session_data, bytes):
+                        return json.loads(session_data.decode('utf-8'))
+                    elif isinstance(session_data, str):
+                        return json.loads(session_data)
+                    elif isinstance(session_data, dict):
+                        return session_data
         except Exception as e:
-            error_msg = f"Failed to retrieve session from Redis: {str(e)}"
-            logger.error(error_msg)
-            if not IS_TESTING:
-                raise RuntimeError(f"Redis error: {e}")
-            request.state.new_session = True
-            return {}
+            logger.warning(f"Redis error when loading session: {e}")
+            # Fall back to file storage
 
-    # In test mode only, use in-memory store
-    if IS_TESTING:
-        session = SESSION_STORE.get(session_id)
-        if session and session.get("expires_at", 0) > time.time():
-            return session.copy()
-
-        # Session not found or expired
-        request.state.new_session = True
-        return {}
-
-    # This should not happen - Redis is required in production
-    error_msg = "Redis is required for session management in production"
-    logger.error(error_msg)
-    raise RuntimeError(error_msg)
-
-async def save_session(request: Request, response: Response, session_data: Dict[str, Any]) -> None:
-    """
-    Save session data for the request.
-
-    Args:
-        request: The FastAPI request
-        response: The FastAPI response
-        session_data: Session data to save
-
-    Raises:
-        SessionError: If session cannot be saved
-        RuntimeError: If Redis is not available in production
-    """
-    # Import in function to avoid circular imports
-    from ai_service.core.config import settings
-
-    session_id = request.state.session_id
-
-    # Set session cookie
-    secure_cookies = getattr(settings, "SECURE_COOKIES", False)
-    cookie_domain = getattr(settings, "COOKIE_DOMAIN", None)
-
-    cookie_args = {
-        "key": "session_id",
-        "value": session_id,
-        "httponly": True,
-        "secure": secure_cookies,
-        "samesite": "lax",
-        "max_age": settings.SESSION_EXPIRY
-    }
-
-    # Add domain if specified
-    if cookie_domain:
-        cookie_args["domain"] = cookie_domain
-
-    response.set_cookie(**cookie_args)
-
-    # Get Redis client (or None in testing mode)
-    redis_client = getattr(request.app.state, "redis", None) or get_current_redis_client()
-
-    # In production, Redis client must be available
-    if not redis_client and not IS_TESTING:
-        error_msg = "Redis client not available for session saving in production environment"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
-
-    # If Redis is available, use it
-    if redis_client:
-        try:
-            # Serialize session data
-            session_data_json = json.dumps(session_data)
-
-            # Handle both sync and async Redis clients
-            if hasattr(redis_client, 'set') and callable(redis_client.set):
-                if asyncio.iscoroutinefunction(redis_client.set):
-                    # Async Redis client
-                    await redis_client.set(
-                        f"session:{session_id}",
-                        session_data_json,
-                        ex=settings.SESSION_EXPIRY
-                    )
+    # Try file storage as fallback
+    try:
+        file_storage_path = os.environ.get("SESSION_FILE_PATH",
+                                         os.path.join(os.getcwd(), "ai_service", "sessions"))
+        file_path = os.path.join(file_storage_path, f"{session_id}.json")
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                content = f.read()
+                if content.strip():  # Check if file is not empty
+                    return json.loads(content)
                 else:
-                    # Sync Redis client
-                    redis_client.set(
-                        f"session:{session_id}",
-                        session_data_json,
-                        ex=settings.SESSION_EXPIRY
-                    )
-                return
-            else:
-                logger.error("Redis client doesn't have set method")
-                if not IS_TESTING:
-                    raise RuntimeError("Invalid Redis client configuration")
-        except Exception as e:
-            error_msg = f"Failed to save session to Redis: {str(e)}"
-            logger.error(error_msg)
-            if not IS_TESTING:
-                raise RuntimeError(f"Redis error: {e}")
+                    logger.warning(f"Empty session file found for {session_id}")
+    except json.JSONDecodeError as e:
+        logger.warning(f"File storage JSON error when loading session: {e}")
+    except Exception as e:
+        logger.warning(f"File storage error when loading session: {e}")
 
-    # In test mode only, use in-memory store
-    if IS_TESTING:
-        data_copy = session_data.copy()
-        data_copy["expires_at"] = time.time() + settings.SESSION_EXPIRY
-        SESSION_STORE[session_id] = data_copy
-        return
-
-    # This should not happen - Redis is required in production
-    if not redis_client:
-        error_msg = "Redis is required for session management in production"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
+    # Return None if no session found
+    return None

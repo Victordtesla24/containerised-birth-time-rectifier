@@ -580,13 +580,32 @@ class ChartService:
                     import uuid
                     chart_data["chart_id"] = f"chrt_{uuid.uuid4().hex[:8]}"
 
-                # Verify with OpenAI if requested and OpenAI service is available
-                if verify_with_openai and self.openai_service:
+                # Verify with OpenAI if requested
+                if verify_with_openai:
                     try:
-                        verification_result = await self._verify_chart_with_openai(
-                            chart_data, session_id
-                        )
-                        chart_data["verification"] = verification_result
+                        # Make sure openai_service is initialized
+                        if not self.openai_service:
+                            try:
+                                from ai_service.api.services.openai import get_openai_service
+                                self.openai_service = await get_openai_service()
+                                logger.info("OpenAI service initialized for chart verification")
+                            except Exception as e:
+                                logger.warning(f"Failed to initialize OpenAI service: {e}")
+                                # Continue without verification
+
+                        # If we have a valid OpenAI service, proceed with verification
+                        if self.openai_service:
+                            verification_result = await self._verify_chart_with_openai(
+                                chart_data, session_id
+                            )
+                            chart_data["verification"] = verification_result
+                        else:
+                            # Add verification skipped info
+                            chart_data["verification"] = {
+                                "status": "verification_skipped",
+                                "message": "OpenAI service not available for verification",
+                                "verified": False
+                            }
                     except Exception as e:
                         logger.error(f"Chart verification failed: {e}")
                         # Add failed verification info but don't fail the chart generation

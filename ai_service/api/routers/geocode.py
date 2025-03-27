@@ -1,319 +1,180 @@
 """
-Geocoding Router for Birth Time Rectifier API
----------------------------------------------
+Geocoding Router for Birth Time Rectifier
 
-Handles all location-related endpoints for obtaining accurate coordinates and timezone data.
-Provides direct integration with various geocoding providers.
+This module provides geocoding endpoints that rely on the canonical implementation
+in ai_service.utils.geocoding.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request, BackgroundTasks, Body, Depends
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 import logging
-import json
-import asyncio
-import time
-from typing import Dict, List, Optional, Any, Union
-from urllib.parse import quote
+from typing import Dict, List, Any, Optional
 
+from fastapi import APIRouter, Query, HTTPException, status, Depends
+from fastapi.responses import JSONResponse
+
+# Import the canonical geocoding implementation
 from ai_service.utils.geocoding import (
     geocode_location,
-    geocode_location_sync,
     reverse_geocode,
-    reverse_geocode_sync,
-    get_coordinates,
     get_timezone_for_coordinates
 )
-from ai_service.api.websocket_events import emit_event as emit, EventType
 
-# Setup logging
+# Set up logging
 logger = logging.getLogger(__name__)
 
 # Create router
-router = APIRouter(
-    prefix="/geocode",
-    tags=["geocode"],
-    responses={404: {"description": "Not found"}},
-)
+router = APIRouter()
 
-# Request/Response models
-class GeocodeRequest(BaseModel):
-    """Geocode request model"""
-    query: str = Field(..., description="Location query to geocode")
-    exactly_one: bool = Field(False, description="Return only the first result")
-    limit: int = Field(5, description="Maximum number of results to return")
-
-class ReverseGeocodeRequest(BaseModel):
-    """Reverse geocode request model"""
-    latitude: float = Field(..., description="Latitude coordinate")
-    longitude: float = Field(..., description="Longitude coordinate")
-
-class TimezoneRequest(BaseModel):
-    """Timezone request model"""
-    latitude: float = Field(..., description="Latitude coordinate")
-    longitude: float = Field(..., description="Longitude coordinate")
-
-class GeocodeResponse(BaseModel):
-    """Geocode response model"""
-    results: List[Dict[str, Any]] = []
-    query: str
-    count: int
-    status: str = "success"
-    error: Optional[str] = None
-
-class GeocodingError(Exception):
-    """Custom exception for geocoding errors"""
-    def __init__(self, message: str, status_code: int = 400):
-        self.message = message
-        self.status_code = status_code
-        super().__init__(self.message)
-
-@router.post("", response_model=GeocodeResponse)
-async def geocode_address(
-    request: GeocodeRequest,
-    background_tasks: BackgroundTasks,
-    session_id: Optional[str] = None,
-    emit_event: Optional[bool] = False
-) -> GeocodeResponse:
+@router.get("", summary="Geocode a location to coordinates and timezone")
+async def geocode_endpoint(
+    query: str = Query(..., description="Location to geocode"),
+    limit: int = Query(5, description="Maximum number of results to return"),
+    include_timezone: bool = Query(True, description="Include timezone information")
+) -> Dict[str, Any]:
     """
-    Geocode a location string to get coordinates and address details.
+    Geocode a location string to coordinates and timezone information.
 
     Args:
-        request: Geocode request containing location query
-        background_tasks: FastAPI background tasks
-        session_id: Optional session ID for WebSocket events
-        emit_event: Whether to emit WebSocket events
+        query: Location to geocode (city, address, etc.)
+        limit: Maximum number of results to return
+        include_timezone: Whether to include timezone information
 
     Returns:
-        Geocoding results with coordinates and address details
+        Geocoding results including coordinates and timezone
     """
-    query = request.query.strip()
-
-    if not query:
-        raise HTTPException(status_code=400, detail="Empty location query")
-
     try:
-        # Emit start event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.GEOCODE_STARTED,
-                {"query": query}
-            )
+        # Use the canonical implementation
+        results = await geocode_location(query, False, limit)
 
-        # Geocode the location
-        results = await geocode_location(
-            query=query,
-            exactly_one=request.exactly_one,
-            limit=request.limit
-        )
+        if not results:
+            return {
+                "success": False,
+                "error": "Location not found",
+                "results": []
+            }
 
-        # Prepare response
-        response = GeocodeResponse(
-            results=results,
-            query=query,
-            count=len(results),
-            status="success"
-        )
+        # If requested, add timezone information to results
+        if include_timezone:
+            for result in results:
+                if "latitude" in result and "longitude" in result:
+                    timezone_info = await get_timezone_for_coordinates(
+                        result["latitude"],
+                        result["longitude"]
+                    )
+                    result["timezone"] = timezone_info.get("timezone")
+                    result["timezone_offset"] = timezone_info.get("offset")
+                    result["timezone_abbreviation"] = timezone_info.get("abbreviation")
 
-        # Emit completion event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.GEOCODE_COMPLETED,
-                {
-                    "query": query,
-                    "count": len(results),
-                    "results": results[:5]  # Limit event payload size
-                }
-            )
-
-        return response
+        return {
+            "success": True,
+            "query": query,
+            "count": len(results),
+            "results": results
+        }
 
     except Exception as e:
-        logger.error(f"Geocoding error: {e}")
+        logger.error(f"Error geocoding location '{query}': {str(e)}")
+        return {
+            "success": False,
+            "error": f"Geocoding error: {str(e)}",
+            "results": []
+        }
 
-        # Emit error event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.GENERAL_ERROR,
-                {
-                    "message": f"Geocoding failed: {str(e)}",
-                    "query": query
-                }
-            )
-
-        return GeocodeResponse(
-            results=[],
-            query=query,
-            count=0,
-            status="error",
-            error=f"Geocoding failed: {str(e)}"
-        )
-
-@router.post("/reverse", response_model=GeocodeResponse)
-async def reverse_geocode_coordinates(
-    request: ReverseGeocodeRequest,
-    background_tasks: BackgroundTasks,
-    session_id: Optional[str] = None,
-    emit_event: Optional[bool] = False
-) -> GeocodeResponse:
+@router.get("/reverse", summary="Reverse geocode coordinates to address")
+async def reverse_geocode_endpoint(
+    latitude: float = Query(..., description="Latitude coordinate"),
+    longitude: float = Query(..., description="Longitude coordinate"),
+    include_timezone: bool = Query(True, description="Include timezone information")
+) -> Dict[str, Any]:
     """
-    Reverse geocode coordinates to get address details.
+    Reverse geocode coordinates to address and location information.
 
     Args:
-        request: Reverse geocode request containing coordinates
-        background_tasks: FastAPI background tasks
-        session_id: Optional session ID for WebSocket events
-        emit_event: Whether to emit WebSocket events
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
+        include_timezone: Whether to include timezone information
 
     Returns:
-        Reverse geocoding results with address details
+        Reverse geocoding results including address components
     """
-    latitude = request.latitude
-    longitude = request.longitude
-
     try:
         # Validate coordinates
         if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
             raise HTTPException(
-                status_code=400,
-                detail="Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid coordinates. Latitude must be between -90 and 90, longitude between -180 and 180."
             )
 
-        # Emit start event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.GEOCODE_STARTED,
-                {"coordinates": f"{latitude}, {longitude}"}
-            )
-
-        # Reverse geocode the coordinates
+        # Use the canonical implementation
         results = await reverse_geocode(latitude, longitude)
 
-        # Prepare response
-        response = GeocodeResponse(
-            results=results,
-            query=f"{latitude},{longitude}",
-            count=len(results),
-            status="success"
-        )
+        # If requested, add timezone information
+        timezone_info = None
+        if include_timezone:
+            timezone_info = await get_timezone_for_coordinates(latitude, longitude)
 
-        # Emit completion event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.REVERSE_GEOCODE_COMPLETED,
-                {
-                    "coordinates": f"{latitude}, {longitude}",
-                    "results": results[:5]  # Limit event payload size
-                }
-            )
+        return {
+            "success": True,
+                            "latitude": latitude,
+                            "longitude": longitude,
+            "count": len(results),
+            "results": results,
+            "timezone": timezone_info if include_timezone else None
+        }
 
-        return response
-
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        logger.error(f"Reverse geocoding error: {e}")
+        logger.error(f"Error reverse geocoding coordinates ({latitude}, {longitude}): {str(e)}")
+        return {
+            "success": False,
+            "error": f"Reverse geocoding error: {str(e)}",
+            "results": []
+        }
 
-        # Emit error event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.GENERAL_ERROR,
-                {
-                    "message": f"Reverse geocoding failed: {str(e)}",
-                    "coordinates": f"{latitude}, {longitude}"
-                }
-            )
-
-        return GeocodeResponse(
-            results=[],
-            query=f"{latitude},{longitude}",
-            count=0,
-            status="error",
-            error=f"Reverse geocoding failed: {str(e)}"
-        )
-
-@router.post("/timezone", response_model=Dict[str, Any])
-async def get_timezone(
-    request: TimezoneRequest,
-    background_tasks: BackgroundTasks,
-    session_id: Optional[str] = None,
-    emit_event: Optional[bool] = False
+@router.get("/timezone", summary="Get timezone information for coordinates")
+async def timezone_endpoint(
+    latitude: float = Query(..., description="Latitude coordinate"),
+    longitude: float = Query(..., description="Longitude coordinate")
 ) -> Dict[str, Any]:
     """
     Get timezone information for coordinates.
 
     Args:
-        request: Timezone request containing coordinates
-        background_tasks: FastAPI background tasks
-        session_id: Optional session ID for WebSocket events
-        emit_event: Whether to emit WebSocket events
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
 
     Returns:
-        Timezone information
+        Timezone information including name, offset, and abbreviation
     """
-    latitude = request.latitude
-    longitude = request.longitude
-
     try:
         # Validate coordinates
         if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
             raise HTTPException(
-                status_code=400,
-                detail="Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid coordinates. Latitude must be between -90 and 90, longitude between -180 and 180."
             )
 
-        # Get timezone for coordinates
+        # Use the canonical implementation
         timezone_info = await get_timezone_for_coordinates(latitude, longitude)
 
-        # Prepare response
-        response = {
-            "coordinates": f"{latitude},{longitude}",
-            "timezone": timezone_info,
-            "status": "success"
-        }
-
-        return response
-
-    except Exception as e:
-        logger.error(f"Timezone lookup error: {e}")
-
-        # Emit error event if requested
-        if emit_event and session_id:
-            background_tasks.add_task(
-                emit,
-                session_id,
-                EventType.GENERAL_ERROR,
-                {
-                    "message": f"Timezone lookup failed: {str(e)}",
-                    "coordinates": f"{latitude}, {longitude}"
-                }
-            )
-
         return {
-            "coordinates": f"{latitude},{longitude}",
-            "timezone": {
-                "timezone_id": "UTC",
-                "timezone_name": "Coordinated Universal Time",
-                "dst_offset": 0,
-                "raw_offset": 0,
-                "total_offset": 0,
-                "source": "utc_standard"
-            },
-            "status": "error",
-            "error": f"Timezone lookup failed: {str(e)}"
+            "success": True,
+            "latitude": latitude,
+            "longitude": longitude,
+            "timezone": timezone_info.get("timezone"),
+            "offset": timezone_info.get("offset"),
+            "dst": timezone_info.get("dst", False),
+            "abbreviation": timezone_info.get("abbreviation")
         }
 
-@router.get("/health")
-async def health_check() -> Dict[str, str]:
-    """Health check endpoint"""
-    return {"status": "ok", "service": "geocoding"}
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error getting timezone for coordinates ({latitude}, {longitude}): {str(e)}")
+    return {
+            "success": False,
+            "error": f"Timezone error: {str(e)}",
+            "timezone": None
+    }

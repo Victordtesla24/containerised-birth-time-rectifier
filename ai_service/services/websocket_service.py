@@ -12,244 +12,99 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 import uuid
 
+from fastapi import WebSocket
+from starlette.websockets import WebSocketState
+
+# Import the shared WebSocket manager and events
+from ai_service.utils.websocket_manager import WebSocketManager, get_websocket_manager
+from ai_service.utils.websocket_events import (
+    emit_event,
+    emit_rectification_progress,
+    emit_rectification_complete,
+    emit_rectification_error,
+    EventType
+)
+
 logger = logging.getLogger(__name__)
 
-class WebSocketManager:
+class WebSocketService:
     """
-    WebSocket manager for real-time updates and progress tracking.
+    WebSocket service for managing client connections and sending updates.
 
-    This class provides methods to send progress updates, error notifications,
-    and other real-time events to connected clients via WebSockets.
+    This service uses the canonical WebSocketManager implementation and
+    delegates all event emission to the shared websocket_events module.
     """
 
     def __init__(self):
-        """Initialize the WebSocket manager."""
-        self.active_connections = {}
-        self.session_data = {}
+        """Initialize the WebSocket service."""
+        # Use the shared WebSocketManager
+        self.manager = get_websocket_manager()
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.session_data: Dict[str, Dict[str, Any]] = {}
 
-    async def connect(self, websocket, session_id: str) -> None:
+    async def connect(self, websocket: WebSocket, session_id: str) -> None:
         """
-        Register a new WebSocket connection.
+        Accept a WebSocket connection and register it.
 
         Args:
-            websocket: The WebSocket connection object
-            session_id: Unique session identifier
+            websocket: The WebSocket connection
+            session_id: The session ID to associate with this connection
         """
-        self.active_connections[session_id] = websocket
-        self.session_data[session_id] = {
-            "connected_at": datetime.now().isoformat(),
-            "last_message": None,
-            "client_info": {}
-        }
-        logger.info(f"Client connected with session_id: {session_id}")
+        try:
+            # Use the canonical WebSocketManager
+            await self.manager.connect(websocket, session_id)
 
-        # Send confirmation message
-        await self.send_message(
-            session_id,
-            "connection_established",
-            {"status": "connected", "message": "Connection established"}
-        )
+            # Keep track of connections locally as well
+            self.active_connections[session_id] = websocket
 
-    async def disconnect(self, session_id: str) -> None:
+            # Initialize session data if needed
+            if session_id not in self.session_data:
+                self.session_data[session_id] = {
+                    "connected_at": datetime.now().isoformat(),
+                    "progress_history": []
+                }
+            else:
+                self.session_data[session_id]["reconnected_at"] = datetime.now().isoformat()
+
+            logger.info(f"WebSocket connection established for session {session_id}")
+
+            # Resend progress history if available
+            await self.resend_progress_history(session_id)
+        except Exception as e:
+            logger.error(f"Error connecting WebSocket for session {session_id}: {e}")
+
+    def disconnect(self, session_id: str) -> None:
         """
-        Unregister a WebSocket connection.
+        Remove a WebSocket connection.
 
         Args:
-            session_id: Unique session identifier
+            session_id: The session ID of the connection to remove
         """
+        # Use the canonical WebSocketManager
+        self.manager.disconnect(session_id)
+
+        # Update local tracking
         if session_id in self.active_connections:
             del self.active_connections[session_id]
-            logger.info(f"Client disconnected: {session_id}")
+            if session_id in self.session_data:
+                self.session_data[session_id]["disconnected_at"] = datetime.now().isoformat()
+
+        logger.info(f"WebSocket connection closed for session {session_id}")
 
     async def send_message(self, session_id: str, message_type: str, data: Dict[str, Any]) -> bool:
         """
-        Send a message to a connected client.
+        Send a message to a specific client.
 
         Args:
-            session_id: Session identifier for the client
-            message_type: Type of message (e.g., "progress_update", "error", "complete")
-            data: Message payload
+            session_id: The session ID to send the message to
+            message_type: The type of message to send
+            data: The message data
 
         Returns:
             True if the message was sent successfully, False otherwise
         """
-        if session_id not in self.active_connections:
-            logger.warning(f"Cannot send message to disconnected client: {session_id}")
-            return False
-
-        message = {
-            "type": message_type,
-            "data": data,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        try:
-            await self.active_connections[session_id].send_json(message)
-            self.session_data[session_id]["last_message"] = {
-                "type": message_type,
-                "timestamp": datetime.now().isoformat()
-            }
-            return True
-        except Exception as e:
-            logger.error(f"Error sending message to client {session_id}: {e}")
-            return False
-
-    async def emit_rectification_progress(
-        self,
-        session_id: str,
-        progress: int,
-        message: str,
-        chart_id: str,
-        rectification_id: str,
-        status: str = "processing",
-        details: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """
-        Send a rectification progress update to a client with enhanced real-time information.
-
-        Args:
-            session_id: Session identifier for the client
-            progress: Progress percentage (0-100)
-            message: Progress message
-            chart_id: ID of the chart being rectified
-            rectification_id: ID of the rectification process
-            status: Current status (processing, complete, error)
-            details: Optional detailed progress information
-
-        Returns:
-            True if the update was sent successfully, False otherwise
-        """
-        # Validate inputs
-        if not session_id or not chart_id or not rectification_id:
-            logger.error("Missing required parameters for rectification progress update")
-            return False
-
-        # Ensure progress is within valid range
-        progress = max(0, min(100, progress))
-
-        # Create timestamp
-        timestamp = datetime.now().isoformat()
-
-        # Create a structured progress data object with enhanced information
-        data = {
-            "progress": progress,
-            "message": message,
-            "chart_id": chart_id,
-            "rectification_id": rectification_id,
-            "status": status,
-            "timestamp": timestamp,
-            "type": "rectification_progress",
-            "sequence_id": str(uuid.uuid4()),  # Add sequence ID for message ordering
-            "channel": f"rectification:{chart_id}"  # Add channel for client filtering
-        }
-        # Store progress update in session history for reconnection support
-        if session_id in self.session_data:
-            if "progress_history" not in self.session_data[session_id]:
-                self.session_data[session_id]["progress_history"] = []
-
-            # Add to history with timestamp
-            history_entry = {
-                "progress": progress,
-                "message": message,
-                "status": status,
-                "timestamp": timestamp,
-                "chart_id": chart_id,
-                "rectification_id": rectification_id
-            }
-            self.session_data[session_id]["progress_history"].append(history_entry)
-
-            # Limit history size
-            max_history = 20
-            if len(self.session_data[session_id]["progress_history"]) > max_history:
-                self.session_data[session_id]["progress_history"] = self.session_data[session_id]["progress_history"][-max_history:]
-
-        # Add detailed stage information based on progress
-        current_stage = ""
-        techniques = []    # Create more detailed progress information based on the stage
-
-        if progress < 10:
-            current_stage = "Initializing"
-            techniques = ["Preparing data", "Configuring rectification parameters"]
-        elif progress >= 10 and progress < 30:
-            current_stage = "Loading birth data"
-            techniques = ["Calculating initial chart", "Validating birth information"]
-        elif progress >= 30 and progress < 60:
-            # Basic analysis stage
-            current_stage = "Analyzing birth data"
-            techniques = details.get("techniques", []) if details else []
-            if not techniques:
-                techniques = [
-                    "Initial chart analysis",
-                    "Birth time range determination",
-                    "Analyzing planetary positions"
-                ]
-        elif progress >= 60 and progress < 80:
-            # AI enhancement stage
-            current_stage = "AI analysis"
-            techniques = details.get("techniques", []) if details else []
-            if not techniques:
-                techniques = [
-                    "Astrological pattern recognition",
-                    "Transit analysis",
-                    "Life event correlation"
-                ]
-        elif progress >= 80 and progress < 95:
-            # Final stage
-            current_stage = "Finalizing results"
-            techniques = details.get("techniques", []) if details else []
-            if not techniques:
-                techniques = [
-                    "Result validation",
-                    "Chart generation",
-                    "Comparing rectification methods"
-                ]
-        elif progress >= 95:
-            current_stage = "Completing rectification"
-            techniques = ["Generating final chart", "Preparing results"]
-
-        # Add stage and techniques information
-        data["current_stage"] = current_stage
-        data["techniques"] = techniques
-
-        # Estimate remaining time if in the middle of the process
-        if progress > 10 and progress < 90:
-            # Get process start time if available
-            if details and "start_time" in details:
-                start_time = details["start_time"]
-                elapsed_seconds = (datetime.now() - start_time).total_seconds()
-                if elapsed_seconds > 0 and progress > 0:
-                    # Estimate total time based on elapsed time and progress
-                    total_estimated_seconds = (elapsed_seconds / progress) * 100
-                    remaining_seconds = total_estimated_seconds - elapsed_seconds
-
-                    # Only add time estimate if it's reasonable
-                    if 0 < remaining_seconds < 3600:  # Between 0 and 1 hour
-                        data["estimated_seconds_remaining"] = int(remaining_seconds)
-                        data["elapsed_seconds"] = int(elapsed_seconds)
-
-        # Add subscription channel for easier client handling
-        data["channel"] = f"rectification:{chart_id}"
-
-        # Add message sequence ID for client message ordering
-        retry_attempts = 3
-        for attempt in range(retry_attempts):
-            try:
-                # Send the message with retry logic
-                success = await self.send_message(session_id, "rectification_progress", data)
-
-                if success:
-                    logger.info(f"Sent rectification progress update ({progress}%) to session {session_id} for chart {chart_id}")
-                    return True
-                else:
-                    logger.warning(f"Failed to send rectification progress update (attempt {attempt + 1}/{retry_attempts})")
-                    await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
-            except Exception as e:
-                logger.error(f"Error sending rectification progress update (attempt {attempt + 1}/{retry_attempts}): {e}")
-                await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
-
-        # All attempts failed
-        logger.error(f"Failed to send rectification progress after {retry_attempts} attempts")
-        return False
+        # Use the shared emit_event function
+        return await emit_event(session_id, message_type, data)
 
     async def resend_progress_history(self, session_id: str) -> bool:
         """
@@ -273,12 +128,12 @@ class WebSocketManager:
         success = True
         for progress_event in progress_history:
             event_data = {**progress_event, "is_history": True}
-            if not await self.send_message(session_id, "rectification_progress_history", event_data):
+            if not await emit_event(session_id, "rectification_progress_history", event_data):
                 success = False
 
         # Send the current status based on the most recent event
         latest = progress_history[-1]
-        await self.send_message(
+        await emit_event(
             session_id,
             "rectification_current_status",
             {
@@ -290,123 +145,6 @@ class WebSocketManager:
         )
 
         return success
-
-    async def emit_rectification_complete(
-        self,
-        session_id: str,
-        chart_id: str,
-        rectification_id: str,
-        result: Dict[str, Any]
-    ) -> bool:
-        """
-        Send a rectification completion notification to a client.
-
-        Args:
-            session_id: Session identifier for the client
-            chart_id: ID of the chart being rectified
-            rectification_id: ID of the rectification process
-            result: Rectification results
-
-        Returns:
-            True if the notification was sent successfully, False otherwise
-        """
-        # Prepare data with required fields
-        data = {
-            "chart_id": chart_id,
-            "rectification_id": rectification_id,
-            "status": "complete",
-            "progress": 100,
-            "timestamp": datetime.now().isoformat(),
-            "channel": f"rectification:{chart_id}",
-            "type": "rectification_complete",
-            "message": "Birth time rectification completed successfully"
-        }
-
-        # Sanitize and include important result data
-        if result:
-            # Exclude any potentially sensitive fields
-            sanitized_result = {}
-            allowed_fields = [
-                "rectified_time", "original_time", "confidence_score",
-                "rectified_chart_id", "explanation", "time_shift_minutes",
-                "rectification_method", "method_confidence", "significant_changes",
-                "house_changes", "planet_house_changes"
-            ]
-
-            for field in allowed_fields:
-                if field in result:
-                    sanitized_result[field] = result[field]
-
-            data["result"] = sanitized_result
-
-        # Send with retry logic
-        retry_attempts = 3
-        for attempt in range(retry_attempts):
-            try:
-                success = await self.send_message(session_id, "rectification_complete", data)
-
-                if success:
-                    logger.info(f"Sent rectification completion notification to session {session_id} for chart {chart_id}")
-                    return True
-                else:
-                    logger.warning(f"Failed to send rectification completion notification (attempt {attempt + 1}/{retry_attempts})")
-                    await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
-            except Exception as e:
-                logger.error(f"Error sending rectification completion notification (attempt {attempt + 1}/{retry_attempts}): {e}")
-                await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
-
-        # All attempts failed
-        logger.error(f"Failed to send rectification completion after {retry_attempts} attempts")
-        return False
-
-    async def emit_rectification_error(
-        self,
-        session_id: str,
-        chart_id: str,
-        rectification_id: str,
-        error_message: str,
-        error_code: str = "RECTIFICATION_ERROR"
-    ) -> bool:
-        """
-        Send a rectification error notification to a client.
-
-        Args:
-            session_id: Session identifier for the client
-            chart_id: ID of the chart
-            rectification_id: ID of the rectification process
-            error_message: Human-readable error message
-            error_code: Error code for programmatic handling
-
-        Returns:
-            True if the notification was sent successfully, False otherwise
-        """
-        data = {
-            "chart_id": chart_id,
-            "rectification_id": rectification_id,
-            "error_message": error_message,
-            "error_code": error_code,
-            "timestamp": datetime.now().isoformat(),
-            "type": "rectification_error",
-            "channel": f"rectification:{chart_id}",
-            "status": "error"
-        }
-
-        # Add message sequence ID for client message ordering
-        data["sequence_id"] = str(uuid.uuid4())
-
-        try:
-            # Send the error notification
-            success = await self.send_message(session_id, "rectification_error", data)
-
-            if success:
-                logger.info(f"Sent rectification error notification to session {session_id} for chart {chart_id}")
-                return True
-            else:
-                logger.warning(f"Failed to send rectification error notification to session {session_id}")
-                return False
-        except Exception as e:
-            logger.error(f"Error sending rectification error notification: {e}")
-            return False
 
     async def broadcast_rectification_status(
         self,
@@ -453,9 +191,9 @@ class WebSocketManager:
 
         # Broadcast to all connected clients
         results = {}
-        for session_id, websocket in self.active_connections.items():
+        for session_id in self.active_connections:
             try:
-                success = await self.send_message(session_id, "rectification_status", status_data)
+                success = await emit_event(session_id, "rectification_status", status_data)
                 results[session_id] = success
 
                 if success:
@@ -485,28 +223,20 @@ class WebSocketManager:
         """
         results = {}
         for session_id in self.active_connections:
-            results[session_id] = await self.send_message(session_id, message_type, data)
+            results[session_id] = await emit_event(session_id, message_type, data)
         return results
 
-    def get_connection_count(self) -> int:
-        """Get the number of active connections."""
-        return len(self.active_connections)
-
-    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get session information for a client."""
-        return self.session_data.get(session_id)
-
 # Singleton instance
-_websocket_manager = None
+_websocket_service = None
 
-def get_websocket_manager() -> WebSocketManager:
+def get_websocket_service() -> WebSocketService:
     """
-    Get the WebSocket manager instance (singleton).
+    Get the WebSocket service singleton instance.
 
     Returns:
-        WebSocketManager instance
+        The WebSocket service instance
     """
-    global _websocket_manager
-    if _websocket_manager is None:
-        _websocket_manager = WebSocketManager()
-    return _websocket_manager
+    global _websocket_service
+    if _websocket_service is None:
+        _websocket_service = WebSocketService()
+    return _websocket_service

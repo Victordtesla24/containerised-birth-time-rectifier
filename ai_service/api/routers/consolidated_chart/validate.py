@@ -12,7 +12,7 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from ai_service.api.websocket_events import emit_event, EventType
+from ai_service.utils.websocket_events import emit_event, EventType
 
 # Import utilities and models
 from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES

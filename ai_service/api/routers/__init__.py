@@ -48,12 +48,15 @@ try:
     except ImportError as questionnaire_error:
         logger.error(f"Error importing questionnaire router: {questionnaire_error}")
 
+    # Explicitly import and include the geocode router with correct prefix
     try:
         from ai_service.api.routers.geocode import router as geocode_router
         router.include_router(geocode_router, prefix="/geocode", tags=["geocoding"])
         logger.info("Geocode router loaded successfully")
     except ImportError as geocode_error:
         logger.error(f"Error importing geocode router: {geocode_error}")
+        # Raise the error to ensure it's properly handled
+        raise geocode_error
 
     try:
         from ai_service.api.routers.websocket import router as websocket_router

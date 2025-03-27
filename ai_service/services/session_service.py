@@ -31,6 +31,10 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
+# Import Redis related errors and ensure redis client is properly imported
+from redis.asyncio import Redis
+from redis.exceptions import ConnectionError, RedisError
+
 logger = logging.getLogger(__name__)
 
 class SessionService:
@@ -732,3 +736,62 @@ def get_session_service() -> SessionService:
     if _service_instance is None:
         _service_instance = SessionService()
     return _service_instance
+
+# Initialize global variables
+_redis_client = None
+_redis_warning_logged = False
+
+async def get_redis_client() -> Optional[Redis]:
+    """
+    Get Redis client or None if Redis is not available.
+
+    Returns:
+        Redis client or None
+    """
+    global _redis_client, _redis_warning_logged
+
+    try:
+        # Get Redis URL from environment
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
+        # If we already have a client, check if it's still working
+        if _redis_client:
+            try:
+                # Check if Redis connection is still working
+                await _redis_client.ping()
+                return _redis_client
+            except (ConnectionError, RedisError) as e:
+                logger.error(f"Redis connection error: {e}")
+                _redis_client = None  # Reset client to force reconnection attempt
+
+        # Create new Redis client
+        client = Redis.from_url(
+            redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_timeout=1.0,  # Set short timeout to fail fast
+            socket_connect_timeout=1.0,
+            health_check_interval=15,
+            retry_on_timeout=False
+        )
+
+        # Test connection with short timeout
+        try:
+            await asyncio.wait_for(client.ping(), timeout=2.0)
+
+            # If successful, set global client
+            _redis_client = client
+            logger.info(f"Connected to Redis at {redis_url}")
+            return client
+        except asyncio.TimeoutError:
+            logger.warning(f"Redis ping timed out, falling back to file storage")
+            return None
+    except (ConnectionError, RedisError) as e:
+        if not _redis_warning_logged:
+            logger.warning(f"Failed to connect to Redis: {e}, falling back to file storage")
+            _redis_warning_logged = True
+        return None
+    except Exception as e:
+        # Catch any other unexpected errors
+        logger.error(f"Unexpected error connecting to Redis: {e}")
+        return None

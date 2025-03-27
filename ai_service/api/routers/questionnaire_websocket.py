@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 import traceback
 
-from ai_service.api.websocket_events import emit_event, EventType
+from ai_service.utils.websocket_events import emit_event, EventType
 from ai_service.api.services.questionnaire_service import get_questionnaire_service, QuestionnaireService
 from ai_service.api.services.chart import get_chart_service
 

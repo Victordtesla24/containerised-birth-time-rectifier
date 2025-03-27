@@ -11,6 +11,10 @@ import logging
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 import redis
 import os
+from datetime import datetime, timedelta
+import asyncio
+import threading
+from collections import defaultdict
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -30,203 +34,257 @@ class RateLimitExceeded(Exception):
         self.message = f"Rate limit exceeded. Try again in {retry_after} seconds."
         super().__init__(self.message)
 
-class RateLimiter:
-    """Rate limiter implementation for FastAPI."""
+class InMemoryRateLimiter:
+    """Simple in-memory rate limiter for when Redis is not available."""
+    def __init__(self, rate_limit: int = 60, window: int = 60):
+        self.rate_limit = rate_limit
+        self.window = window  # in seconds
+        self.requests = defaultdict(list)
+        self.lock = threading.Lock()
 
+    def is_rate_limited(self, key: str) -> bool:
+        """Check if a key is rate limited."""
+        with self.lock:
+            now = datetime.now()
+            # Clean old requests
+            self.requests[key] = [
+                req_time for req_time in self.requests[key]
+                if now - req_time < timedelta(seconds=self.window)
+            ]
+            # Check if over limit
+            if len(self.requests[key]) >= self.rate_limit:
+                return True
+            # Record this request
+            self.requests[key].append(now)
+            return False
+
+    def get_remaining(self, key: str) -> int:
+        """Get remaining requests for a key."""
+        with self.lock:
+            now = datetime.now()
+            # Clean old requests
+            self.requests[key] = [
+                req_time for req_time in self.requests[key]
+                if now - req_time < timedelta(seconds=self.window)
+            ]
+            return self.rate_limit - len(self.requests[key])
+
+# Global in-memory rate limiter as fallback
+IN_MEMORY_LIMITER = None
+
+class RateLimiterMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware for rate limiting requests.
+
+    Uses Redis if available, falls back to in-memory storage.
+    """
     def __init__(
         self,
-        redis_url: str,
-        rate_limit: int = DEFAULT_RATE_LIMIT,
-        window: int = DEFAULT_RATE_LIMIT_WINDOW,
-        whitelist_paths: Optional[List[str]] = None,
-        whitelist_ips: Optional[List[str]] = None,
+        app,
+        redis_url: Optional[str] = None,
+        rate_limit: int = 60,
+        window: int = 60
     ):
-        """
-        Initialize the rate limiter.
-
-        Args:
-            redis_url: Redis URL for storing rate limit data
-            rate_limit: Maximum requests per window
-            window: Time window in seconds
-            whitelist_paths: List of path prefixes to exclude from rate limiting
-            whitelist_ips: List of IP addresses to exclude from rate limiting
-        """
-        self.redis_url = redis_url
+        super().__init__(app)
         self.rate_limit = rate_limit
         self.window = window
-        self.whitelist_paths = whitelist_paths or ["/health", "/metrics", "/docs", "/openapi.json"]
-        self.whitelist_ips = set(whitelist_ips or [])
+        self.redis_client = None
+        self.redis_available = False
+        self.redis_url = redis_url
+        self.in_memory = InMemoryRateLimiter(rate_limit, window)
 
-        # Initialize Redis client
-        try:
-            self.redis = redis.from_url(redis_url)
-            self.redis_available = True
-            logger.info(f"Rate limiter connected to Redis at {redis_url}")
-            logger.info(f"Rate limit: {rate_limit} requests per {window} seconds")
-        except Exception as e:
-            self.redis_available = False
-            logger.warning(f"Rate limiter couldn't connect to Redis: {e}")
-            logger.warning("Rate limiting will be disabled")
+        # Try to setup Redis
+        if redis_url:
+            try:
+                import redis
+                self.redis_client = redis.from_url(redis_url)
+                # Test connection only if client creation was successful
+                if self.redis_client:
+                    self.redis_client.ping()
+                    self.redis_available = True
+                    logger.info(f"Redis rate limiter connected to {redis_url}")
+                else:
+                    logger.warning("Failed to create Redis client, using in-memory rate limiting")
+            except ImportError:
+                logger.warning("Redis package not installed, using in-memory rate limiting")
+            except Exception as e:
+                logger.error(f"Redis error in rate limiter: {e}")
+                logger.warning("Falling back to in-memory rate limiting")
+        else:
+            logger.info("No Redis URL provided, using in-memory rate limiting")
 
-    async def __call__(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next):
         """
-        Process the request with rate limiting.
+        Rate limit requests based on client IP.
 
         Args:
             request: The incoming request
-            call_next: Function to call the next middleware or handler
+            call_next: The next middleware/handler
 
         Returns:
             The response
         """
-        # Skip rate limiting if Redis is not available
+        # Skip rate limiting for specific paths
+        if self._should_skip_rate_limiting(request):
+            return await call_next(request)
+
+        # Get client IP (or other identifier)
+        client_id = self._get_client_identifier(request)
+        rate_limit_key = f"rate_limit:{client_id}"
+
+        # Check if rate limited
+        if self.redis_available and self.redis_client:
+            try:
+                # Use Redis for rate limiting
+                limited = await self._check_redis_rate_limit(rate_limit_key)
+                if limited:
+                    retry_after = self.window
+                    return JSONResponse(
+                        status_code=429,
+                        content={
+                            "error": "Too many requests",
+                            "retry_after": retry_after
+                        },
+                        headers={"Retry-After": str(retry_after)}
+                    )
+            except Exception as e:
+                logger.error(f"Redis error in rate limiter: {e}")
+                # Fall back to in-memory rate limiting
+                self.redis_available = False
+
+        # Use in-memory rate limiting as fallback
         if not self.redis_available:
-            return await call_next(request)
+            if self.in_memory.is_rate_limited(client_id):
+                retry_after = self.window
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "Too many requests",
+                        "retry_after": retry_after
+                    },
+                    headers={"Retry-After": str(retry_after)}
+                )
 
-        # Get client IP
-        client_ip = self._get_client_ip(request)
+        # Request is not rate limited, proceed
+        response = await call_next(request)
 
-        # Skip rate limiting for whitelisted paths or IPs
-        path = request.url.path
-        if self._is_whitelisted(path, client_ip):
-            return await call_next(request)
-
-        # Check rate limit
-        try:
-            self._check_rate_limit(client_ip)
-            response = await call_next(request)
-            return response
-        except RateLimitExceeded as e:
-            # Return rate limit exceeded error
-            return JSONResponse(
-                status_code=429,
-                content={
-                    "error": "Too Many Requests",
-                    "message": e.message,
-                },
-                headers={"Retry-After": str(e.retry_after)},
-            )
-        except Exception as e:
-            # Log error and continue processing the request
-            logger.error(f"Error in rate limiter: {e}")
-            return await call_next(request)
-
-    def _get_client_ip(self, request: Request) -> str:
-        """
-        Get the client's IP address from the request.
-
-        Args:
-            request: The incoming request
-
-        Returns:
-            The client's IP address
-        """
-        # Check X-Forwarded-For header first (for clients behind proxies)
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # Get the first IP in the chain (client IP)
-            client_ip = forwarded_for.split(",")[0].strip()
+        # Add rate limit headers
+        if self.redis_available and self.redis_client:
+            try:
+                remaining = await self._get_redis_remaining(rate_limit_key)
+                response.headers["X-RateLimit-Limit"] = str(self.rate_limit)
+                response.headers["X-RateLimit-Remaining"] = str(remaining)
+                response.headers["X-RateLimit-Reset"] = str(self.window)
+            except Exception:
+                # Just don't set the headers if Redis fails
+                pass
         else:
-            # Fall back to the direct client address
-            client_ip = request.client.host if request.client else "unknown"
+            # Set headers from in-memory limiter
+            remaining = self.in_memory.get_remaining(client_id)
+            response.headers["X-RateLimit-Limit"] = str(self.rate_limit)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(self.window)
 
-        return client_ip
+        return response
 
-    def _is_whitelisted(self, path: str, client_ip: str) -> bool:
-        """
-        Check if the path or IP is whitelisted.
+    async def _check_redis_rate_limit(self, key: str) -> bool:
+        """Check if a key is rate limited using Redis."""
+        # Safety check - return False if Redis client is None
+        if not self.redis_client:
+            return False
 
-        Args:
-            path: The request path
-            client_ip: The client's IP address
+        try:
+            # Get current count
+            count = self.redis_client.get(key)
+            if count is None:
+                # First request, set initial count with expiry
+                pipe = self.redis_client.pipeline()
+                pipe.set(key, 1)
+                pipe.expire(key, self.window)
+                pipe.execute()
+                return False
 
-        Returns:
-            True if whitelisted, False otherwise
-        """
-        # Check path whitelist
-        for whitelist_path in self.whitelist_paths:
-            if path.startswith(whitelist_path):
+            # Increment count
+            count = int(count)
+            if count >= self.rate_limit:
                 return True
 
-        # Check IP whitelist
-        if client_ip in self.whitelist_ips:
+            # Not limited, increment counter
+            self.redis_client.incr(key)
+            return False
+        except Exception as e:
+            logger.error(f"Redis error in rate limiter: {e}")
+            self.redis_available = False
+            return False
+
+    async def _get_redis_remaining(self, key: str) -> int:
+        """Get remaining requests for a key using Redis."""
+        # Safety check - return max limit if Redis client is None
+        if not self.redis_client:
+            return self.rate_limit
+
+        try:
+            count = self.redis_client.get(key)
+            if count is None:
+                return self.rate_limit
+            return max(0, self.rate_limit - int(count))
+        except Exception as e:
+            logger.error(f"Redis error getting remaining limit: {e}")
+            return self.rate_limit
+
+    def _should_skip_rate_limiting(self, request: Request) -> bool:
+        """Check if rate limiting should be skipped for this request."""
+        # Skip rate limiting for health check and options requests
+        path = request.url.path.lower()
+        if path.endswith("/health") or "health" in path:
+            return True
+        if request.method == "OPTIONS":
             return True
 
         return False
 
-    def _check_rate_limit(self, client_ip: str) -> None:
+    def _get_client_identifier(self, request: Request) -> str:
         """
-        Check if the client has exceeded their rate limit.
+        Get a unique identifier for the client.
 
-        Args:
-            client_ip: The client's IP address
-
-        Raises:
-            RateLimitExceeded: If the rate limit is exceeded
+        Uses client IP or X-Forwarded-For header.
         """
-        try:
-            # Generate key for this client
-            key = f"rate_limit:{client_ip}"
-            current_time = int(time.time())
-            window_start = current_time - self.window
+        # Try to get client IP from headers first (for proxied requests)
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            # Use the first IP in the chain
+            return forwarded_for.split(",")[0].strip()
 
-            # Use Redis pipeline for atomic operations
-            with self.redis.pipeline() as pipe:
-                # Remove old requests outside the current window
-                pipe.zremrangebyscore(key, 0, window_start)
-                # Count requests in the current window
-                pipe.zcount(key, window_start, current_time)
-                # Add current request with timestamp as score
-                pipe.zadd(key, {str(current_time): current_time})
-                # Set expiration to ensure cleanup
-                pipe.expire(key, self.window * 2)  # 2x window to ensure cleanup
-                # Execute pipeline
-                _, request_count, _, _ = pipe.execute()
+        # Use direct client IP as fallback
+        client = request.client
+        if client and hasattr(client, "host"):
+            return client.host
 
-            # Check if rate limit exceeded
-            if request_count >= self.rate_limit:
-                # Calculate when the client can try again
-                retry_after = self.window - (current_time - window_start)
-                retry_after = max(1, retry_after)  # Ensure at least 1 second
-                logger.warning(f"Rate limit exceeded for {client_ip}. Retry after {retry_after}s")
-                raise RateLimitExceeded(retry_after=retry_after)
+        # Last resort
+        return "unknown"
 
-        except redis.RedisError as e:
-            # Log error but allow request to proceed
-            logger.error(f"Redis error in rate limiter: {e}")
-            logger.warning("Allowing request due to rate limiter error")
-
-def add_rate_limiter(
-    app: FastAPI,
-    redis_url: str,
-    rate_limit: int = DEFAULT_RATE_LIMIT,
-    window: int = DEFAULT_RATE_LIMIT_WINDOW,
-    whitelist_paths: Optional[List[str]] = None,
-    whitelist_ips: Optional[List[str]] = None,
-) -> None:
+def add_rate_limiter(app, redis_url: Optional[str] = None, rate_limit: int = 60, window: int = 60):
     """
-    Add rate limiter middleware to the FastAPI application.
+    Add rate limiting middleware to the app.
 
     Args:
-        app: The FastAPI application
-        redis_url: Redis URL for storing rate limit data
-        rate_limit: Maximum requests per window
+        app: The FastAPI app
+        redis_url: Optional Redis URL for distributed rate limiting
+        rate_limit: Number of requests allowed per window
         window: Time window in seconds
-        whitelist_paths: List of path prefixes to exclude from rate limiting
-        whitelist_ips: List of IP addresses to exclude from rate limiting
     """
-    # Create the rate limiter instance
-    rate_limiter = RateLimiter(
+    global IN_MEMORY_LIMITER
+
+    # Create in-memory limiter if it doesn't exist
+    if IN_MEMORY_LIMITER is None:
+        IN_MEMORY_LIMITER = InMemoryRateLimiter(rate_limit, window)
+
+    # Add middleware
+    app.add_middleware(
+        RateLimiterMiddleware,
         redis_url=redis_url,
         rate_limit=rate_limit,
-        window=window,
-        whitelist_paths=whitelist_paths,
-        whitelist_ips=whitelist_ips
+        window=window
     )
 
-    # Add the middleware using the instance's __call__ method
-    app.add_middleware(BaseHTTPMiddleware, dispatch=rate_limiter.__call__)
-
-    logger.info("Rate limiter middleware added to application")
+    logger.info(f"Rate limiting middleware added (limit: {rate_limit} per {window}s)")

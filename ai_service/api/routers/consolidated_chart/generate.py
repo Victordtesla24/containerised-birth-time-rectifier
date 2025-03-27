@@ -15,7 +15,7 @@ from datetime import datetime
 import uuid
 import os
 
-from ai_service.api.websocket_events import emit_event, EventType
+from ai_service.utils.websocket_events import emit_event, EventType
 
 # Import utilities and models
 from ai_service.api.routers.consolidated_chart.utils import validate_chart_data, format_chart_response, store_chart, retrieve_chart

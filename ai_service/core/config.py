@@ -33,10 +33,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # Redis settings
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "redis")  # Default to service name in docker-compose
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_URL: str = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
 
     # Database settings
-    DB_HOST: str = os.getenv("DB_HOST", "localhost")
+    DB_HOST: str = os.getenv("DB_HOST", "postgres")  # Default to service name in docker-compose
     DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
     DB_USER: str = os.getenv("DB_USER", "postgres")
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "postgres")
@@ -44,7 +47,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
     # Media and export settings
-    MEDIA_ROOT: str = os.getenv("MEDIA_ROOT", "/app/media")
+    MEDIA_ROOT: str = os.getenv("MEDIA_ROOT", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media"))
     UPLOADS_DIR: str = os.path.join(MEDIA_ROOT, "uploads")
     EXPORTS_DIR: str = os.path.join(MEDIA_ROOT, "exports")
 
@@ -60,18 +63,18 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 
     # Session settings
-    SESSION_DIR: str = os.getenv("SESSION_DIR", "/app/sessions")
+    SESSION_DIR: str = os.getenv("SESSION_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sessions"))
     SESSION_EXPIRY_DAYS: int = int(os.getenv("SESSION_EXPIRY_DAYS", "30"))
     SESSION_EXPIRY: int = SESSION_EXPIRY_DAYS * 24 * 60 * 60  # Convert days to seconds
     SECURE_COOKIES: bool = os.getenv("SECURE_COOKIES", "False").lower() == "true"
 
     # Chart calculation settings
-    EPHEMERIS_PATH: str = os.getenv("EPHEMERIS_PATH", "/app/ephemeris")
+    EPHEMERIS_PATH: str = os.getenv("EPHEMERIS_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ephemeris"))
     DEFAULT_HOUSE_SYSTEM: str = os.getenv("DEFAULT_HOUSE_SYSTEM", "P")
     DEFAULT_ZODIAC_TYPE: str = os.getenv("DEFAULT_ZODIAC_TYPE", "sidereal")
     DEFAULT_AYANAMSA: float = float(os.getenv("DEFAULT_AYANAMSA", "23.6647"))
 
-    @validator("GPU_MEMORY_FRACTION", pre=True, always=True)
+    @validator("GPU_MEMORY_FRACTION", pre=True, allow_reuse=True)
     def parse_gpu_memory_fraction(cls, v, values):
         """Parse GPU memory fraction with comment handling"""
         if v is not None:
