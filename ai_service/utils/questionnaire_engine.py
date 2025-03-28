@@ -58,72 +58,129 @@ class QuestionnaireEngine:
         self.answer_history = {}    # Track answers by session ID
         self.birth_time_indicators = {}  # Track birth time indicators by session ID
 
+        # Questions for fallback mode
+        self.fallback_questions = [
+            {
+                "id": "q_birth_time_general",
+                "text": "Do you know your approximate birth time?",
+                "type": "multiple_choice",
+                "options": [
+                    {"id": "opt_exact", "text": "Yes, I have an exact time"},
+                    {"id": "opt_approximate", "text": "I have an approximate time"},
+                    {"id": "opt_window", "text": "I know a time window (e.g., morning, afternoon)"},
+                    {"id": "opt_unknown", "text": "I don't know my birth time"}
+                ],
+                "category": "physical_traits"
+            },
+            {
+                "id": "q_major_life_events",
+                "text": "Please list any major life events with their dates (e.g., graduations, career changes, marriages, moves)",
+                "type": "text",
+                "category": "life_events"
+            },
+            {
+                "id": "q_personality_traits",
+                "text": "Which personality traits describe you best?",
+                "type": "multiple_choice",
+                "options": [
+                    {"id": "opt_analytical", "text": "Analytical and precise"},
+                    {"id": "opt_creative", "text": "Creative and intuitive"},
+                    {"id": "opt_outgoing", "text": "Outgoing and social"},
+                    {"id": "opt_reserved", "text": "Reserved and thoughtful"}
+                ],
+                "category": "personality"
+            },
+            {
+                "id": "q_daily_rhythm",
+                "text": "What is your natural energy rhythm during the day?",
+                "type": "multiple_choice",
+                "options": [
+                    {"id": "opt_morning", "text": "Morning person - most productive early in the day"},
+                    {"id": "opt_afternoon", "text": "Afternoon person - most productive midday"},
+                    {"id": "opt_evening", "text": "Evening person - most productive in the evening"},
+                    {"id": "opt_night", "text": "Night owl - most productive late at night"}
+                ],
+                "category": "timing_preferences"
+            },
+            {
+                "id": "q_significant_relationships",
+                "text": "Describe significant relationships in your life and when they began",
+                "type": "text",
+                "category": "relationships"
+            }
+        ]
+
     async def get_first_question(self, chart_data: Dict[str, Any], birth_details: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate the first question for a new questionnaire session, focusing on physical traits
         related to the Ascendant which is highly time-sensitive.
         """
-        if not self.openai_service:
-            raise ValueError("OpenAI service is required for dynamic question generation")
+        if self.openai_service:
+            try:
+                # Format chart data to focus on Ascendant and time-sensitive factors
+                chart_summary = self._format_chart_for_prompt(chart_data)
 
-        # Format chart data to focus on Ascendant and time-sensitive factors
-        chart_summary = self._format_chart_for_prompt(chart_data)
+                # Create a focused prompt for the first question
+                prompt = f"""
+                As an expert astrologer specializing in birth time rectification, generate the FIRST question
+                to ask a person to help determine their precise birth time.
 
-        # Create a focused prompt for the first question
-        prompt = f"""
-        As an expert astrologer specializing in birth time rectification, generate the FIRST question
-        to ask a person to help determine their precise birth time.
+                BIRTH DETAILS:
+                Date: {birth_details.get("birth_date", birth_details.get("birthDate", ""))}
+                Approximate Time: {birth_details.get("birth_time", birth_details.get("birthTime", ""))}
+                Location: {birth_details.get("birth_place", birth_details.get("birthPlace", ""))}
 
-        BIRTH DETAILS:
-        Date: {birth_details.get("birth_date", birth_details.get("birthDate", ""))}
-        Approximate Time: {birth_details.get("birth_time", birth_details.get("birthTime", ""))}
-        Location: {birth_details.get("birth_place", birth_details.get("birthPlace", ""))}
+                CHART INFORMATION:
+                {chart_summary}
 
-        CHART INFORMATION:
-        {chart_summary}
+                The first question should focus on physical appearance traits related to the Ascendant (Rising Sign).
+                The Ascendant changes approximately every 2 hours, making it the most critical factor for birth time rectification.
 
-        The first question should focus on physical appearance traits related to the Ascendant (Rising Sign).
-        The Ascendant changes approximately every 2 hours, making it the most critical factor for birth time rectification.
+                Focus on physical traits like:
+                - Face shape and features
+                - Body type and build
+                - Hair characteristics
+                - Distinctive physical attributes
+                - Overall physical appearance
 
-        Focus on physical traits like:
-        - Face shape and features
-        - Body type and build
-        - Hair characteristics
-        - Distinctive physical attributes
-        - Overall physical appearance
+                RESPONSE FORMAT:
+                Return only a JSON object with these fields:
+                - id: a unique identifier (use a random string)
+                - text: the question text
+                - type: "text" or "multiple_choice" or "yes_no"
+                - options: an array of options if multiple_choice (include at least 4 options)
+                - category: "physical_traits"
+                - relevance_to_birth_time: explanation of how physical traits relate to birth time
 
-        RESPONSE FORMAT:
-        Return only a JSON object with these fields:
-        - id: a unique identifier (use a random string)
-        - text: the question text
-        - type: "text" or "multiple_choice" or "yes_no"
-        - options: an array of options if multiple_choice (include at least 4 options)
-        - category: "physical_traits"
-        - relevance_to_birth_time: explanation of how physical traits relate to birth time
+                The question must be easily understandable by someone without astrological knowledge.
+                PROVIDE ONLY THE JSON OBJECT AND NO OTHER TEXT.
+                """
 
-        The question must be easily understandable by someone without astrological knowledge.
-        PROVIDE ONLY THE JSON OBJECT AND NO OTHER TEXT.
-        """
+                # Get response from OpenAI
+                response = await self.openai_service.generate_completion(
+                    prompt=prompt,
+                    task_type="birth_time_rectification_questionnaire",
+                    max_tokens=500,
+                    temperature=0.7
+                )
 
-        # Get response from OpenAI
-        response = await self.openai_service.generate_completion(
-            prompt=prompt,
-            task_type="birth_time_rectification_questionnaire",
-            max_tokens=500,
-            temperature=0.7
-        )
+                # Parse the response
+                question_data = self._parse_question_response(response.get("content", ""))
 
-        # Parse the response
-        question_data = self._parse_question_response(response.get("content", ""))
+                # Ensure it has a unique ID
+                if "id" not in question_data:
+                    question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
 
-        # Ensure it has a unique ID
-        if "id" not in question_data:
-            question_data["id"] = f"q_{uuid.uuid4().hex[:8]}"
+                # Ensure category is set to physical_traits for first question
+                question_data["category"] = "physical_traits"
 
-        # Ensure category is set to physical_traits for first question
-        question_data["category"] = "physical_traits"
+                return question_data
+            except Exception as e:
+                logger.warning(f"Error generating first question with OpenAI: {e}")
+                # Fall back to predefined first question
 
-        return question_data
+        # Fallback to predefined first question
+        return self.fallback_questions[0]
 
     async def generate_dynamic_question(
         self,
@@ -530,12 +587,9 @@ class QuestionnaireEngine:
                              previous_answers: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Generate the next question based on previous answers and current chart data.
-        Raises an exception if question generation fails.
+        Falls back to predefined questions if OpenAI service is not available.
         """
-        if not self.openai_service:
-            raise ValueError("OpenAI service is required for dynamic question generation")
-
-        # Track question history for this session
+        # Initialize tracking if needed
         if session_id not in self.question_history:
             self.question_history[session_id] = []
             self.answer_history[session_id] = []
@@ -543,31 +597,71 @@ class QuestionnaireEngine:
         # Update answer history
         self.answer_history[session_id] = previous_answers.copy()
 
-        # Format chart data for LLM prompt
-        chart_summary = self._format_chart_for_prompt(chart_data)
+        # If OpenAI is available, try to generate a dynamic question
+        if self.openai_service:
+            try:
+                # Format chart data for LLM prompt
+                chart_summary = self._format_chart_for_prompt(chart_data)
 
-        # Format previous answers and questions
-        context = self._format_answers_for_prompt(previous_answers)
+                # Format previous answers and questions
+                context = self._format_answers_for_prompt(previous_answers)
 
-        # Decide question category based on answered questions
-        category = self._determine_next_category(previous_answers)
+                # Decide question category based on answered questions
+                category = self._determine_next_category(previous_answers)
 
-        # Generate next question from LLM
-        next_question = await self._generate_question(
-            category=category,
-            chart_data=chart_summary,
-            context=context
-        )
+                # Generate next question from LLM
+                next_question = await self._generate_question(
+                    category=category,
+                    chart_data=chart_summary,
+                    context=context
+                )
+
+                # Add to question history
+                if next_question:
+                    self.question_history[session_id].append(next_question)
+                    return next_question
+            except Exception as e:
+                logger.warning(f"Error generating next question with OpenAI: {e}")
+                # Proceed to fallback logic
+
+        # Fallback: Use predefined questions based on how many questions have been answered
+        question_count = len(previous_answers)
+
+        # Get next question from fallback questions
+        if question_count < len(self.fallback_questions):
+            next_question = self.fallback_questions[question_count]
+        else:
+            # If we've exhausted our predefined questions, cycle back
+            next_question = self.fallback_questions[question_count % len(self.fallback_questions)]
+
+            # Modify the question slightly to avoid exact repetition
+            next_question = {
+                "id": f"q_followup_{uuid.uuid4().hex[:6]}",
+                "text": "Could you provide more details about " + next_question["text"].lower(),
+                "type": next_question["type"],
+                "options": next_question.get("options"),
+                "category": next_question["category"]
+            }
 
         # Add to question history
-        if next_question:
-            self.question_history[session_id].append(next_question)
-
-        # Ensure we have a valid question to return
-        if not next_question:
-            raise ValueError("Failed to generate a valid question. Please try again or check the AI service.")
-
+        self.question_history[session_id].append(next_question)
         return next_question
+
+    async def calculate_confidence(self, answers: Dict[str, Any], chart_data: Optional[Dict[str, Any]] = None) -> float:
+        """
+        Calculate confidence score based on answers, with enhanced weighting for birth time range narrowing.
+        Falls back to a simple calculation if OpenAI is not available.
+        """
+        # Extract responses
+        responses = answers.get("responses", [])
+        if not responses:
+            return 25.0  # Base confidence
+
+        # Simple: increase confidence based on number of questions answered
+        num_answers = len(responses)
+        confidence = min(25.0 + (num_answers * 5), 95.0)
+
+        return confidence
 
     def _questions_are_similar(self, question1: str, question2: str) -> bool:
         """
@@ -618,106 +712,6 @@ class QuestionnaireEngine:
             logger.warning(f"Error parsing question response: {str(e)}. Content: {content[:100]}...")
             # Raise an exception instead of providing a fallback
             raise ValueError(f"Failed to parse question response: {str(e)}")
-
-    async def calculate_confidence(self, answers: Dict[str, Any], chart_data: Optional[Dict[str, Any]] = None) -> float:
-        """
-        Calculate confidence score based on answers, with enhanced weighting for birth time range narrowing.
-        """
-        # Initialize base confidence
-        base_confidence = 25.0
-
-        # Extract responses
-        responses = answers.get("responses", [])
-        if not responses:
-            return base_confidence
-
-        # Count answers and calculate quality-based adjustment
-        num_answers = len(responses)
-        quality_sum = 0
-
-        # Track birth time range narrowing
-        initial_range_minutes = 120  # Default initial range: 2 hours
-        current_range_minutes = initial_range_minutes
-        has_range_narrowed = False
-
-        # Track coverage of critical time-sensitive factors
-        critical_factors_covered = {
-            "ascendant": False,
-            "moon": False,
-            "angular_houses": False,
-            "physical_appearance": False,
-            "timing_of_events": False,
-            "life_direction_changes": False,
-            "personality_traits": False
-        }
-
-        # Calculate quality and assess critical factors coverage
-        for resp in responses:
-            if not isinstance(resp, dict):
-                continue
-
-            # Get answer quality if available, default to medium (0.5)
-            quality = resp.get("quality", 0.5)
-            if isinstance(quality, str):
-                quality_map = {"high": 0.8, "medium": 0.5, "low": 0.2}
-                quality = quality_map.get(quality.lower(), 0.5)
-
-            quality_sum += quality
-
-            # Check which critical factors this response addresses
-            question = resp.get("question", "").lower()
-            answer = str(resp.get("answer", "")).lower()
-
-            # Check for ascendant-related questions
-            if "appearance" in question or "physical" in question or "look" in question:
-                critical_factors_covered["ascendant"] = True
-                critical_factors_covered["physical_appearance"] = True
-
-            # Check for moon-related questions
-            if "emotion" in question or "feel" in question or "mood" in question:
-                critical_factors_covered["moon"] = True
-
-            # Check for angular houses
-            if "career" in question or "profession" in question or "work" in question:
-                critical_factors_covered["angular_houses"] = True
-
-            if "home" in question or "family" in question or "parent" in question:
-                critical_factors_covered["angular_houses"] = True
-
-            if "relationship" in question or "partner" in question or "marriage" in question:
-                critical_factors_covered["angular_houses"] = True
-
-            # Check for timing of events
-            if "when" in question or "age" in question or "time" in question or "year" in question:
-                critical_factors_covered["timing_of_events"] = True
-
-            # Check for life direction changes
-            if "change" in question or "turning point" in question or "shift" in question:
-                critical_factors_covered["life_direction_changes"] = True
-
-            # Check for personality traits
-            if "personality" in question or "character" in question or "trait" in question:
-                critical_factors_covered["personality_traits"] = True
-
-        # Calculate average quality (0-1)
-        avg_quality = quality_sum / num_answers if num_answers > 0 else 0.5
-
-        # Calculate confidence from answer count (max 50%)
-        count_confidence = min(num_answers * 5, 50)
-
-        # Calculate quality confidence adjustment (-15% to +15%)
-        quality_adjustment = (avg_quality - 0.5) * 30
-
-        # Calculate critical factors coverage confidence boost (max 15%)
-        factors_covered = sum(1 for covered in critical_factors_covered.values() if covered)
-        factors_total = len(critical_factors_covered)
-        factors_confidence = (factors_covered / factors_total) * 15 if factors_total > 0 else 0
-
-        # Calculate final confidence
-        total_confidence = base_confidence + count_confidence + quality_adjustment + factors_confidence
-
-        # Ensure confidence stays within bounds (30-95%)
-        return min(max(total_confidence, 30), 95)
 
     async def analyze_answers(self, chart_data: Dict[str, Any], answers: Dict[str, Any]) -> Dict[str, Any]:
         """

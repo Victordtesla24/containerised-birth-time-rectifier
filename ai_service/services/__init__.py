@@ -1,181 +1,140 @@
 """
-AI Service modules for the Birth Time Rectifier.
+Service package for core business logic.
 
-This package contains services that provide core functionality for the application.
+This module provides access to various services that implement the application's
+core business logic, following the Unified API Gateway Architecture.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
+from importlib import import_module
 import os
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Import chart service
-from ai_service.services.chart_service import ChartService, create_chart_service
-
-# Global instance
-_chart_service_instance = None
-
-def create_chart_service():
+# We'll use lazy loading pattern to avoid circular imports
+def get_chart_service():
     """
-    Factory function to create a chart service instance.
+    Get the chart service implementation.
+
+    This function lazily imports the chart service implementation
+    to avoid circular imports.
 
     Returns:
-        ChartService: A new chart service instance
+        The chart service implementation
     """
-    # Import here to avoid circular imports
-    from ai_service.services.chart_service import create_chart_service as factory_func
-    return factory_func()
+    from ai_service.services.chart_service import create_chart_service
+    return create_chart_service()
 
-async def get_chart_service_async() -> 'ChartService':
+def get_openai_service():
     """
-    Get or create a chart service instance asynchronously.
-    This ensures the instance is properly initialized with all async resources.
+    Get the OpenAI service implementation.
+
+    This function lazily imports the OpenAI service implementation
+    to avoid circular imports.
 
     Returns:
-        ChartService: Initialized chart service instance
-    """
-    global _chart_service_instance
-
-    if _chart_service_instance is not None and getattr(_chart_service_instance, '_initialized', False):
-        logger.debug("Returning existing initialized chart service instance")
-        return _chart_service_instance
-
-    # Try to get from dependency container first
-    from ai_service.utils.dependency_container import get_container
-    container = get_container()
-
-    try:
-        if container.has_service("chart_service"):
-            chart_service = container.get("chart_service")
-            if chart_service:
-                _chart_service_instance = chart_service
-                logger.info("Retrieved chart service from container")
-            else:
-                raise ValueError("Chart service is None in container")
-        else:
-            # Import the real factory function
-            from ai_service.services.chart_service import create_chart_service
-
-            # Create new instance using the real factory function
-            chart_service = create_chart_service()
-            container.register_service("chart_service", chart_service)
-            _chart_service_instance = chart_service
-            logger.info("Created new chart service instance and registered with container")
-    except Exception as e:
-        logger.error(f"Error getting chart service: {e}")
-        raise ValueError(f"Failed to get or create chart service: {e}")
-
-    # Ensure the instance is initialized
-    try:
-        # Initialize if needed
-        if not getattr(_chart_service_instance, '_initialized', False):
-            # First, try to get the OpenAI service for initialization
-            try:
-                # Get OpenAI service
-                from ai_service.api.services.openai import get_openai_service
-                openai_service = await get_openai_service()
-
-                # Set it on the chart service
-                if openai_service:
-                    _chart_service_instance.openai_service = openai_service
-                    logger.info("OpenAI service set on chart service")
-            except Exception as e:
-                logger.warning(f"Could not get OpenAI service for chart service: {e}")
-
-            # Now initialize the chart service
-            await _chart_service_instance.initialize()
-            logger.info("Chart service initialized asynchronously")
-    except Exception as e:
-        logger.error(f"Error initializing chart service: {e}")
-        raise ValueError(f"Failed to initialize chart service: {e}")
-
-    return _chart_service_instance
-
-def get_chart_service() -> 'ChartService':
-    """
-    Get or create a chart service instance.
-    Ensures the same instance is reused.
-
-    Note: This synchronous version does not guarantee the service is fully initialized.
-    In asynchronous contexts, use get_chart_service_async() instead.
-
-    Returns:
-        ChartService instance (may not be fully initialized)
-    """
-    global _chart_service_instance
-
-    if _chart_service_instance is not None:
-        # Check if we're in an async context
-        try:
-            import inspect
-            current_frame = inspect.currentframe()
-            if current_frame and current_frame.f_back and inspect.iscoroutinefunction(current_frame.f_back.f_code):
-                logger.warning(
-                    "get_chart_service() called from async context. "
-                    "Use get_chart_service_async() instead to ensure proper initialization"
-                )
-        except Exception:
-            pass
-
-        logger.debug("Returning existing chart service instance")
-        return _chart_service_instance
-
-    # Get from dependency container
-    from ai_service.utils.dependency_container import get_container
-    container = get_container()
-
-    # Try to get from container first
-    try:
-        if container.has_service("chart_service"):
-            chart_service = container.get("chart_service")
-            _chart_service_instance = chart_service
-            logger.info("Retrieved chart service from dependency container")
-            return chart_service
-        else:
-            # Create and register if not found using real factory function
-            from ai_service.services.chart_service import create_chart_service
-            chart_service = create_chart_service()
-            container.register_service("chart_service", chart_service)
-            _chart_service_instance = chart_service
-            logger.info("Created new chart service instance using factory function")
-            return chart_service
-    except Exception as e:
-        logger.error(f"Error getting chart service: {e}")
-        raise ValueError(f"Failed to get or create chart service: {e}")
-
-# For backward compatibility, re-export OpenAIService
-# but import it lazily to avoid circular dependencies
-def __getattr__(name):
-    """
-    Lazily load attributes when accessed to avoid circular imports.
-
-    Args:
-        name: The name of the attribute to load
-
-    Returns:
-        The requested attribute
+        The OpenAI service implementation
 
     Raises:
-        AttributeError: If the attribute doesn't exist
+        RuntimeError: If OpenAI service is not available
     """
-    if name == "OpenAIService":
-        from ai_service.services.openai_service import OpenAIService as _OpenAIService
-        return _OpenAIService
-    elif name == "get_openai_service":
-        from ai_service.services.openai_service import get_openai_service as _get_openai_service
-        return _get_openai_service
-    elif name == "ChartService":
-        from ai_service.services.chart_service import ChartService as _ChartService
-        return _ChartService
+    try:
+        from ai_service.api.services.openai.service import OpenAIService
+        import os
+        api_key = os.environ.get('OPENAI_API_KEY', '')
+        if not api_key:
+            raise ValueError("OpenAI API key is required but not provided in environment variables")
+        return OpenAIService(api_key=api_key)
+    except Exception as e:
+        logger.error(f"Failed to get OpenAI service: {e}")
+        raise RuntimeError(f"OpenAI service unavailable: {str(e)}")
 
-    raise AttributeError(f"module {__name__} has no attribute {name}")
+# Define the service interface classes for type hinting
+class ChartService:
+    """
+    Chart service interface.
+
+    This class provides methods for generating and manipulating astrological charts.
+    """
+    pass
+
+class OpenAIService:
+    """
+    OpenAI service interface.
+
+    This class provides methods for interacting with the OpenAI API.
+    """
+    def __init__(self, api_key):
+        if not api_key:
+            raise ValueError("API key is required")
+        self.api_key = api_key
+
+    async def verify_chart(self, chart_data):
+        """
+        Verify chart data using OpenAI.
+
+        Args:
+            chart_data: Chart data to verify
+
+        Returns:
+            Verification result
+
+        Raises:
+            NotImplementedError: This is an interface method that should be implemented
+        """
+        raise NotImplementedError("This method must be implemented by a concrete OpenAI service class")
+
+    async def generate_text(self, prompt, **kwargs):
+        """
+        Generate text using OpenAI.
+
+        Args:
+            prompt: Text prompt
+            **kwargs: Additional parameters
+
+        Returns:
+            Generated text
+
+        Raises:
+            NotImplementedError: This is an interface method that should be implemented
+        """
+        raise NotImplementedError("This method must be implemented by a concrete OpenAI service class")
+
+    async def rectify_birth_time(self, chart_data, answers):
+        """
+        Rectify birth time using OpenAI.
+
+        Args:
+            chart_data: Chart data
+            answers: Questionnaire answers
+
+        Returns:
+            Rectification result
+
+        Raises:
+            NotImplementedError: This is an interface method that should be implemented
+        """
+        raise NotImplementedError("This method must be implemented by a concrete OpenAI service class")
+
+# Define an async chart service accessor for consistency
+async def get_chart_service_async():
+    """
+    Get an instance of the ChartService asynchronously.
+
+    This function exists for API consistency with other async service accessors.
+    It simply returns the result of the synchronous get_chart_service function.
+
+    Returns:
+        ChartService: A chart service instance
+    """
+    return get_chart_service()
 
 __all__ = [
     "ChartService",
+    "OpenAIService",
     "get_chart_service",
     "get_chart_service_async",
-    "OpenAIService",
     "get_openai_service"
 ]

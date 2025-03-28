@@ -33,6 +33,7 @@ from ai_service.core.rectification.vedic_calculation import (
 from ai_service.utils.geocoding import get_coordinates
 from ai_service.utils.timezone import get_timezone_for_coordinates
 from ai_service.api.services.openai import get_openai_service
+from ai_service.utils.json_encoder import DateTimeEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -422,15 +423,41 @@ class ChartService:
         Returns:
             Updated chart data
         """
-        # This method is kept as is since it's not directly related to calculation but to database operations
-        # The implementation would remain the same as in the original file
-        # Placeholder for the original implementation
-        return {
-            "chart_id": chart_id,
-            "status": "updated",
-            "rectification_applied": True,
-            "updated_at": datetime.now().isoformat()
+        # Get original chart
+        original_chart = await self.get_chart(chart_id)
+        if not original_chart:
+            raise ValueError(f"Chart not found: {chart_id}")
+
+        # Get rectification details
+        original_birth_time = rectification_data.get("original_birth_time")
+        rectified_birth_time = rectification_data.get("rectified_birth_time")
+
+        if not original_birth_time or not rectified_birth_time:
+            raise ValueError("Missing required rectification data")
+
+        # Create a copy of the original chart with updates
+        updated_chart = original_chart.copy()
+
+        # Update birth details
+        if "birth_details" in updated_chart:
+            updated_chart["birth_details"]["time"] = rectified_birth_time
+
+        # Add rectification information
+        updated_chart["rectification"] = {
+            "original_time": original_birth_time,
+            "rectified_time": rectified_birth_time,
+            "confidence": rectification_data.get("confidence", 0.0),
+            "explanation": rectification_data.get("explanation", ""),
+            "detected_events": rectification_data.get("detected_events", []),
+            "rectified_at": datetime.now().isoformat()
         }
+
+        # Update chart ID if a new one is provided
+        if "rectified_chart_id" in rectification_data:
+            updated_chart["chart_id"] = rectification_data["rectified_chart_id"]
+
+        # Return updated chart
+        return updated_chart
 
     def _cross_validate_calculations(self, charts_data: List[Tuple[str, Dict[str, Any]]]) -> Dict[str, Any]:
         """
@@ -444,195 +471,483 @@ class ChartService:
         """
         return cross_validate_calculations(charts_data)
 
+    async def validate_birth_details(self, birth_details: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate birth details for chart generation.
+
+        Args:
+            birth_details: Dictionary containing birth details including date, time, latitude, longitude, and timezone
+
+        Returns:
+            Dictionary with validation results
+
+        Raises:
+            ValueError: If birth details are missing required fields
+        """
+        try:
+            # Import validator
+            from ai_service.core.validators import validate_birth_details as core_validate
+
+            # Extract values from birth details
+            birth_date = birth_details.get("birth_date")
+            birth_time = birth_details.get("birth_time")
+            latitude = birth_details.get("latitude")
+            longitude = birth_details.get("longitude")
+            timezone = birth_details.get("timezone")
+
+            # Check for missing values
+            missing = []
+            if not birth_date:
+                missing.append("birth_date")
+            if not birth_time:
+                missing.append("birth_time")
+            if latitude is None:
+                missing.append("latitude")
+            if longitude is None:
+                missing.append("longitude")
+            if not timezone:
+                missing.append("timezone")
+
+            if missing:
+                return {
+                    "valid": False,
+                    "errors": [f"Missing required fields: {', '.join(missing)}"]
+                }
+
+            # Call core validator
+            return await core_validate(
+                birth_date=birth_date,
+                birth_time=birth_time,
+                latitude=latitude,
+                longitude=longitude,
+                timezone=timezone
+            )
+        except Exception as e:
+            logger.error(f"Error validating birth details: {e}")
+            return {
+                "valid": False,
+                "errors": [f"Validation error: {str(e)}"]
+            }
+
     async def _verify_chart_with_openai(self, chart_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Verify a chart using OpenAI for accuracy.
+        Verify a chart using OpenAI for accuracy according to Vedic astrological standards.
 
         Args:
             chart_data: The chart data to verify
             session_id: Optional session ID for WebSocket updates
 
         Returns:
-            Verification result dictionary
+            Verification result dictionary with corrections if needed
 
         Raises:
             ValueError: If verification fails
         """
+        # Emit verification started event if session provided
+        if session_id:
+            try:
+                from ai_service.utils.websocket_events import emit_event, EventType
+                await emit_event(session_id, EventType.VERIFICATION_STARTED, {
+                    "chart_id": chart_data.get("chart_id", "unknown"),
+                    "message": "Starting Vedic astrological chart verification",
+                    "timestamp": datetime.now().isoformat()
+                })
+            except Exception as e:
+                logger.warning(f"Failed to emit verification_started event: {e}")
+
         try:
-            # Import verify_chart function
+            # Import verification service
             from ai_service.services.chart_verification import verify_chart
 
-            # Verify chart
+            # Log verification request
+            logger.info(f"Verifying chart {chart_data.get('chart_id', 'unknown')} with OpenAI")
+
+            # Send progress update if session provided
+            if session_id:
+                try:
+                    from ai_service.utils.websocket_events import emit_event, EventType
+                    await emit_event(session_id, EventType.VERIFICATION_PROGRESS, {
+                        "chart_id": chart_data.get("chart_id", "unknown"),
+                        "message": "Processing chart data for verification",
+                        "progress": 30,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to emit verification_progress event: {e}")
+
+            # Verify chart with proper error handling
             verification_result = await verify_chart(
                 chart_data=chart_data,
                 session_id=session_id,
                 verify_with_openai=True
             )
 
+            # Send completion event if session provided
+            if session_id:
+                try:
+                    from ai_service.utils.websocket_events import emit_event, EventType
+                    await emit_event(session_id, EventType.VERIFICATION_COMPLETED, {
+                        "chart_id": chart_data.get("chart_id", "unknown"),
+                        "message": "Chart verification completed",
+                        "verification": {
+                            "verified": verification_result.get("verified", False),
+                            "confidence": verification_result.get("confidence", 0),
+                            "corrections_applied": verification_result.get("corrections_applied", False)
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to emit verification_completed event: {e}")
+
+            # Return the verification result
             return verification_result
         except Exception as e:
             logger.error(f"Error during chart verification: {e}")
-            raise ValueError(f"Chart verification failed: {e}")
 
-    async def generate_chart(
-        self,
-        birth_date: str,
-        birth_time: str,
-        latitude: float,
-        longitude: float,
-        timezone: Optional[str] = None,
-        location: Optional[str] = None,
-        verify_with_openai: bool = True,
-        session_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+            # Send error event if session provided
+            if session_id:
+                try:
+                    from ai_service.utils.websocket_events import emit_event, EventType
+                    await emit_event(session_id, EventType.VERIFICATION_ERROR, {
+                        "chart_id": chart_data.get("chart_id", "unknown"),
+                        "message": f"Verification failed: {str(e)}",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                except Exception as emit_error:
+                    logger.warning(f"Failed to emit verification_error event: {emit_error}")
+
+            # Format exception details
+            error_details = {
+                "message": str(e),
+                "type": type(e).__name__,
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # Return chart with verification error status
+            return {
+                "verified": False,
+                "status": "error",
+                "message": f"Chart verification failed: {str(e)}",
+                "confidence": 0.0,
+                "corrections_applied": False,
+                "error_details": error_details
+            }
+
+    async def generate_chart(self, birth_date, birth_time, latitude, longitude, timezone=None, session_id=None, verify_with_openai=True):
         """
-        Generate an astrological chart based on birth details.
+        Generate an astrological chart with verification.
 
         Args:
-            birth_date: Birth date (YYYY-MM-DD)
-            birth_time: Birth time (HH:MM:SS)
+            birth_date: Birth date in ISO format (YYYY-MM-DD)
+            birth_time: Birth time in 24-hour format (HH:MM:SS)
             latitude: Birth latitude
             longitude: Birth longitude
-            timezone: Timezone string (optional)
-            location: Birth location name (optional)
-            verify_with_openai: Whether to verify the chart with OpenAI
-            session_id: Optional session ID for WebSocket updates
+            timezone: Birth timezone (optional)
+            session_id: Session ID for tracking
+            verify_with_openai: Whether to verify with OpenAI
+
+        Returns:
+            Generated chart data with verification
+
+        Raises:
+            ValueError: If input parameters are invalid
+            RuntimeError: If chart generation fails
+        """
+        # Generate chart ID
+        chart_id = f"chart_{uuid.uuid4().hex[:8]}"
+
+        # Validate birth details
+        try:
+            await self.validate_birth_details({
+                "birth_date": birth_date,
+                "birth_time": birth_time,
+                "latitude": latitude,
+                "longitude": longitude,
+                "timezone": timezone
+            })
+        except Exception as e:
+            logger.error(f"Birth details validation failed: {e}")
+            raise ValueError(f"Invalid birth details: {str(e)}")
+
+        # Calculate initial chart
+        try:
+            chart_data = await self._calculate_chart(
+                birth_date, birth_time, latitude, longitude, timezone
+            )
+
+            # Add chart ID and timestamp
+            chart_data["chart_id"] = chart_id
+            chart_data["generated_at"] = datetime.now().isoformat()
+
+            # Add session ID if provided
+            if session_id:
+                chart_data["session_id"] = session_id
+        except Exception as e:
+            logger.error(f"Chart calculation failed: {e}")
+            raise RuntimeError(f"Chart calculation failed: {str(e)}")
+
+        # Verify chart with OpenAI if requested
+        if verify_with_openai:
+            try:
+                # Get verification service
+                from ai_service.services.chart_verification import get_chart_verification_service
+                verification_service = get_chart_verification_service()
+                if not verification_service:
+                    raise ValueError("Verification service unavailable")
+
+                # Verify chart
+                verification_result = await verification_service.verify_chart(
+                    chart_data, session_id, verify_with_openai
+                )
+
+                # Add verification to chart data
+                chart_data["verification"] = {
+                    "verified": verification_result.get("verified", False),
+                    "confidence_score": verification_result.get("confidence", 0),
+                    "corrections_applied": verification_result.get("corrections_applied", False),
+                    "message": verification_result.get("message", "Verification completed"),
+                    "verified_at": datetime.now().isoformat(),
+                    "verification_method": "openai" if verify_with_openai else "calculation"
+                }
+
+                # Update chart with corrections if applied
+                if verification_result.get("corrections_applied", False) and "corrected_chart" in verification_result:
+                    # Preserve chart ID and metadata
+                    metadata = {
+                        "chart_id": chart_data.get("chart_id"),
+                        "generated_at": chart_data.get("generated_at"),
+                        "verification": chart_data.get("verification"),
+                        "session_id": chart_data.get("session_id")
+                    }
+
+                    # Replace chart data with corrected version
+                    chart_data = verification_result["corrected_chart"]
+
+                    # Restore metadata
+                    for key, value in metadata.items():
+                        if value is not None:
+                            chart_data[key] = value
+            except Exception as e:
+                logger.error(f"Chart verification failed: {e}")
+                raise RuntimeError(f"Chart verification failed: {str(e)}")
+        else:
+            # Add basic verification info
+            chart_data["verification"] = {
+                "verified": False,
+                "confidence_score": 0,
+                "corrections_applied": False,
+                "message": "Verification not requested",
+                "verified_at": datetime.now().isoformat(),
+                "verification_method": "none"
+            }
+
+        # Save chart to file for backup
+        try:
+            # Ensure chart output directory exists
+            os.makedirs(self.chart_output_dir, exist_ok=True)
+
+            # Save to file
+            chart_file = os.path.join(self.chart_output_dir, f"{chart_id}.json")
+            with open(chart_file, 'w') as f:
+                json.dump(chart_data, f, indent=2, cls=DateTimeEncoder)
+
+            logger.info(f"Saved chart {chart_id} to file {chart_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save chart to file: {e}")
+
+        return chart_data
+
+    async def _calculate_chart(self, birth_date, birth_time, latitude, longitude, timezone=None):
+        """
+        Calculate astrological chart based on birth details.
+
+        Args:
+            birth_date: Birth date in ISO format (YYYY-MM-DD)
+            birth_time: Birth time in 24-hour format (HH:MM:SS)
+            latitude: Birth latitude (-90 to 90)
+            longitude: Birth longitude (-180 to 180)
+            timezone: Timezone name (optional)
 
         Returns:
             Generated chart data
 
         Raises:
-            ValueError: If chart calculation fails
-            RuntimeError: If chart calculator is not available
+            ValueError: If input data is invalid
+            RuntimeError: If calculation fails
         """
-        if not self._initialized:
-            await self.initialize()
-
-        # Parse birth date and time
         try:
+            # Ensure service is initialized
+            if not self._initialized:
+                await self.initialize()
+
+            # Parse birth date and time
             from datetime import datetime
-            from ai_service.utils.timezone import get_timezone_for_coordinates
+            import pytz
+
+            # Format date and time for calculations
+            if len(birth_time.split(':')) == 2:
+                birth_time += ':00'  # Add seconds if not provided
 
             # Parse datetime
-            if birth_time and ":" in birth_time:
-                if len(birth_time.split(":")) == 2:
-                    birth_time += ":00"  # Add seconds if not provided
-
-                birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
-            else:
-                birth_dt = datetime.strptime(birth_date, "%Y-%m-%d")
-                birth_dt = birth_dt.replace(hour=12, minute=0, second=0)  # Noon if no time
-                logger.warning(f"No birth time provided, using noon: {birth_dt}")
+            birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
 
             # Get timezone if not provided
             if not timezone:
-                try:
-                    tz_info = get_timezone_for_coordinates(latitude, longitude)
-                    # Ensure we get a string value for timezone
-                    if isinstance(tz_info, dict):
-                        timezone = tz_info.get("timezone", "UTC")
-                    else:
-                        timezone = str(tz_info) if tz_info else "UTC"
-                    logger.info(f"Determined timezone from coordinates: {timezone}")
-                except Exception as e:
-                    logger.error(f"Failed to determine timezone, using UTC: {e}")
-                    timezone = "UTC"
+                from ai_service.utils.timezone import get_timezone_for_coordinates
+                tz_info = get_timezone_for_coordinates(latitude, longitude)
+                # Parse timezone info
+                if isinstance(tz_info, dict):
+                    timezone = tz_info.get("timezone", "UTC")
+                else:
+                    timezone = str(tz_info) if tz_info else "UTC"
 
-            # Ensure timezone is not None
-            tz_string = timezone if timezone else "UTC"
+            # Convert to timezone-aware datetime
+            tz = pytz.timezone(timezone)
+            birth_dt = tz.localize(birth_dt) if birth_dt.tzinfo is None else birth_dt
 
-            # Prepare calculator options
-            options = {
-                "house_system": self._house_system,
-                "zodiac_type": self._zodiac_type,
-                "ayanamsa": self._ayanamsa,
-                "verify_with_openai": verify_with_openai
+            # Set calculation options
+            house_system = "placidus"  # Standard house system for Vedic charts
+
+            # Use the Vedic calculation module for accurate chart calculation
+            from ai_service.core.rectification.vedic_calculation import calculate_vedic_chart
+
+            # Call the Vedic chart calculation function with the correct parameters
+            chart_data = calculate_vedic_chart(
+                birth_dt=birth_dt,
+                latitude=latitude,
+                longitude=longitude,
+                house_system=house_system
+            )
+
+            # Add birth details
+            chart_data["birth_details"] = {
+                "date": birth_date,
+                "time": birth_time,
+                "latitude": latitude,
+                "longitude": longitude,
+                "timezone": timezone
             }
 
-            # Calculate chart data using the chart calculator
-            try:
-                # Import the chart calculator
-                from ai_service.core.rectification.chart_calculator import calculate_chart
+            # Generate chart ID if not present
+            import uuid
+            chart_data["chart_id"] = chart_data.get("chart_id", f"chart_{uuid.uuid4().hex[:8]}")
+            chart_data["generated_at"] = datetime.now().isoformat()
 
-                logger.info(f"Calculating chart for {birth_dt} at {latitude}, {longitude}")
-
-                # Calculate chart
-                chart_data = calculate_chart(
-                    birth_dt=birth_dt,
-                    latitude=latitude,
-                    longitude=longitude,
-                    timezone_str=tz_string,
-                    **options
-                )
-
-                # Add birth details and location to chart data
-                chart_data["birth_details"] = {
-                    "date": birth_date,
-                    "time": birth_time,
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "timezone": tz_string,
-                    "location": location
-                }
-
-                # Generate chart ID if not present
-                if "chart_id" not in chart_data:
-                    import uuid
-                    chart_data["chart_id"] = f"chrt_{uuid.uuid4().hex[:8]}"
-
-                # Verify with OpenAI if requested
-                if verify_with_openai:
-                    try:
-                        # Make sure openai_service is initialized
-                        if not self.openai_service:
-                            try:
-                                from ai_service.api.services.openai import get_openai_service
-                                self.openai_service = await get_openai_service()
-                                logger.info("OpenAI service initialized for chart verification")
-                            except Exception as e:
-                                logger.warning(f"Failed to initialize OpenAI service: {e}")
-                                # Continue without verification
-
-                        # If we have a valid OpenAI service, proceed with verification
-                        if self.openai_service:
-                            verification_result = await self._verify_chart_with_openai(
-                                chart_data, session_id
-                            )
-                            chart_data["verification"] = verification_result
-                        else:
-                            # Add verification skipped info
-                            chart_data["verification"] = {
-                                "status": "verification_skipped",
-                                "message": "OpenAI service not available for verification",
-                                "verified": False
-                            }
-                    except Exception as e:
-                        logger.error(f"Chart verification failed: {e}")
-                        # Add failed verification info but don't fail the chart generation
-                        chart_data["verification"] = {
-                            "status": "verification_failed",
-                            "message": f"Verification failed: {str(e)}",
-                            "verified": False
-                        }
-
-                return chart_data
-
-            except ImportError as e:
-                # The calculation module is missing - this is a critical error
-                logger.error(f"Chart calculator module not available: {e}")
-                raise RuntimeError(f"Chart calculator module is required but not available: {e}")
-            except Exception as e:
-                # Calculation failed - raise the error
-                logger.error(f"Chart calculation failed: {e}")
-                raise ValueError(f"Failed to calculate chart: {e}")
-
+            return chart_data
         except Exception as e:
-            logger.error(f"Error generating chart: {e}")
-            raise ValueError(f"Failed to generate chart: {e}")
+            logger.error(f"Chart calculation error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise RuntimeError(f"Failed to calculate astrological chart: {str(e)}")
+
+    def _get_house_for_longitude(self, longitude, houses):
+        """
+        Determine which house a planet is in based on its longitude.
+
+        Args:
+            longitude: Sidereal longitude of the planet
+            houses: Dictionary of houses with their cusps
+
+        Returns:
+            House number (1-12)
+        """
+        # Convert to float if needed
+        longitude = float(longitude)
+
+        # Get house cusps
+        cusps = []
+        for i in range(1, 13):
+            cusps.append(float(houses[str(i)]["sidereal_longitude"]))
+
+        # Find the house
+        for i in range(12):
+            next_i = (i + 1) % 12
+            if cusps[next_i] < cusps[i]:  # Wrap around 0°
+                if longitude >= cusps[i] or longitude < cusps[next_i]:
+                    return i + 1
+            elif cusps[i] <= longitude < cusps[next_i]:
+                return i + 1
+
+        # Default to first house if not found
+        return 1
+
+    def _calculate_aspects(self, planets):
+        """
+        Calculate aspects between planets.
+
+        Args:
+            planets: Dictionary of planets with their positions
+
+        Returns:
+            List of aspects between planets
+        """
+        aspects = []
+
+        # Define major aspects and their orbs
+        aspect_definitions = [
+            {"name": "conjunction", "angle": 0, "orb": 8},
+            {"name": "opposition", "angle": 180, "orb": 8},
+            {"name": "trine", "angle": 120, "orb": 8},
+            {"name": "square", "angle": 90, "orb": 7},
+            {"name": "sextile", "angle": 60, "orb": 6},
+            {"name": "quincunx", "angle": 150, "orb": 5},
+            {"name": "semisextile", "angle": 30, "orb": 3}
+        ]
+
+        # Calculate aspects between all planet pairs
+        planet_names = list(planets.keys())
+        for i, planet1 in enumerate(planet_names):
+            for j, planet2 in enumerate(planet_names):
+                if i >= j:  # Skip self-aspects and duplicates
+                    continue
+
+                # Calculate angular difference
+                long1 = planets[planet1]["sidereal_longitude"]
+                long2 = planets[planet2]["sidereal_longitude"]
+
+                diff = abs(long1 - long2)
+                if diff > 180:
+                    diff = 360 - diff
+
+                # Check for aspects
+                for aspect in aspect_definitions:
+                    if abs(diff - aspect["angle"]) <= aspect["orb"]:
+                        aspects.append({
+                            "planet1": planet1,
+                            "planet2": planet2,
+                            "type": aspect["name"],
+                            "angle": aspect["angle"],
+                            "orb": abs(diff - aspect["angle"]),
+                            "applying": self._is_applying(planets[planet1], planets[planet2], aspect["angle"])
+                        })
+                        break
+
+        return aspects
+
+    def _is_applying(self, planet1, planet2, aspect_angle):
+        """
+        Determine if an aspect is applying (getting closer) or separating.
+
+        Args:
+            planet1: First planet data
+            planet2: Second planet data
+            aspect_angle: The aspect angle
+
+        Returns:
+            True if the aspect is applying, False if separating
+        """
+        # Using relative speeds to determine if planets are moving toward or away from aspect
+        speed1 = planet1.get("speed", 0)
+        speed2 = planet2.get("speed", 0)
+
+        # Simple estimation based on relative speeds
+        # This is a simplified approach, more accurate calculations would consider
+        # the actual orbital paths and whether planets are retrograde
+        return (speed1 - speed2) < 0
 
     async def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get a chart by ID.
+        Get a chart by ID from the database.
 
         Args:
             chart_id: The ID of the chart to retrieve
@@ -640,12 +955,90 @@ class ChartService:
         Returns:
             Chart data or None if not found
         """
-        # Get chart from repository
-        from ai_service.database.repositories import ChartRepository
-        chart_repository = ChartRepository()
-        chart_data = await chart_repository.get_chart(chart_id)
+        if not self._initialized:
+            await self.initialize()
 
-        return chart_data
+        try:
+            logger.info(f"Retrieving chart {chart_id} from database")
+
+            # Import database connection utilities
+            from ai_service.database.connection import get_db_pool
+
+            # Get database connection pool
+            pool = await get_db_pool()
+            if not pool:
+                logger.error("Database connection pool not available")
+                raise RuntimeError("Database connection unavailable")
+
+            # Query the chart from the database
+            async with pool.acquire() as conn:
+                # Select chart data from the database
+                query = """
+                    SELECT chart_data, created_at, updated_at
+                    FROM charts
+                    WHERE chart_id = $1
+                """
+
+                row = await conn.fetchrow(query, chart_id)
+
+                if not row:
+                    logger.warning(f"Chart {chart_id} not found in database")
+                    return None
+
+                # Extract chart data from JSON
+                try:
+                    chart_data = json.loads(row['chart_data']) if isinstance(row['chart_data'], str) else row['chart_data']
+
+                    # Add timestamps if not in the data
+                    if 'created_at' not in chart_data and row['created_at']:
+                        chart_data['created_at'] = row['created_at'].isoformat()
+                    if 'updated_at' not in chart_data and row['updated_at']:
+                        chart_data['updated_at'] = row['updated_at'].isoformat()
+
+                    logger.info(f"Successfully retrieved chart {chart_id}")
+                    return chart_data
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error parsing chart data for {chart_id}: {e}")
+                    raise ValueError(f"Invalid chart data format: {e}")
+
+        except Exception as e:
+            logger.error(f"Error retrieving chart {chart_id}: {e}")
+
+            # Check if this is a connection error or other database error
+            if "connection" in str(e).lower() or "pool" in str(e).lower():
+                # Fall back to file-based storage if database is unavailable
+                return await self._get_chart_from_file(chart_id)
+
+            return None
+
+    async def _get_chart_from_file(self, chart_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fallback method to get a chart from file storage.
+
+        Args:
+            chart_id: The ID of the chart to retrieve
+
+        Returns:
+            Chart data or None if not found
+        """
+        try:
+            # Check if chart file exists
+            chart_file = os.path.join(self.chart_output_dir, f"{chart_id}.json")
+
+            if not os.path.exists(chart_file):
+                logger.warning(f"Chart file {chart_file} not found")
+                return None
+
+            # Read chart data from file
+            with open(chart_file, 'r') as f:
+                chart_data = json.load(f)
+
+            logger.info(f"Retrieved chart {chart_id} from file storage")
+            return chart_data
+
+        except Exception as e:
+            logger.error(f"Error retrieving chart from file {chart_id}: {e}")
+            return None
 
     async def compare_charts(self, charts: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

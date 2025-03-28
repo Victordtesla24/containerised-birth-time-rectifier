@@ -14,6 +14,37 @@ logger = logging.getLogger(__name__)
 # Create a singleton instance
 _openai_service_instance = None
 
+def get_api_key() -> str:
+    """
+    Get the OpenAI API key from environment variables with fallback to .env file.
+
+    Returns:
+        str: The OpenAI API key
+
+    Raises:
+        ValueError: If the API key is not found
+    """
+    # Get API key from environment
+    api_key = os.environ.get("OPENAI_API_KEY")
+
+    # If not found in environment, try to load from .env file
+    if not api_key:
+        try:
+            from ai_service.utils.env_loader import load_env_file
+            env_vars = load_env_file()
+            api_key = env_vars.get("OPENAI_API_KEY")
+            if api_key:
+                logger.info("OpenAI API key loaded from .env file")
+        except Exception as e:
+            logger.warning(f"Failed to load .env file: {e}")
+
+    # Check if API key was found
+    if not api_key:
+        logger.error("OPENAI_API_KEY not found in environment or .env file")
+        raise ValueError("OPENAI_API_key is required but was not found in environment variables or .env file")
+
+    return api_key
+
 async def get_openai_service():
     """
     Get a singleton instance of the OpenAIService asynchronously.
@@ -35,9 +66,10 @@ async def get_openai_service():
         from ai_service.api.services.openai.service import OpenAIService
 
         # Get API key from environment
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            logger.warning("OPENAI_API_KEY environment variable is not set. OpenAI features will be disabled.")
+        try:
+            api_key = get_api_key()
+        except ValueError as e:
+            logger.warning(f"OpenAI API key not available: {e}")
             return None
 
         # Create a new service instance
@@ -96,4 +128,4 @@ def __getattr__(name):
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
-__all__ = ['OpenAIService', 'get_openai_service']
+__all__ = ['OpenAIService', 'get_openai_service', 'get_api_key']

@@ -17,7 +17,7 @@ from ai_service.models.chart_comparison import (
     ChartDifference, DifferenceType, PlanetaryPosition,
     AspectData, ChartComparisonResponse
 )
-from ai_service.api.routers.consolidated_chart.utils import retrieve_chart
+from ai_service.services.chart_utils import retrieve_chart
 from ai_service.utils.chart_visualizer import generate_comparison_chart
 
 # Setup logging

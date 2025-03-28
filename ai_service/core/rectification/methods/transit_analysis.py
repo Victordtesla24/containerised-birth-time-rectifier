@@ -25,6 +25,7 @@ try:
 except ImportError:
     PYTZ_AVAILABLE = False
 
+# Change relative import to absolute import
 from ai_service.core.rectification.methods.astrological_constants import DSC, IC, MC
 
 from ai_service.core.rectification.utils.ephemeris import (
@@ -521,7 +522,7 @@ async def get_detailed_transit_analysis(
     Returns:
         Dictionary with transit analysis for each event
     """
-    from ..chart_calculator import calculate_chart
+    from ai_service.core.rectification.chart_calculator import calculate_chart
 
     analysis = {
         "events": [],

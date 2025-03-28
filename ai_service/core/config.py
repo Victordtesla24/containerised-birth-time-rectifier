@@ -33,10 +33,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # Redis settings
-    REDIS_HOST: str = os.getenv("REDIS_HOST", "redis")  # Default to service name in docker-compose
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")  # Default to localhost for testing
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
-    REDIS_URL: str = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
+    USE_REDIS: bool = os.getenv("USE_REDIS", "false").lower() in ["true", "1", "t"]
+
+    # If REDIS_URL is not explicitly provided, construct it from components
+    if not REDIS_URL and USE_REDIS:
+        REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
 
     # Database settings
     DB_HOST: str = os.getenv("DB_HOST", "postgres")  # Default to service name in docker-compose
@@ -75,7 +80,7 @@ class Settings(BaseSettings):
     DEFAULT_AYANAMSA: float = float(os.getenv("DEFAULT_AYANAMSA", "23.6647"))
 
     @validator("GPU_MEMORY_FRACTION", pre=True, allow_reuse=True)
-    def parse_gpu_memory_fraction(cls, v, values):
+    def parse_gpu_memory_fraction(cls, v, values):  # pylint: disable=E0213
         """Parse GPU memory fraction with comment handling"""
         if v is not None:
             return v
@@ -91,7 +96,7 @@ class Settings(BaseSettings):
         return float(raw_value)
 
     @validator("DATABASE_URL", pre=True)
-    def assemble_db_url(cls, v: Optional[str], values) -> str:
+    def assemble_db_url(cls, v: Optional[str], values) -> str:  # pylint: disable=E0213
         if v and len(v) > 0:
             return v
 

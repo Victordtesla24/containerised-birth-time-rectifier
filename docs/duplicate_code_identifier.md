@@ -16,6 +16,7 @@ The following duplication issues have been addressed:
    - Fixed typing issues in WebSocket event emission
    - Removed the duplicate websocket_events module in the API service
    - Added all necessary event types to the shared EventType enum
+   - Removed the outdated `/api_gateway/websocket_events.old.py` file
 
 3. **Chart Services**:
    - Implemented a proper delegation pattern for the API service's chart service
@@ -52,3 +53,4 @@ The major improvements include:
 - Centralized error handling system
 - Common validation models
 - Canonical implementations used throughout
+- Removal of outdated duplicate files

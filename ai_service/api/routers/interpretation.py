@@ -13,7 +13,7 @@ import json
 from datetime import datetime
 
 # Import utilities and models
-from ai_service.api.routers.consolidated_chart.utils import retrieve_chart
+from ai_service.services.chart_utils import retrieve_chart
 
 # Configure logging
 logger = logging.getLogger(__name__)

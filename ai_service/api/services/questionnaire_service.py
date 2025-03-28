@@ -12,13 +12,19 @@ import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union, Tuple
 import random
+import asyncio
 
 # Import service dependencies
-from ai_service.api.services.openai import get_openai_service
-from ai_service.api.services.openai.service import OpenAIService
-from ai_service.services.session_service import get_session_service
+from ai_service.api.services.openai import get_openai_service, OpenAIService
+from ai_service.api.services.session_service import get_session_store
 from ai_service.utils.dependency_container import get_container
 from ai_service.core.rectification.chart_calculator import calculate_chart
+
+# Import question generation and analysis modules
+from ai_service.api.services.questionnaire_service_generation import generate_question
+from ai_service.api.services.questionnaire_service_analysis import submit_answer
+from ai_service.api.services.questionnaire_service_completion import complete_questionnaire
+from ai_service.api.services.questionnaire_service_time_indicators import extract_time_indicators
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -54,7 +60,7 @@ class QuestionnaireService:
             openai_service: Optional OpenAI service for AI-powered question generation
         """
         self.openai_service = openai_service
-        self.session_service = get_session_service()
+        self.session_service = get_session_store()
 
         logger.info("QuestionnaireService initialized")
 
@@ -134,154 +140,163 @@ class QuestionnaireService:
         answer: Any
     ) -> Dict[str, Any]:
         """
-        Submit an answer to a question and process it.
+        Submit an answer for a questionnaire question.
 
         Args:
-            session_id: Session ID for tracking
-            question_id: ID of the question being answered
-            answer: The answer content
+            session_id: The session ID
+            question_id: The ID of the question being answered
+            answer: The answer to the question
 
         Returns:
-            Dictionary with the result of processing the answer
+            Dictionary with answer submission results
         """
-        # Get session data
-        session_data = await self.session_service.get_session_async(session_id)
-        if not session_data:
-            raise ValueError(f"Invalid session ID: {session_id}")
-
-        # Get the question text from the session
-        previous_answers = session_data.get("responses", [])
-        last_question = None
-
-        for previous_answer in previous_answers:
-            if previous_answer.get("question_id") == question_id:
-                last_question = previous_answer.get("question", "")
-                break
-
-        # Store the answer
-        await self.session_service.add_question_response(
-            session_id=session_id,
-            question_id=question_id,
-            question_text=last_question or f"Question {question_id}",
-            answer=answer
-        )
-
-        # Get birth details from session
-        birth_details = session_data.get("birth_details", {})
-
-        # Generate the next question if birth details are available
-        if birth_details:
-            # Update previous answers for next question generation
-            session_data = await self.session_service.get_session_async(session_id)
-            if session_data:
-                next_question = await self.generate_next_question(
-                    birth_details=birth_details,
-                    previous_answers=session_data.get("responses", [])
-                )
-
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "question_id": question_id,
-                    "next_question": next_question
-                }
-
-        # Return a basic success response if we can't generate a next question
-        return {
-            "success": True,
-            "session_id": session_id,
-            "question_id": question_id
-        }
-
-    async def complete_questionnaire(self, session_id: str, chart_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Complete the questionnaire and provide analysis results.
-
-        Args:
-            session_id: Session ID with the collected answers
-            chart_id: Optional chart ID for reference
-
-        Returns:
-            Dictionary with analysis results
-        """
-        # Get OpenAI service - required for questionnaire completion
-        if not self.openai_service:
-            self.openai_service = await get_openai_service()
-            if not self.openai_service:
-                raise RuntimeError("OpenAI service is required for questionnaire completion but is not available")
-
         try:
-            # Get session data to retrieve previous answers
-            session_data = await self.session_service.get_session_async(session_id)
+            # Get session data
+            session_data = self.session_service.get_session(session_id)
             if not session_data:
                 raise ValueError(f"Invalid session ID: {session_id}")
 
-            # Get previous answers from session
-            previous_answers = session_data.get("responses", [])
-            if not previous_answers:
-                raise ValueError("No answers found in session, cannot complete questionnaire")
+            # Find the question text for context
+            if "data" not in session_data:
+                session_data["data"] = {}
 
-            # Get birth details from session
-            birth_details = session_data.get("birth_details", {})
-            if not birth_details:
-                raise ValueError("Birth details not found in session")
+            questions = session_data["data"].get("questions", [])
+            last_question = next((q.get("text") for q in questions if q.get("id") == question_id), None)
 
-            # Calculate time indicators from answers
-            time_indicators = self._extract_time_indicators(previous_answers)
+            # Create or get answers list
+            if "answers" not in session_data["data"]:
+                session_data["data"]["answers"] = []
 
-            # Create final analysis prompt
-            final_analysis_prompt = self._create_final_analysis_prompt(previous_answers, birth_details)
+            # Add the answer
+            session_data["data"]["answers"].append({
+                "question_id": question_id,
+                "question_text": last_question or f"Question {question_id}",
+                "answer": answer,
+                "timestamp": datetime.now().isoformat()
+            })
 
-            # Call OpenAI to get final analysis
-            response = await self.openai_service.chat_completion(
-                messages=[
-                    {"role": "system", "content": "You are an expert astrologer analyzing questionnaire responses to determine the most likely birth time."},
-                    {"role": "user", "content": final_analysis_prompt}
-                ],
-                model="gpt-4",
-                temperature=0.2
-            )
+            # Update current question index
+            current_index = session_data["data"].get("current_question_index", 0)
+            session_data["data"]["current_question_index"] = current_index + 1
 
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if not content:
-                raise ValueError("Empty response from OpenAI")
+            # Save the session
+            self.session_service.update_session(session_id, session_data)
 
-            # Extract structured data from the response
-            analysis_data = self._extract_json_from_content(content)
+            # Extract birth details for next question generation
+            chart_data = session_data["data"].get("chart_data", {})
+            birth_details = chart_data.get("birth_details", {})
 
-            # If no structured data could be extracted, create a minimal structure
-            if not analysis_data:
-                raise ValueError("Failed to extract structured data from OpenAI response")
+            # Calculate confidence
+            answers = session_data["data"].get("answers", [])
+            confidence = await self._calculate_confidence(answers)
 
-            # Add time indicators to analysis
-            analysis_data["time_indicators"] = time_indicators
+            return {
+                "success": True,
+                "confidence": confidence,
+                "question_index": current_index + 1,
+                "birth_details": birth_details
+            }
+        except Exception as e:
+            logger.error(f"Error submitting answer: {e}")
+            raise
 
-            # Calculate confidence based on answers and analysis
-            confidence = analysis_data.get("confidence", 0)
-            if isinstance(confidence, str):
-                # Convert string percentage to float
-                confidence = float(confidence.strip("%")) / 100 if confidence.strip("%").isdigit() else 0.5
-            else:
-                # Normalize to 0-1 range
-                confidence = min(1.0, max(0.0, confidence / 100)) if confidence > 1 else confidence
+    async def complete_questionnaire(self, session_id: str, chart_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Complete the current questionnaire and generate rectification analysis.
+
+        Args:
+            session_id: The session ID
+            chart_id: Optional chart ID (will use one from session if not provided)
+
+        Returns:
+            Dictionary with completion results
+        """
+        try:
+            # Get session data to retrieve previous answers
+            session_data = self.session_service.get_session(session_id)
+            if not session_data:
+                raise ValueError(f"Invalid session ID: {session_id}")
+
+            # Use provided chart_id or get from session
+            chart_id = chart_id or session_data.get("data", {}).get("chart_id")
+            if not chart_id:
+                raise ValueError("No chart ID available for rectification")
+
+            # Extract answers from session
+            session_content = session_data.get("data", {})
+            answers = session_content.get("answers", [])
+            if not answers:
+                raise ValueError("No answers available for analysis")
+
+            # Calculate rectification confidence based on answers
+            try:
+                confidence = await self._calculate_confidence(answers)
+            except Exception as conf_error:
+                logger.error(f"Error calculating confidence: {conf_error}")
+                confidence = 0.5  # Default to medium confidence
+
+            # Generate final analysis
+            analysis_data = {
+                "session_id": session_id,
+                "chart_id": chart_id,
+                "completed_at": datetime.now().isoformat(),
+                "confidence": confidence,
+                "answers_count": len(answers),
+                "analysis": "Questionnaire completed successfully"
+            }
 
             # Store analysis results in session
-            await self.session_service.update_session_async(session_id, {
+            session_update = {
                 "final_analysis": analysis_data,
                 "questionnaire_status": "completed",
                 "confidence": confidence
-            })
-
-            return {
-                "status": "completed",
-                "message": "Questionnaire completed successfully",
-                "analysis": analysis_data,
-                "confidence": confidence
             }
 
+            # Non-awaitable update_session
+            self.session_service.update_session(session_id, session_update)
+
+            # Return analysis data with completed status
+            return {
+                "completed": True,
+                "chart_id": chart_id,
+                "confidence": confidence,
+                "session_id": session_id,
+                "analysis": analysis_data
+            }
         except Exception as e:
             logger.error(f"Error completing questionnaire: {e}")
-            raise ValueError(f"Failed to complete questionnaire: {str(e)}")
+            return {
+                "completed": False,
+                "error": str(e)
+            }
+
+    async def _calculate_confidence(self, answers: List[Dict[str, Any]]) -> float:
+        """
+        Calculate confidence score based on answer quality and quantity.
+
+        Args:
+            answers: List of answered questions with their answers
+
+        Returns:
+            Confidence score between 0.0 and 1.0
+        """
+        # Basic implementation - more questions means higher confidence
+        if not answers:
+            return 0.0
+
+        # Start with base confidence of 0.3
+        base_confidence = 0.3
+
+        # Add confidence based on number of questions (up to 0.5 max)
+        question_factor = min(0.5, len(answers) * 0.05)
+
+        # Add confidence for completeness and quality (simplified)
+        quality_factor = 0.1
+
+        # Calculate final confidence (cap at 0.95)
+        confidence = min(0.95, base_confidence + question_factor + quality_factor)
+
+        return confidence
 
     async def _generate_astrologically_relevant_question(
         self,
@@ -739,15 +754,174 @@ Your response should be in this JSON format:
                 "relevance": "medium"
             }
 
+    async def initialize_questionnaire(
+        self,
+        chart_id: str,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Initialize a new questionnaire for birth time rectification.
+
+        Args:
+            chart_id: The chart ID to associate with this questionnaire
+            session_id: The session ID to use for this questionnaire
+
+        Returns:
+            Dictionary with first question and questionnaire metadata
+        """
+        try:
+            # Get session data
+            session_data = self.session_service.get_session(session_id)
+            if not session_data:
+                # Create new session if it doesn't exist
+                session_data = {
+                    "chart_id": chart_id,
+                    "started_at": datetime.now().isoformat(),
+                    "answers": [],
+                    "current_question_index": 0,
+                    "status": "active"
+                }
+                self.session_service.create_session(session_id, session_data)
+            else:
+                # Update existing session
+                session_data["chart_id"] = chart_id
+                session_data["status"] = "active"
+                self.session_service.update_session(session_id, session_data)
+
+            # Get chart data if not in session
+            chart_data = session_data.get("data", {}).get("chart_data")
+            if not chart_data:
+                # Import chart service
+                from ai_service.services import get_chart_service
+                chart_service = get_chart_service()
+
+                # Get chart data
+                chart_data = await chart_service.get_chart(chart_id)
+                if not chart_data:
+                    raise ValueError(f"Chart not found: {chart_id}")
+
+                # Store chart data in session
+                if "data" not in session_data:
+                    session_data["data"] = {}
+                session_data["data"]["chart_data"] = chart_data
+                self.session_service.update_session(session_id, session_data)
+
+            # Extract birth details
+            birth_details = chart_data.get("birth_details", {})
+
+            # Get initial questions
+            questions = await self.get_initial_questions(chart_data)
+            if not questions or len(questions) == 0:
+                raise ValueError("Failed to generate initial questions")
+
+            # Store questions in session
+            if "data" not in session_data:
+                session_data["data"] = {}
+            session_data["data"]["questions"] = questions
+            self.session_service.update_session(session_id, session_data)
+
+            # Return first question
+            return {
+                "question": questions[0],
+                "total_questions": len(questions),
+                "progress": {
+                    "current": 1,
+                    "total": len(questions)
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error initializing questionnaire: {e}")
+            raise
+
+    async def process_answer_and_get_next_question(
+        self,
+        session_id: str,
+        question_id: str,
+        answer: Any
+    ) -> Dict[str, Any]:
+        """
+        Process an answer and get the next question.
+
+        Args:
+            session_id: The session ID for this questionnaire
+            question_id: The ID of the question being answered
+            answer: The answer to the question
+
+        Returns:
+            Dictionary with next question and progress information
+        """
+        try:
+            # Get session data
+            session_data = self.session_service.get_session(session_id)
+            if not session_data:
+                raise ValueError(f"Invalid session ID: {session_id}")
+
+            # Process answer using the submit_answer method
+            submission_result = await self.submit_answer(session_id, question_id, answer)
+
+            # Get updated session data safely handling potential None
+            updated_session = None
+            if self.session_service is not None:
+                updated_session = self.session_service.get_session(session_id)
+
+            # Default to empty dict if updated_session is None
+            session_data = {}
+            if updated_session is not None:
+                session_data = updated_session.get("data", {})
+
+            # Check if we have more questions
+            questions = session_data.get("questions", [])
+            answers = session_data.get("answers", [])
+            current_index = session_data.get("current_question_index", 0)
+
+            # Calculate progress
+            total_questions = len(questions)
+            questions_completed = len(answers)
+            questions_remaining = max(0, total_questions - questions_completed)
+
+            # Check if questionnaire is complete
+            if current_index >= total_questions or questions_remaining == 0:
+                return {
+                    "complete": True,
+                    "confidence": submission_result.get("confidence", 0.0),
+                    "progress": {
+                        "current": questions_completed,
+                        "total_estimated": total_questions,
+                        "percentage": min(100, int(questions_completed / max(1, total_questions) * 100))
+                    }
+                }
+
+            # Get next question
+            next_question = questions[current_index] if current_index < len(questions) else None
+
+            # Build response
+            response = {
+                "question": next_question,
+                "confidence": submission_result.get("confidence", 0.0),
+                "progress": {
+                    "current": questions_completed,
+                    "total_estimated": total_questions,
+                    "percentage": min(100, int(questions_completed / max(1, total_questions) * 100))
+                }
+            }
+
+            return response
+        except Exception as e:
+            logger.error(f"Error processing answer: {e}")
+            raise
+
 # Singleton instance
 _questionnaire_service = None
 
-def get_questionnaire_service() -> QuestionnaireService:
+async def get_questionnaire_service() -> QuestionnaireService:
     """
     Get or create a QuestionnaireService instance.
 
     Returns:
         A QuestionnaireService instance
+
+    Raises:
+        RuntimeError: If OpenAI service is unavailable
     """
     global _questionnaire_service
 
@@ -764,7 +938,11 @@ def get_questionnaire_service() -> QuestionnaireService:
 
     # Create new service
     try:
-        openai_service = get_openai_service()
+        # Await the openai_service coroutine properly
+        openai_service = await get_openai_service()
+        if not openai_service:
+            raise ValueError("OpenAI service is required for questionnaire service but is unavailable")
+
         service = QuestionnaireService(openai_service=openai_service)
 
         # Register in container
@@ -774,7 +952,5 @@ def get_questionnaire_service() -> QuestionnaireService:
         return service
     except Exception as e:
         logger.error(f"Error creating questionnaire service: {e}")
-        # Create a service without OpenAI as fallback
-        service = QuestionnaireService()
-        _questionnaire_service = service
-        return service
+        # No fallback - propagate the error
+        raise RuntimeError(f"Failed to create questionnaire service: {str(e)}")

@@ -33,7 +33,24 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Constants for planetary bodies
-if SWISSEPH_AVAILABLE:
+# Define constants directly rather than accessing them from swe when unavailable
+SUN = 0
+MOON = 1
+MERCURY = 2
+VENUS = 3
+MARS = 4
+JUPITER = 5
+SATURN = 6
+URANUS = 7
+NEPTUNE = 8
+PLUTO = 9
+MEAN_NODE = 10
+MEAN_APOG = 11
+SIDM_LAHIRI = 1
+FLG_SIDEREAL = 1
+
+# Override with actual values if SwissEph is available
+if SWISSEPH_AVAILABLE and swe is not None:
     SUN = swe.SUN
     MOON = swe.MOON
     MERCURY = swe.MERCURY
@@ -48,22 +65,6 @@ if SWISSEPH_AVAILABLE:
     MEAN_APOG = swe.MEAN_APOG
     SIDM_LAHIRI = swe.SIDM_LAHIRI
     FLG_SIDEREAL = swe.FLG_SIDEREAL
-else:
-    # Define constants directly rather than accessing them from swe
-    SUN = 0
-    MOON = 1
-    MERCURY = 2
-    VENUS = 3
-    MARS = 4
-    JUPITER = 5
-    SATURN = 6
-    URANUS = 7
-    NEPTUNE = 8
-    PLUTO = 9
-    MEAN_NODE = 10
-    MEAN_APOG = 11
-    SIDM_LAHIRI = 1
-    FLG_SIDEREAL = 1
 
 # Zodiac signs in traditional Vedic order
 ZODIAC_SIGNS = [
@@ -149,12 +150,12 @@ def initialize_ephemeris(path: Optional[str] = None) -> None:
     Raises:
         RuntimeError: If Swiss Ephemeris is not available
     """
-    if not SWISSEPH_AVAILABLE:
+    if not SWISSEPH_AVAILABLE or swe is None:
         error_msg = "Swiss Ephemeris not available. Cannot initialize ephemeris."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
-    if path:
+    if path and swe is not None:
         swe.set_ephe_path(path)
     logger.info(f"Swiss Ephemeris initialized successfully")
 
@@ -173,7 +174,7 @@ def calculate_houses_positions(birth_dt: datetime, lat: float, lon: float) -> Di
     Raises:
         RuntimeError: If Swiss Ephemeris is not available
     """
-    if not SWISSEPH_AVAILABLE:
+    if not SWISSEPH_AVAILABLE or swe is None:
         error_msg = "Swiss Ephemeris not available. Cannot calculate house positions."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
@@ -202,7 +203,7 @@ def calculate_houses_positions(birth_dt: datetime, lat: float, lon: float) -> Di
 
 def calculate_ascendant(birth_dt: datetime, lat: float, lon: float) -> float:
     """
-    Calculate ascendant using Swiss Ephemeris.
+    Calculate the ascendant (rising sign) degree.
 
     Args:
         birth_dt: Birth datetime
@@ -210,12 +211,12 @@ def calculate_ascendant(birth_dt: datetime, lat: float, lon: float) -> float:
         lon: Longitude in decimal degrees
 
     Returns:
-        Ascendant longitude in degrees
+        Ascendant degree in 0-360 range
 
     Raises:
         RuntimeError: If Swiss Ephemeris is not available
     """
-    if not SWISSEPH_AVAILABLE:
+    if not SWISSEPH_AVAILABLE or swe is None:
         error_msg = "Swiss Ephemeris not available. Cannot calculate ascendant."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
@@ -255,7 +256,7 @@ def calculate_vedic_chart(
     Raises:
         RuntimeError: If Swiss Ephemeris is not available or calculation fails
     """
-    if not SWISSEPH_AVAILABLE:
+    if not SWISSEPH_AVAILABLE or swe is None:
         error_msg = "Swiss Ephemeris not available. Cannot calculate Vedic chart."
         logger.error(error_msg)
         raise RuntimeError(error_msg)
@@ -702,14 +703,25 @@ def calculate_shadbala(planet_name: str, chart_data: Dict[str, Any]) -> Dict[str
 
 def get_ayanamsha_value(birth_dt: datetime) -> float:
     """
-    Get the ayanamsha value for a given date.
+    Get ayanamsha value for a specific date.
 
     Args:
         birth_dt: Birth datetime
 
     Returns:
         Ayanamsha value in degrees
+
+    Raises:
+        RuntimeError: If Swiss Ephemeris is not available
     """
+    if not SWISSEPH_AVAILABLE or swe is None:
+        error_msg = "Swiss Ephemeris not available. Cannot calculate ayanamsha."
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Set sidereal mode to Lahiri
+    swe.set_sid_mode(SIDM_LAHIRI)
+
     # Convert datetime to Julian day
     jd = swe.julday(
         birth_dt.year,
@@ -718,11 +730,9 @@ def get_ayanamsha_value(birth_dt: datetime) -> float:
         birth_dt.hour + birth_dt.minute/60.0 + birth_dt.second/3600.0
     )
 
-    # Set Lahiri ayanamsa
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
-
-    # Get ayanamsa value
-    return swe.get_ayanamsa(jd)
+    # Get ayanamsha value
+    ayanamsha = swe.get_ayanamsa(jd)
+    return ayanamsha
 
 def verify_vedic_coordinates(chart_data: Dict[str, Any], ayanamsha: float) -> Dict[str, Any]:
     """

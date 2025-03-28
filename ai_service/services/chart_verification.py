@@ -58,117 +58,87 @@ class ChartVerificationService:
     async def verify_chart(self, chart_data: Dict[str, Any], session_id: Optional[str] = None,
                          verify_with_openai: bool = True, send_websocket_updates: bool = False) -> Dict[str, Any]:
         """
-        Verify an astrological chart for accuracy.
-
-        This method combines multiple verification approaches:
-        1. Direct astrological calculation verification
-        2. OpenAI-based verification (if enabled and available)
+        Verify a chart using multiple methods.
 
         Args:
             chart_data: Chart data to verify
             session_id: Optional session ID for WebSocket updates
-            verify_with_openai: Whether to use OpenAI for verification
+            verify_with_openai: Whether to verify with OpenAI
             send_websocket_updates: Whether to send WebSocket updates
 
         Returns:
-            Verification results
-
-        Raises:
-            ValueError: If chart data is incomplete or improperly formatted
-            RuntimeError: If verification process fails critically
+            Verification result
         """
         start_time = datetime.now()
-        logger.info("Starting chart verification")
+        chart_id = chart_data.get("chart_id", str(uuid.uuid4()))
 
+        # Initialize results
+        calculation_result = {}
+        openai_result = {}
+
+        # Send initial status update
+        if send_websocket_updates and session_id:
+            await self._send_verification_status(session_id, "verification_started",
+                                              "Verification started", 0.1)
+
+        # Step 1: Verify calculations
         try:
-            # Extract chart ID
-            chart_id = chart_data.get("chart_id", f"chart_{uuid.uuid4().hex[:8]}")
+            calculation_result = await self._verify_calculations(chart_data)
 
-            # Ensure chart data is valid
-            if not isinstance(chart_data, dict):
-                raise ValueError("Chart data must be a dictionary")
-
-            # Send initial WebSocket update
+            # Send progress update
             if send_websocket_updates and session_id:
-                await self._send_verification_status(session_id, "verification_started",
-                                                  "Chart verification started", 0.1)
+                await self._send_verification_status(session_id, "calculations_verified",
+                                                  "Calculations verified", 0.4)
+        except Exception as calculation_error:
+            logger.error(f"Error during calculation verification: {calculation_error}")
+            logger.error(traceback.format_exc())
 
-            # Step 1: Direct calculation verification
-            birth_details = chart_data.get("birth_details", {})
-            if not birth_details:
-                logger.warning(f"Chart {chart_id} is missing birth details, verification may be limited")
+            # Propagate the error - no fallback to continue
+            raise RuntimeError(f"Calculation verification failed: {str(calculation_error)}")
 
-            # Verify the chart using direct calculations
+        # Step 2: Verify with OpenAI if requested
+        if verify_with_openai:
             try:
-                calculation_result = await self._verify_chart_calculations(chart_data)
+                openai_result = await self._verify_chart_with_openai(chart_data)
 
                 # Send progress update
                 if send_websocket_updates and session_id:
-                    await self._send_verification_status(session_id, "calculations_completed",
-                                                      "Direct astrological calculations completed", 0.5)
-            except Exception as calc_error:
-                logger.error(f"Error during direct calculation verification: {calc_error}")
+                    await self._send_verification_status(session_id, "openai_verification_completed",
+                                                      "AI verification completed", 0.8)
+            except Exception as openai_error:
+                logger.error(f"Error during OpenAI verification: {openai_error}")
                 logger.error(traceback.format_exc())
 
                 # Propagate the error, no fallback
-                raise RuntimeError(f"Calculation verification failed: {str(calc_error)}")
+                raise RuntimeError(f"OpenAI verification failed: {str(openai_error)}")
 
-            # Step 2: OpenAI verification if enabled
-            openai_result = {}
-            if verify_with_openai:
-                try:
-                    openai_result = await self._verify_chart_with_openai(chart_data)
+        # Step 3: Combine the results
+        combined_result = self._combine_verification_results(calculation_result, openai_result)
 
-                    # Send progress update
-                    if send_websocket_updates and session_id:
-                        await self._send_verification_status(session_id, "openai_verification_completed",
-                                                          "AI verification completed", 0.8)
-                except Exception as openai_error:
-                    logger.error(f"Error during OpenAI verification: {openai_error}")
-                    logger.error(traceback.format_exc())
+        # Apply any corrections to the chart data if needed
+        if combined_result.get("corrections_applied", False):
+            try:
+                corrected_chart = await self._apply_corrections(chart_data, combined_result)
+                combined_result["corrected_chart"] = corrected_chart
+            except Exception as correction_error:
+                logger.error(f"Error applying corrections: {correction_error}")
+                raise RuntimeError(f"Error applying corrections: {str(correction_error)}")
 
-                    # Propagate the error, no fallback
-                    raise RuntimeError(f"OpenAI verification failed: {str(openai_error)}")
+        # Add timing information
+        verification_time = (datetime.now() - start_time).total_seconds()
+        combined_result["verification_time_seconds"] = verification_time
+        combined_result["verified_at"] = datetime.now().isoformat()
+        combined_result["chart_id"] = chart_id
 
-            # Step 3: Combine the results
-            combined_result = self._combine_verification_results(calculation_result, openai_result)
+        # Send completion update
+        if send_websocket_updates and session_id:
+            status = "verification_successful" if combined_result.get("verified", False) else "verification_completed"
+            await self._send_verification_status(session_id, status,
+                                              "Verification completed", 1.0)
 
-            # Apply any corrections to the chart data if needed
-            if combined_result.get("corrections_applied", False):
-                try:
-                    corrected_chart = await self._apply_corrections(chart_data, combined_result)
-                    combined_result["corrected_chart"] = corrected_chart
-                except Exception as correction_error:
-                    logger.error(f"Error applying corrections: {correction_error}")
-                    raise RuntimeError(f"Error applying corrections: {str(correction_error)}")
+        return combined_result
 
-            # Add timing information
-            verification_time = (datetime.now() - start_time).total_seconds()
-            combined_result["verification_time_seconds"] = verification_time
-            combined_result["verified_at"] = datetime.now().isoformat()
-            combined_result["chart_id"] = chart_id
-
-            # Send final WebSocket update
-            if send_websocket_updates and session_id:
-                await self._send_verification_status(session_id, "verification_completed",
-                                                  combined_result.get("message", "Verification completed"), 1.0)
-
-            logger.info(f"Chart verification completed in {verification_time:.2f} seconds with confidence: {combined_result.get('confidence', 0)}")
-            return combined_result
-
-        except Exception as e:
-            error_msg = f"Error verifying chart: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_msg)
-
-            # Send error WebSocket update
-            if send_websocket_updates and session_id:
-                await self._send_verification_status(session_id, "verification_error",
-                                                  f"Error during verification: {str(e)}", 0.0)
-
-            # Re-raise the exception
-            raise
-
-    async def _verify_chart_calculations(self, chart_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _verify_calculations(self, chart_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Verify chart calculations using direct astrological calculations.
 

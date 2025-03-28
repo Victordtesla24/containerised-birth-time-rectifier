@@ -1,21 +1,22 @@
 """
-Export Router
+Chart Export Router.
 
-This module provides endpoints for exporting charts and downloading exported files.
-This is separate from the chart-specific export endpoints to match the API structure
-expected by the test.
+This module provides endpoints for exporting astrological charts in various formats.
+Following the Unified API Gateway architecture and providing proper versioning.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Response
-from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional, Union
 import logging
+from typing import Dict, Any
+from fastapi import APIRouter, HTTPException, Body
+import traceback
+import os
+import base64
 import uuid
 from datetime import datetime
 
-# Import utilities and models
-from ai_service.api.routers.consolidated_chart.utils import retrieve_chart
-from ai_service.api.routers.consolidated_chart.consts import ERROR_CODES, EXPORT_FORMATS
+from ai_service.services import get_chart_service
+from ai_service.services.chart_utils import retrieve_chart
+from ai_service.services.chart_service_export import export_chart, get_content_type
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,112 +24,86 @@ logger = logging.getLogger(__name__)
 # Create router with appropriate tags
 router = APIRouter(
     tags=["export"],
-    responses={
-        500: {"description": "Internal server error"},
-        404: {"description": "Export not found"},
-        400: {"description": "Bad request - invalid parameters"}
-    }
+    responses={404: {"description": "Not found"}}
 )
 
-# Models for request/response
-class ExportRequest(BaseModel):
-    chart_id: str = Field(..., description="Chart ID to export", alias="chartId")
-    format: str = Field("pdf", description="Export format (pdf, png, svg, json)")
-    include_interpretation: bool = Field(False, description="Include interpretation data")
-    include_comparison: bool = Field(False, description="Include comparison data")
-
-    model_config = {
-        "populate_by_name": True,
-        "json_schema_extra": {
-            "example": {
-                "chart_id": "chrt_12345678",
-                "format": "pdf"
-            }
-        }
-    }
-
-class ExportResponse(BaseModel):
-    export_id: str
-    chart_id: str
-    status: str
-    download_url: str
-    expires_at: Optional[str] = None
-
-@router.post("", response_model=ExportResponse)
-async def export_chart(
-    request: ExportRequest
-):
+@router.post("", response_model=Dict[str, Any])
+async def export_chart_handler(
+    chart_id: str = Body(..., description="Chart ID to export"),
+    format: str = Body("json", description="Export format (json, pdf, png)"),
+    include_verification: bool = Body(False, description="Include verification data")
+) -> Dict[str, Any]:
     """
     Export a chart in the specified format.
 
-    This endpoint creates an export job for a chart and returns a download URL.
+    Args:
+        chart_id: Chart ID to export
+        format: Export format (json, pdf, png)
+        include_verification: Include verification data
+
+    Returns:
+        Exported chart data or file URL
     """
     try:
-        # Validate chart ID
-        chart_id = request.chart_id
-        chart_data = retrieve_chart(chart_id)
+        # Get chart service
+        chart_service = get_chart_service()
 
-        # Check if chart exists
+        # Get chart data
+        chart_data = await retrieve_chart(chart_id)
         if not chart_data:
+            raise HTTPException(status_code=404, detail=f"Chart not found: {chart_id}")
+
+        # Format should be lowercase
+        format = format.lower()
+        valid_formats = ["json", "pdf", "png"]
+
+        if format not in valid_formats:
             raise HTTPException(
-                status_code=404,
-                detail=f"Chart not found: {chart_id}"
+                status_code=400,
+                detail=f"Invalid format: {format}. Must be one of: {', '.join(valid_formats)}"
             )
 
-        # Log export request
-        logger.info(f"Creating export for chart: {chart_id} in format: {request.format}")
+        # Create a temporary directory for the export
+        export_id = f"export_{uuid.uuid4().hex[:8]}"
+        tmp_dir = os.path.join(os.environ.get("CHART_OUTPUT_DIR", "tmp"), export_id)
+        os.makedirs(tmp_dir, exist_ok=True)
 
-        # Generate export ID
-        export_id = f"exp_{uuid.uuid4().hex[:8]}"
-
-        # Create download URL
-        download_url = f"/api/v1/export/{export_id}/download?format={request.format}"
-
-        # Return export response
-        return ExportResponse(
-            export_id=export_id,
-            chart_id=chart_id,
-            status="processing",
-            download_url=download_url,
-            expires_at=(datetime.now().replace(microsecond=0).isoformat() + "Z")
+        # Export the chart
+        export_result = export_chart(
+            chart_data=chart_data,
+            chart_output_dir=tmp_dir,
+            formats=[format]
         )
 
+        # Get the exported file path
+        file_path = export_result.get(format)
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail=f"Export failed: No file generated")
+
+        # Read the file data
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+
+        # Encode file data as base64
+        encoded_data = base64.b64encode(file_data).decode("utf-8")
+        content_type = get_content_type(format)
+
+        # Format as a data URL
+        data_url = f"data:{content_type};base64,{encoded_data}"
+
+        # Create the response
+        response = {
+            "exportId": export_id,
+            "chartId": chart_id,
+            "format": format,
+            "fileData": data_url,
+            "exportedAt": datetime.now().isoformat()
+        }
+
+        return response
     except HTTPException:
-        # Pass through HTTP exceptions
         raise
     except Exception as e:
-        # Log the error
-        logger.error(f"Error creating export: {str(e)}", exc_info=True)
-
-        # Return standardized error response
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create export: {str(e)}"
-        )
-
-@router.get("/{export_id}/download")
-async def download_export(
-    export_id: str,
-    format: str = Query("pdf", description="Export format (pdf, png, svg, json)")
-):
-    """
-    Download an exported chart file.
-
-    This endpoint returns the binary data of an exported chart file.
-    """
-    try:
-        # Log download request
-        logger.info(f"Downloading export: {export_id} in format: {format}")
-
-    except HTTPException:
-        # Pass through HTTP exceptions
-        raise
-    except Exception as e:
-        # Log the error
-        logger.error(f"Error downloading export: {str(e)}", exc_info=True)
-
-        # Return standardized error response
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to download export: {str(e)}"
-        )
+        logger.error(f"Error exporting chart: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Chart export failed: {str(e)}")

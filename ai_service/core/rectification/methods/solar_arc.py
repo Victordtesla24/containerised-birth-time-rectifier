@@ -25,7 +25,7 @@ async def solar_arc_rectification(
     Returns:
         Tuple of (rectified_datetime, confidence_score)
     """
-    from ..chart_calculator import calculate_chart
+    from ai_service.core.rectification.chart_calculator import calculate_chart
 
     logger.info("Using solar arc directions for rectification")
 

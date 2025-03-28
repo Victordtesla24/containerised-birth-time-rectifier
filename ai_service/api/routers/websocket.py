@@ -1,40 +1,57 @@
 """
-WebSocket Router
+WebSocket router for real-time updates.
 
-This module provides WebSocket endpoints for real-time communication
-with clients, including progress updates during long-running processes.
+This module provides WebSocket endpoints for real-time updates during
+long-running processes like birth time rectification.
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, status
-from typing import Dict, Any, Optional, List
 import logging
-import asyncio
+from typing import Dict, Any, Optional, List
 import json
+import time
 from datetime import datetime
+import asyncio
+import traceback
 
-# Import the shared WebSocketManager and events
-from ai_service.utils.websocket_manager import get_websocket_manager
-from ai_service.utils.websocket_events import emit_event, EventType
-from ai_service.services.session_service import SessionService
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer
+from starlette.websockets import WebSocketState, WebSocket as StarletteWebSocket
+
+from ai_service.utils.websocket_manager import get_websocket_manager, WebSocketManager
+from ai_service.services.session_service import SessionService, get_session_service
+from ai_service.api.services.chart.service import get_chart_service
+from ai_service.utils.websocket_events import EventType
+from ai_service.api.dependencies.auth import verify_token as auth_verify_token
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Create router with appropriate tags
-router = APIRouter(
-    prefix="/ws",
-    tags=["websocket"],
-    responses={
-        500: {"description": "Internal server error"},
-        401: {"description": "Authentication failed"},
-        404: {"description": "Not found"}
-    }
-)
+# Setup router
+router = APIRouter(prefix="/ws", tags=["websocket"])
 
-# Get the session service instance
-async def get_session_service() -> SessionService:
-    """Get the session service instance."""
-    return SessionService()
+# OAuth2 scheme for token authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Global references to services
+_chart_service = None
+_websocket_manager = None
+
+# Active connections store
+active_connections: Dict[str, WebSocket] = {}
+
+async def get_session_service_async() -> SessionService:
+    """Get the session service for async contexts."""
+    # This is actually a synchronous call, but we wrap it
+    # in an async function for consistency in this file
+    return get_session_service()
+
+async def get_manager() -> WebSocketManager:
+    """Get the WebSocket manager singleton."""
+    global _websocket_manager
+    if _websocket_manager is None:
+        _websocket_manager = get_websocket_manager()
+    return _websocket_manager
 
 @router.websocket("/{session_id}")
 async def websocket_endpoint(
@@ -43,202 +60,268 @@ async def websocket_endpoint(
     token: Optional[str] = Query(None)
 ):
     """
-    WebSocket endpoint for real-time communication with clients.
+    WebSocket endpoint for real-time updates.
+
+    This endpoint follows the sequence diagram flow for WebSocket communication,
+    maintaining a connection that can receive progress updates for long-running
+    processes like birth time rectification.
 
     Args:
         websocket: The WebSocket connection
-        session_id: Session identifier
+        session_id: The session ID for authentication and association
         token: Optional authentication token
     """
     # Get the WebSocket manager
-    websocket_manager = get_websocket_manager()
-    session_service = await get_session_service()
+    manager = await get_manager()
 
-    # Authenticate the connection if token is provided
-    authenticated = token is not None
+    # Get the session service for authentication
+    session_service = await get_session_service_async()
+
+    # Validate session if token provided
+    if token:
+        try:
+            # Verify token
+            user_id = auth_verify_token(token)
+            if not user_id:
+                await websocket.close(code=4001, reason="Invalid authentication token")
+                return
+        except Exception as e:
+            logger.error(f"Error validating WebSocket token: {e}")
+            await websocket.close(code=4001, reason="Authentication error")
+            return
+
+    # Accept the connection
+    try:
+        await manager.connect(websocket, session_id)
+    except Exception as e:
+        logger.error(f"Error establishing WebSocket connection: {e}")
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.close(code=1011, reason="Internal server error")
+        return
 
     try:
-        # Accept the WebSocket connection
-        await websocket.accept()
-
-        # Send authentication status
+        # Initial status message upon connection
         await websocket.send_json({
-            "type": "authentication_status",
-            "data": {
-                "authenticated": authenticated,
-                "session_id": session_id
-            }
+            "type": "connection_established",
+            "session_id": session_id,
+            "timestamp": datetime.now().isoformat(),
+            "message": "WebSocket connection established"
         })
 
-        # Register the connection with the WebSocket manager
-        await websocket_manager.connect(websocket, session_id)
-
+        # Check if session exists
         try:
-            # Keep the connection alive by listening for messages
-            while True:
-                # Wait for a message from the client
-                data = await websocket.receive_text()
+            # Get the session service
+            session_service = get_session_service()
 
+            # Call get_session directly (it's a synchronous method)
+            session_data = session_service.get_session(session_id)
+
+            if not session_data:
+                # Create a new session
+                session_service.create_session(session_id=session_id)
+                logger.info(f"Created new session: {session_id}")
+        except Exception as e:
+            logger.error(f"Error working with session: {e}")
+            # Continue without session data
+
+        # Main message processing loop
+        while True:
+            # Wait for message from client
+            try:
+                data = await websocket.receive_json()
+            except json.JSONDecodeError:
                 try:
-                    # Parse the message
-                    message = json.loads(data)
+                    text_data = await websocket.receive_text()
+                    # Try to parse as JSON
+                    data = json.loads(text_data)
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.error(f"Invalid WebSocket message format: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid message format. Expected JSON.",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    continue
+                except Exception as e:
+                    logger.error(f"Error receiving WebSocket message: {e}")
+                    break
 
-                    # Handle different message types
-                    message_type = message.get("type", "")
+            try:
+                # Log activity
+                logger.info(f"WebSocket message from {session_id}: {data.get('type', 'unknown')}")
 
-                    if message_type == "ping":
-                        # Respond to ping with pong
-                        await emit_event(session_id, "pong", {
+                # Process message based on type
+                message_type = data.get("type", "")
+
+                if message_type == "ping":
+                    # Respond to ping with pong
+                    await websocket.send_json({
+                        "type": "pong",
+                        "timestamp": datetime.now().isoformat()
+                    })
+
+                elif message_type == "subscribe":
+                    # Subscribe to a specific channel
+                    channel = data.get("channel", "")
+                    if channel:
+                        await manager.subscribe(session_id, channel)
+                        await websocket.send_json({
+                            "type": "subscription_confirmed",
+                            "channel": channel,
                             "timestamp": datetime.now().isoformat()
                         })
-                    elif message_type == "client_info":
-                        # Store client information
-                        client_info = message.get("data", {})
-                        if session_id in websocket_manager.client_metadata:
-                            websocket_manager.client_metadata[session_id]["client_info"] = client_info
-                            logger.info(f"Updated client info for session {session_id}: {client_info.get('user_agent', 'Unknown')}")
-                    elif message_type == "request_progress_history":
-                        # Client is requesting progress history after reconnection
-                        try:
-                            logger.info(f"Client {session_id} requested progress history")
-                            # Send a response acknowledging the request
-                            await emit_event(session_id, "progress_history_status", {
-                                "status": "processing",
-                                "message": "Retrieving progress history"
-                            })
 
-                            # In a real implementation, we would fetch from the database
-                            # For now, just return an empty history
-                            await emit_event(session_id, "progress_history", {
-                                "entries": [],
-                                "count": 0
-                            })
-                            logger.info(f"Empty progress history sent to client {session_id}")
-                        except Exception as history_error:
-                            logger.error(f"Error sending progress history: {history_error}")
-                            await emit_event(session_id, "error", {
-                                "message": "Failed to retrieve progress history",
-                                "error_code": "HISTORY_ERROR"
-                            })
-                    elif message_type == "request_rectification_status":
-                        # Client is requesting current rectification status
-                        chart_id = message.get("chart_id")
-                        rectification_id = message.get("rectification_id")
-
-                        if not chart_id or not rectification_id:
-                            await emit_event(session_id, "error", {
-                                "message": "Missing chart_id or rectification_id",
-                                "error_code": "INVALID_REQUEST"
-                            })
-                        else:
-                            try:
-                                # Get current status from database
-                                from ai_service.database.repositories import ChartRepository
-                                repository = ChartRepository()
-
-                                # Get rectification data
-                                rectification_data = await repository.get_rectification(rectification_id)
-
-                                if rectification_data:
-                                    # Send current status
-                                    status = rectification_data.get("status", "unknown")
-                                    progress = rectification_data.get("progress", 0)
-
-                                    await emit_event(session_id, "rectification_status", {
-                                        "chart_id": chart_id,
-                                        "rectification_id": rectification_id,
-                                        "status": status,
-                                        "progress": progress,
-                                        "message": rectification_data.get("message", ""),
-                                        "timestamp": datetime.now().isoformat()
-                                    })
-                                    logger.info(f"Sent current rectification status to client {session_id}: {status} ({progress}%)")
-                                else:
-                                    # No rectification found
-                                    await emit_event(session_id, "rectification_status", {
-                                        "chart_id": chart_id,
-                                        "rectification_id": rectification_id,
-                                        "status": "not_found",
-                                        "progress": 0,
-                                        "message": "Rectification not found",
-                                        "timestamp": datetime.now().isoformat()
-                                    })
-                                    logger.warning(f"Rectification {rectification_id} not found for client {session_id}")
-                            except Exception as status_error:
-                                logger.error(f"Error retrieving rectification status: {status_error}")
-                                await emit_event(session_id, "error", {
-                                    "message": "Failed to retrieve rectification status",
-                                    "error_code": "STATUS_ERROR"
-                                })
-                    else:
-                        # Unknown message type
-                        logger.debug(f"Received unknown message type: {message_type}")
-
-                        # Send acknowledgment for any message type
-                        await emit_event(session_id, "acknowledgment", {
-                            "received_type": message_type,
-                            "timestamp": datetime.now().isoformat(),
-                            "status": "unknown_message_type"
+                elif message_type == "unsubscribe":
+                    # Unsubscribe from a specific channel
+                    channel = data.get("channel", "")
+                    if channel:
+                        await manager.unsubscribe(session_id, channel)
+                        await websocket.send_json({
+                            "type": "unsubscription_confirmed",
+                            "channel": channel,
+                            "timestamp": datetime.now().isoformat()
                         })
-                except json.JSONDecodeError:
-                    logger.warning(f"Received invalid JSON from client: {data[:100]}...")
-                    await emit_event(session_id, "error", {
-                        "message": "Invalid JSON format",
-                        "error_code": "INVALID_FORMAT"
-                    })
-                except Exception as e:
-                    logger.error(f"Error processing WebSocket message: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
 
-                    # Try to inform client of the error
+                elif message_type == "status":
+                    # Send current session status
                     try:
-                        await emit_event(session_id, "error", {
-                            "message": "Error processing message",
-                            "error_code": "PROCESSING_ERROR"
+                        # Get the session service directly (synchronous)
+                        session_service = get_session_service()
+
+                        # Call get_session directly (it's a synchronous method)
+                        session_data = session_service.get_session(session_id)
+
+                        await websocket.send_json({
+                            "type": "status",
+                            "session_id": session_id,
+                            "status": "active" if session_data else "inactive",
+                            "timestamp": datetime.now().isoformat()
                         })
-                    except Exception:
-                        # If we can't even send the error, there's not much we can do
-                        pass
+                    except Exception as e:
+                        logger.error(f"Error getting session status: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Failed to retrieve session status",
+                            "timestamp": datetime.now().isoformat()
+                        })
 
-        except WebSocketDisconnect:
-            logger.info(f"WebSocket client disconnected: {session_id}")
+                elif message_type == "rectification_progress":
+                    # Client requesting current rectification progress
+                    chart_id = data.get("chart_id")
+                    if not chart_id:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Missing chart_id parameter",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        continue
 
-        except asyncio.CancelledError:
-            logger.info(f"WebSocket connection cancelled for session {session_id}")
-            raise  # Re-raise to allow proper cleanup
-        except Exception as connection_error:
-            logger.error(f"Unexpected WebSocket connection error: {connection_error}")
-            import traceback
-            logger.error(traceback.format_exc())
-        finally:
-            # Unregister the connection when it's closed
-            websocket_manager.disconnect(session_id)
-            logger.info(f"WebSocket connection cleaned up for session {session_id}")
+                    # Get chart service
+                    chart_service = get_chart_service()
+                    if not chart_service:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Chart service unavailable",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        continue
 
+                    # Get status directly from the imported function
+                    try:
+                        # Create a default status result as fallback
+                        status_result = {
+                            "status": "unknown",
+                            "progress": 0,
+                            "message": "Status unavailable"
+                        }
+
+                        try:
+                            # Import directly to avoid circular imports
+                            from ai_service.api.routers.rectify import get_rectification_status
+
+                            # Call the function with proper parameters
+                            status_result = await get_rectification_status(
+                                rectification_id=chart_id,
+                                session_id=session_id
+                            )
+                        except ImportError:
+                            logger.error("Could not import rectify module")
+                        except Exception as e:
+                            logger.error(f"Error calling get_rectification_status: {e}")
+
+                        # Send status back to client with whatever we got
+                        await websocket.send_json({
+                            "type": "rectification_progress",
+                            "chart_id": chart_id,
+                            **status_result,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                    except Exception as e:
+                        logger.error(f"Error handling status request: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Error retrieving rectification status: {str(e)}",
+                            "timestamp": datetime.now().isoformat()
+                        })
+
+                else:
+                    # Unknown message type
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Unknown message type: {message_type}",
+                        "timestamp": datetime.now().isoformat()
+                    })
+
+            except Exception as e:
+                logger.error(f"Error processing WebSocket message: {e}")
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Server error: {str(e)}",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                except Exception:
+                    break  # Connection likely broken, exit loop
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for session {session_id}")
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {e}")
-        try:
-            # Try to send an error message
-            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-        except Exception:
-            pass
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+    finally:
+        # Ensure the connection is properly closed and removed from manager
+        manager.disconnect(session_id)
+        logger.info(f"Closed WebSocket connection for session {session_id}")
 
 @router.get("/clients", response_model=Dict[str, Any])
 async def get_active_clients() -> Dict[str, Any]:
     """
     Get information about active WebSocket clients.
 
-    This endpoint is for administrative purposes and provides
-    information about currently connected WebSocket clients.
-
     Returns:
-        Dictionary with client count and session IDs
+        Dictionary with active client information
     """
-    websocket_manager = get_websocket_manager()
-    active_count = len(websocket_manager.active_connections)
+    try:
+        manager = await get_manager()
 
-    return {
-        "active_clients": active_count,
-        "session_ids": list(websocket_manager.active_connections.keys())
-    }
+        # Check if manager is None
+        if manager is None:
+            return {
+                "active_connections": [],
+                "count": 0,
+                "timestamp": datetime.now().isoformat(),
+                "error": "WebSocket manager not available"
+            }
+
+        return {
+            "active_connections": manager.active_connections,
+            "count": len(manager.active_connections),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting active clients: {e}")
+        return {
+            "active_connections": [],
+            "count": 0,
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }

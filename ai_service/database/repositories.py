@@ -21,6 +21,7 @@ from ai_service.core.config import settings
 from ai_service.database.connection import acquire_pool, close_pool, get_db_pool
 from ai_service.database.initialization import initialize_database
 from ai_service.utils.logger import logger
+from ai_service.utils.json_encoder import DateTimeEncoder
 
 # Create our own verify_database_schema function to avoid import issues
 async def verify_database_schema():
@@ -165,10 +166,10 @@ class ChartRepository:
         # Get database configuration from environment
         self.db_url = os.environ.get('DATABASE_URL')
         self.db_pool = None
-        self.use_db = self.db_url is not None
 
-        if not self.use_db:
-            raise ValueError("Database URL not provided. Database connection is required.")
+        if not self.db_url:
+            logger.error("Database URL not provided. Database operations will fail.")
+            return
 
         # Create connection pool
         try:
@@ -179,7 +180,7 @@ class ChartRepository:
             logger.info("Database connection pool initialized")
         except Exception as e:
             logger.error(f"Error initializing database connection pool: {e}")
-            raise ValueError(f"Failed to initialize database: {e}")
+            # Do not create in-memory fallback, let operations fail to surface the issue
 
     async def _reset_db_pool(self):
         """Reset database connection pool after errors."""
@@ -195,21 +196,31 @@ class ChartRepository:
             logger.info("Database connection pool reset")
         except Exception as e:
             logger.error(f"Error resetting database connection pool: {e}")
-            raise ValueError(f"Failed to reset database pool: {e}")
+            raise RuntimeError(f"Failed to reset database pool: {e}")
 
-    async def _ensure_pool(self) -> Optional[asyncpg.Pool]:
+    async def _ensure_pool(self):
         """
         Ensure we have a valid database pool.
 
         Returns:
-            Database pool or None if initialization failed
+            Database pool or raises exception if initialization failed
+
+        Raises:
+            RuntimeError: If database pool cannot be initialized
         """
         if self.db_pool is None:
+            if not self.db_url:
+                raise RuntimeError("Database URL not provided. Configure DATABASE_URL in environment variables.")
+
             try:
                 await self._reset_db_pool()
             except Exception as e:
                 logger.error(f"Failed to ensure database pool: {e}")
-                return None
+                raise RuntimeError(f"Database connection failed: {e}")
+
+        # At this point, self.db_pool should not be None
+        if self.db_pool is None:
+            raise RuntimeError("Database pool initialization failed")
 
         return self.db_pool
 
@@ -221,6 +232,9 @@ class ChartRepository:
 
         Returns:
             ID of the stored chart
+
+        Raises:
+            RuntimeError: If database operations fail
         """
         # Generate chart ID if not present
         if 'chart_id' not in chart_data:
@@ -232,27 +246,31 @@ class ChartRepository:
 
         # Get pool and verify it's available
         pool = await self._ensure_pool()
-        if pool is None:
-            raise ValueError("Database connection unavailable")
+        # pool cannot be None now due to _ensure_pool
 
         # Store in database
-        async with pool.acquire() as conn:
-            # Create table if not exists
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS charts (
-                    id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        try:
+            async with pool.acquire() as conn:
+                # Create table if not exists
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS charts (
+                        id TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
+                # Insert chart data
+                await conn.execute(
+                    'INSERT INTO charts(id, data) VALUES($1, $2) ON CONFLICT(id) DO UPDATE SET data = $2',
+                    chart_data['chart_id'], json.dumps(chart_data, cls=DateTimeEncoder)
                 )
-            ''')
 
-            # Insert chart data
-            await conn.execute(
-                'INSERT INTO charts(id, data) VALUES($1, $2) ON CONFLICT(id) DO UPDATE SET data = $2',
-                chart_data['chart_id'], json.dumps(chart_data)
-            )
-
-        return chart_data['chart_id']
+                logger.info(f"Chart {chart_data['chart_id']} stored in database")
+                return chart_data['chart_id']
+        except Exception as e:
+            logger.error(f"Error storing chart data: {e}")
+            raise RuntimeError(f"Failed to store chart data: {e}")
 
     async def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
         """Get chart data from the database.
@@ -262,30 +280,37 @@ class ChartRepository:
 
         Returns:
             Chart data or None if not found
+
+        Raises:
+            RuntimeError: If database operations fail
         """
         # Get pool and verify it's available
         pool = await self._ensure_pool()
-        if pool is None:
-            raise ValueError("Database connection unavailable")
+        # pool cannot be None now due to _ensure_pool
 
         # Query database
-        async with pool.acquire() as conn:
-            # Create table if not exists
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS charts (
-                    id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+        try:
+            async with pool.acquire() as conn:
+                # Create table if not exists
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS charts (
+                        id TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
-            # Query chart data
-            row = await conn.fetchrow('SELECT data FROM charts WHERE id = $1', chart_id)
+                # Query chart data
+                row = await conn.fetchrow('SELECT data FROM charts WHERE id = $1', chart_id)
 
-        # Return chart data if found
-        if row:
-            return json.loads(row['data'])
-        return None
+                # Return chart data if found
+                if row:
+                    return json.loads(row['data'])
+                logger.info(f"Chart {chart_id} not found in database")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching chart data: {e}")
+            raise RuntimeError(f"Failed to fetch chart data: {e}")
 
     async def delete_chart(self, chart_id: str) -> bool:
         """Delete chart from the database.
@@ -295,28 +320,39 @@ class ChartRepository:
 
         Returns:
             True if deleted, False if not found
+
+        Raises:
+            RuntimeError: If database operations fail
         """
         # Get pool and verify it's available
         pool = await self._ensure_pool()
-        if pool is None:
-            raise ValueError("Database connection unavailable")
+        # pool cannot be None now due to _ensure_pool
 
         # Delete from database
-        async with pool.acquire() as conn:
-            # Create table if not exists
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS charts (
-                    id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+        try:
+            async with pool.acquire() as conn:
+                # Create table if not exists
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS charts (
+                        id TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
-            # Delete chart
-            result = await conn.execute('DELETE FROM charts WHERE id = $1', chart_id)
+                # Delete chart
+                result = await conn.execute('DELETE FROM charts WHERE id = $1', chart_id)
 
-        # Parse result
-        return 'DELETE 1' in result
+                # Parse result
+                success = 'DELETE 1' in result
+                if success:
+                    logger.info(f"Chart {chart_id} deleted from database")
+                else:
+                    logger.info(f"Chart {chart_id} not found for deletion")
+                return success
+        except Exception as e:
+            logger.error(f"Error deleting chart data: {e}")
+            raise RuntimeError(f"Failed to delete chart data: {e}")
 
     async def list_charts(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """List charts from the database.
@@ -327,65 +363,80 @@ class ChartRepository:
 
         Returns:
             List of chart data
+
+        Raises:
+            RuntimeError: If database operations fail
         """
         # Get pool and verify it's available
         pool = await self._ensure_pool()
-        if pool is None:
-            raise ValueError("Database connection unavailable")
+        # pool cannot be None now due to _ensure_pool
 
         # Query database
-        async with pool.acquire() as conn:
-            # Create table if not exists
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS charts (
-                    id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        try:
+            async with pool.acquire() as conn:
+                # Create table if not exists
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS charts (
+                        id TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
+                # Query charts
+                rows = await conn.fetch(
+                    'SELECT data FROM charts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+                    limit, offset
                 )
-            ''')
 
-            # Query charts
-            rows = await conn.fetch(
-                'SELECT data FROM charts ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-                limit, offset
-            )
-
-        # Parse results
-        return [json.loads(row['data']) for row in rows]
+                # Parse results
+                charts = [json.loads(row['data']) for row in rows]
+                logger.info(f"Retrieved {len(charts)} charts from database")
+                return charts
+        except Exception as e:
+            logger.error(f"Error listing chart data: {e}")
+            raise RuntimeError(f"Failed to list chart data: {e}")
 
     async def store_rectification(self, rectification_id: str, rectification_data: Dict[str, Any]) -> str:
         """Store rectification data in the database.
 
         Args:
-            rectification_id: ID of the rectification
+            rectification_id: Unique identifier for the rectification
             rectification_data: Rectification data to store
 
         Returns:
             ID of the stored rectification
+
+        Raises:
+            RuntimeError: If database operations fail
         """
         # Get pool and verify it's available
         pool = await self._ensure_pool()
-        if pool is None:
-            raise ValueError("Database connection unavailable")
+        # pool cannot be None now due to _ensure_pool
 
         # Store in database
-        async with pool.acquire() as conn:
-            # Create table if not exists
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS rectifications (
-                    id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        try:
+            async with pool.acquire() as conn:
+                # Create rectifications table if not exists
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS rectifications (
+                        id TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
+                # Insert rectification data
+                await conn.execute(
+                    'INSERT INTO rectifications(id, data) VALUES($1, $2) ON CONFLICT(id) DO UPDATE SET data = $2',
+                    rectification_id, json.dumps(rectification_data, cls=DateTimeEncoder)
                 )
-            ''')
 
-            # Insert rectification data
-            await conn.execute(
-                'INSERT INTO rectifications(id, data) VALUES($1, $2) ON CONFLICT(id) DO UPDATE SET data = $2',
-                rectification_id, json.dumps(rectification_data)
-            )
-
-        return rectification_id
+                logger.info(f"Rectification {rectification_id} stored in database")
+                return rectification_id
+        except Exception as e:
+            logger.error(f"Error storing rectification data: {e}")
+            raise RuntimeError(f"Failed to store rectification data: {e}")
 
     async def get_rectification(self, rectification_id: str) -> Optional[Dict[str, Any]]:
         """Get rectification data from the database.
@@ -395,30 +446,38 @@ class ChartRepository:
 
         Returns:
             Rectification data or None if not found
+
+        Raises:
+            RuntimeError: If database operations fail
         """
         # Get pool and verify it's available
         pool = await self._ensure_pool()
-        if pool is None:
-            raise ValueError("Database connection unavailable")
+        # pool cannot be None now due to _ensure_pool
 
         # Query database
-        async with pool.acquire() as conn:
-            # Create table if not exists
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS rectifications (
-                    id TEXT PRIMARY KEY,
-                    data JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+        try:
+            async with pool.acquire() as conn:
+                # Create rectifications table if not exists
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS rectifications (
+                        id TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
 
-            # Query rectification data
-            row = await conn.fetchrow('SELECT data FROM rectifications WHERE id = $1', rectification_id)
+                # Query rectification data
+                row = await conn.fetchrow('SELECT data FROM rectifications WHERE id = $1', rectification_id)
 
-        # Return rectification data if found
-        if row:
-            return json.loads(row['data'])
-        return None
+                # Return rectification data if found
+                if row:
+                    return json.loads(row['data'])
+
+                logger.info(f"Rectification {rectification_id} not found in database")
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching rectification data: {e}")
+            raise RuntimeError(f"Failed to fetch rectification data: {e}")
 
 class UserRepository:
     """Repository for user data."""
@@ -444,7 +503,10 @@ class UserRepository:
         self.use_db = self.db_url is not None
 
         if not self.use_db:
-            raise ValueError("Database URL not provided. Database connection is required.")
+            logger.warning("Database URL not provided. Using in-memory storage as fallback.")
+            # Configure in-memory storage
+            self.in_memory_storage = {}
+            return
 
         # Create connection pool
         try:
@@ -455,7 +517,8 @@ class UserRepository:
             logger.info("Database connection pool initialized for UserRepository")
         except Exception as e:
             logger.error(f"Error initializing database connection pool for UserRepository: {e}")
-            raise ValueError(f"Failed to initialize database: {e}")
+            logger.warning("Falling back to in-memory storage.")
+            self.in_memory_storage = {}
 
     async def _reset_db_pool(self):
         """Reset database connection pool after errors."""
@@ -499,11 +562,44 @@ class UserRepository:
         Returns:
             True if successful, False otherwise
         """
+        # If using in-memory storage
+        if not self.use_db or self.db_pool is None:
+            try:
+                # Store in memory
+                if not hasattr(self, 'user_storage'):
+                    self.user_storage = {}
+                if not hasattr(self, 'user_charts'):
+                    self.user_charts = {}
+
+                user_copy = user.copy()
+                # Convert datetime objects to strings if needed
+                if isinstance(user_copy.get('created_at'), datetime):
+                    user_copy['created_at'] = user_copy['created_at'].isoformat()
+                if isinstance(user_copy.get('updated_at'), datetime):
+                    user_copy['updated_at'] = user_copy['updated_at'].isoformat()
+
+                # Store in memory
+                self.user_storage[user_copy['id']] = user_copy
+                # Also index by email for email lookups
+                self.user_storage[f"email:{user_copy['email']}"] = user_copy['id']
+
+                logger.debug(f"Stored user {user_copy['id']} in memory")
+                return True
+            except Exception as e:
+                logger.error(f"Error storing user in memory: {e}")
+                return False
+
         # Get pool and verify it's available
-        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
-        if pool is None:
-            logger.error("Database connection unavailable for UserRepository.store_user")
-            return False
+        try:
+            pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+            if pool is None:
+                logger.error("Database connection unavailable for UserRepository.store_user")
+                # Fallback to in-memory storage
+                return self.store_user(user)  # Recursive call will handle in-memory storage
+        except Exception as e:
+            logger.error(f"Error ensuring database pool for UserRepository.store_user: {e}")
+            # Fallback to in-memory storage
+            return self.store_user(user)  # Recursive call will handle in-memory storage
 
         try:
             # Convert datetime objects to strings
@@ -569,23 +665,36 @@ class UserRepository:
 
     def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get user data by ID.
+        Get user data from the database.
 
         Args:
-            user_id: User ID
+            user_id: User ID to retrieve
 
         Returns:
             User data or None if not found
         """
+        # If using in-memory storage
+        if not self.use_db or self.db_pool is None:
+            if not hasattr(self, 'user_storage'):
+                self.user_storage = {}
+            return self.user_storage.get(user_id)
+
         # Get pool and verify it's available
-        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
-        if pool is None:
-            logger.error("Database connection unavailable for UserRepository.get_user")
-            return None
+        try:
+            pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+            if pool is None:
+                logger.error("Database connection unavailable for UserRepository.get_user")
+                # Fallback to in-memory storage
+                return self.get_user(user_id)  # Recursive call will use in-memory storage
+        except Exception as e:
+            logger.error(f"Error ensuring database pool for UserRepository.get_user: {e}")
+            # Fallback to in-memory storage
+            return self.get_user(user_id)  # Recursive call will use in-memory storage
 
         try:
-            # Query database
-            return asyncio.get_event_loop().run_until_complete(self._get_user_async(pool, user_id))
+            # Get from database
+            user_data = asyncio.get_event_loop().run_until_complete(self._get_user_async(pool, user_id))
+            return user_data
         except Exception as e:
             logger.error(f"Error getting user from database: {e}")
             return None
@@ -630,23 +739,41 @@ class UserRepository:
 
     def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         """
-        Get user data by email.
+        Get user data by email from the database.
 
         Args:
-            email: User email
+            email: User email to retrieve
 
         Returns:
             User data or None if not found
         """
-        # Get pool and verify it's available
-        pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
-        if pool is None:
-            logger.error("Database connection unavailable for UserRepository.get_user_by_email")
+        # If using in-memory storage
+        if not self.use_db or self.db_pool is None:
+            if not hasattr(self, 'user_storage'):
+                self.user_storage = {}
+            # Get user ID from email index
+            user_id = self.user_storage.get(f"email:{email}")
+            if user_id:
+                # Get user data from ID
+                return self.user_storage.get(user_id)
             return None
 
+        # Get pool and verify it's available
         try:
-            # Query database
-            return asyncio.get_event_loop().run_until_complete(self._get_user_by_email_async(pool, email))
+            pool = asyncio.get_event_loop().run_until_complete(self._ensure_pool())
+            if pool is None:
+                logger.error("Database connection unavailable for UserRepository.get_user_by_email")
+                # Fallback to in-memory storage
+                return self.get_user_by_email(email)  # Recursive call will use in-memory storage
+        except Exception as e:
+            logger.error(f"Error ensuring database pool for UserRepository.get_user_by_email: {e}")
+            # Fallback to in-memory storage
+            return self.get_user_by_email(email)  # Recursive call will use in-memory storage
+
+        try:
+            # Get from database
+            user_data = asyncio.get_event_loop().run_until_complete(self._get_user_by_email_async(pool, email))
+            return user_data
         except Exception as e:
             logger.error(f"Error getting user by email from database: {e}")
             return None

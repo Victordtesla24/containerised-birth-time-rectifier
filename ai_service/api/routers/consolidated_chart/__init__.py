@@ -1,30 +1,52 @@
 """
-Consolidated Chart Router Package
+Consolidated Chart Router Package.
 
-This package consolidates all chart-related endpoints into a single router.
-It follows the API Gateway architecture and provides dual-registration
-for backward compatibility.
+This package provides a unified chart router that combines all chart-related endpoints
+including chart generation, validation, rectification, and export functionality.
+Following the Unified API Gateway architecture with standardized prefix handling.
 """
 
 from fastapi import APIRouter
+import logging
 
-# Import all router components
-from ai_service.api.routers.consolidated_chart.generate import router as generate_router
-from ai_service.api.routers.consolidated_chart.compare import router as compare_router
-from ai_service.api.routers.consolidated_chart.export import router as export_router
-from ai_service.api.routers.consolidated_chart.rectify import router as rectify_router
-from ai_service.api.routers.consolidated_chart.validate import router as validate_router
+# Configure logger
+logger = logging.getLogger(__name__)
 
-# Create the consolidated router
+# Create a master router
 router = APIRouter()
 
-# Include all the chart-related routers
-# Order matters! Include routers with specific paths before those with dynamic paths
-router.include_router(compare_router)  # Include compare router first to prevent path conflicts
-router.include_router(export_router)
-router.include_router(rectify_router)
-router.include_router(validate_router)
-router.include_router(generate_router)  # Include generate router last due to its dynamic {chart_id} route
+# Import and include individual chart routers
+try:
+    # Import chart router
+    from ai_service.api.routers.chart import router as chart_router
+    router.include_router(chart_router, tags=["Chart"])
+    logger.info("Chart router loaded successfully")
+except Exception as e:
+    logger.error(f"Error importing chart router: {e}")
 
-# Export the router for use in the main application
+try:
+    # Import validate router
+    from ai_service.api.routers.validate import router as validate_router
+    router.include_router(validate_router, prefix="/validate", tags=["Validation"])
+    logger.info("Validation router loaded successfully")
+except Exception as e:
+    logger.error(f"Error importing validation router: {e}")
+
+try:
+    # Import rectify router
+    from ai_service.api.routers.rectify import router as rectify_router
+    router.include_router(rectify_router, prefix="/rectify", tags=["Rectification"])
+    logger.info("Rectification router loaded successfully")
+except Exception as e:
+    logger.error(f"Error importing rectification router: {e}")
+
+try:
+    # Import export router
+    from ai_service.api.routers.export import router as export_router
+    router.include_router(export_router, prefix="/export", tags=["Export"])
+    logger.info("Export router loaded successfully")
+except Exception as e:
+    logger.error(f"Error importing export router: {e}")
+
+# Export the combined router
 __all__ = ["router"]

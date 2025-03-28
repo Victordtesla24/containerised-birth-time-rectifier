@@ -3,11 +3,11 @@ Birth Time Rectifier API Gateway
 --------------------------------
 Main application file for the API Gateway service.
 Acts as a central point for routing requests to appropriate microservices.
-Includes WebSocket proxy functionality for real-time updates.
+Implements the Unified API Gateway Architecture with path rewriting.
 """
 
-from fastapi import FastAPI, Request, Depends, HTTPException, status, APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Request, HTTPException, status, APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import time
@@ -16,37 +16,22 @@ import sys
 import httpx
 import uuid
 import traceback
-from typing import Optional, Dict, Any, List, Union
+from typing import Dict, Any, Optional
 import asyncio
 from datetime import datetime
 import json
-import concurrent.futures
-import starlette.requests
+import redis.asyncio as redis
+import jwt
+from starlette.middleware.base import BaseHTTPMiddleware
+import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 # Import WebSocket proxy
 from api_gateway.websocket_proxy import proxy as websocket_proxy
 
-# Import routers
-from api_gateway.routes.chart import router as chart_router
-from api_gateway.routes.questionnaire import router as questionnaire_router
-from api_gateway.routes.session import router as session_router
-
-# Import rate limiter
-from api_gateway.middleware.rate_limiter import add_rate_limiter
-
-# Import error handling middleware
-from api_gateway.middleware.error_middleware import add_error_handler
-
-# Import authentication middleware
-from api_gateway.middleware.auth_middleware import verify_token
-
-# Define constants
-SESSION_COOKIE_NAME = "birth_rectifier_session"
-
-# Create logs directory if it doesn't exist
-os.makedirs("logs", exist_ok=True)
-
 # Configure logging
+os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -57,6 +42,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api_gateway")
 
+# Create a thread pool for Redis operations
+redis_executor = ThreadPoolExecutor(max_workers=4)
+
 # Initialize FastAPI application
 app = FastAPI(
     title="Birth Time Rectifier API Gateway",
@@ -65,6 +53,26 @@ app = FastAPI(
     docs_url="/swagger" if os.getenv("ENVIRONMENT", "development") != "production" else None,
     redoc_url="/redoc" if os.getenv("ENVIRONMENT", "development") != "production" else None,
 )
+
+# Initialize Redis client
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+try:
+    redis_pool = redis.ConnectionPool.from_url(REDIS_URL)
+    redis_client = redis.Redis(connection_pool=redis_pool)
+    logger.info("Redis client initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Redis client: {e}")
+    redis_client = None
+
+# JWT configuration
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key")  # Should be properly configured in production
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION = 3600  # 1 hour
+
+# AI Service URLs
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
+AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://localhost:8000/ws")
+# Should be properly configured in production
 
 # Configure CORS
 app.add_middleware(
@@ -75,93 +83,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add rate limiting if Redis is available
-redis_url = os.getenv("REDIS_URL")
-if redis_url:
-    try:
-        add_rate_limiter(
-            app,
-            redis_url=redis_url,
-            rate_limit=int(os.getenv("RATE_LIMIT", "60")),
-            window=int(os.getenv("RATE_LIMIT_WINDOW", "60"))
-        )
-        logger.info("Rate limiting middleware added with Redis")
-    except Exception as e:
-        logger.warning(f"Failed to add Redis rate limiting middleware: {e}")
-        logger.info("Falling back to in-memory rate limiting")
-        try:
-            # Add in-memory rate limiting as fallback
-            from fastapi.middleware.trustedhost import TrustedHostMiddleware
-            from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-            from starlette.middleware.base import BaseHTTPMiddleware
-            from datetime import datetime, timedelta
-            from collections import defaultdict
-            import threading
-
-            # Simple in-memory rate limiter
-            class InMemoryRateLimiter(BaseHTTPMiddleware):
-                def __init__(self, app, rate_limit: int = 60, window: int = 60):
-                    super().__init__(app)
-                    self.rate_limit = rate_limit
-                    self.window = window
-                    self.requests = defaultdict(list)
-                    self.lock = threading.Lock()
-
-                async def dispatch(self, request: Request, call_next):
-                    # Get client IP safely
-                    client_ip = "unknown"
-                    if request.client and hasattr(request.client, "host"):
-                        client_ip = request.client.host
-                    else:
-                        # Try to get IP from headers
-                        forwarded_for = request.headers.get("X-Forwarded-For")
-                        if forwarded_for:
-                            client_ip = forwarded_for.split(",")[0].strip()
-                        else:
-                            client_ip = request.headers.get("X-Real-IP", "unknown")
-
-                    now = datetime.now()
-
-                    with self.lock:
-                        # Clean old requests
-                        self.requests[client_ip] = [
-                            req_time for req_time in self.requests[client_ip]
-                            if now - req_time < timedelta(seconds=self.window)
-                        ]
-
-                        # Check rate limit
-                        if len(self.requests[client_ip]) >= self.rate_limit:
-                            return JSONResponse(
-                                status_code=429,
-                                content={"error": "Too many requests"}
-                            )
-
-                        self.requests[client_ip].append(now)
-
-                    return await call_next(request)
-
-            app.add_middleware(
-                InMemoryRateLimiter,
-                rate_limit=int(os.getenv("RATE_LIMIT", "60")),
-                window=int(os.getenv("RATE_LIMIT_WINDOW", "60"))
-            )
-            logger.info("In-memory rate limiting middleware added as fallback")
-        except Exception as fallback_error:
-            logger.error(f"Failed to add in-memory rate limiting: {fallback_error}")
-            logger.warning("Rate limiting will not be enforced")
-
 # Add security headers middleware
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
-
-    # Add security headers
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-    # Add Content-Security-Policy in non-development environments
     if os.getenv("ENVIRONMENT", "development").lower() != "development":
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
@@ -171,12 +101,92 @@ async def add_security_headers(request: Request, call_next):
             "font-src 'self'; "
             "connect-src 'self'"
         )
-
     return response
 
-# AI Service URLs
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
-AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://localhost:8000/ws")
+# Helper function to run Redis operations in a separate thread
+async def run_redis_operation(operation_func):
+    """Run Redis operation in a thread to avoid blocking the event loop"""
+    if redis_client is None:
+        logger.warning("Redis client is None, skipping operation")
+        return None
+
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(redis_executor, operation_func)
+    except Exception as e:
+        logger.error(f"Redis operation error: {e}")
+        return None
+
+# Session validation middleware
+@app.middleware("http")
+async def validate_session(request: Request, call_next):
+    session_token = request.headers.get("X-Session-Token")
+
+    # Skip session validation for certain paths
+    if request.url.path in ["/health", "/api/v1/health", "/api/v1/session/init", "/api/session/init"] or \
+       request.url.path.startswith("/api/geocode") or request.url.path.startswith("/api/v1/geocode") or \
+       request.url.path.startswith("/api/chart/validate") or request.url.path.startswith("/api/v1/chart/validate") or \
+       request.url.path.startswith("/api/chart/generate") or request.url.path.startswith("/api/v1/chart/generate") or \
+       request.url.path.startswith("/api/chart/") or request.url.path.startswith("/api/v1/chart/"):
+        return await call_next(request)
+
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session token is required"
+        )
+
+    try:
+        # Verify JWT token
+        payload = jwt.decode(session_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        session_id = payload.get("session_id")
+
+        # Check if session exists in Redis
+        try:
+            if redis_client:
+                # Check if session exists
+                def check_session_exists():
+                    if redis_client:
+                        return redis_client.exists(f"session:{session_id}")
+                    return None
+
+                session_exists = await run_redis_operation(check_session_exists)
+                if session_exists is not None and not bool(session_exists):
+                    logger.warning(f"Session {session_id} not found in Redis")
+                    # Continue with JWT validation only
+
+                # Update session last activity
+                def update_session_activity():
+                    if redis_client:
+                        return redis_client.hset(
+                            f"session:{session_id}",
+                            mapping={"last_activity": datetime.now().isoformat()}
+                        )
+                    return None
+
+                update_result = await run_redis_operation(update_session_activity)
+                if update_result is not None:
+                    logger.debug(f"Redis hset result: {update_result}")
+
+            # Add session info to request state
+            request.state.session_id = session_id
+        except Exception as redis_error:
+            logger.error(f"Redis error: {redis_error}")
+            # Continue with JWT validation only
+            request.state.session_id = session_id
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has expired"
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session token"
+        )
+
+    return await call_next(request)
 
 # Add request logging middleware
 @app.middleware("http")
@@ -184,13 +194,11 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
     response = await call_next(request)
 
-    # Get client IP, safely handling proxy forwarding
     client_ip = request.client.host if request.client else "unknown"
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         client_ip = forwarded_for.split(",")[0].strip()
 
-    # Log the request details
     logger.info(
         f"{client_ip} - {request.method} {request.url.path} "
         f"- {response.status_code} - {time.time() - start_time:.4f}s"
@@ -202,121 +210,323 @@ async def log_requests(request: Request, call_next):
 @app.get("/health")
 async def health_check():
     """Health check endpoint for load balancers and container orchestration"""
-    return {"status": "ok"}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "api_gateway"
+    }
 
-# Include routers
-v1_router = APIRouter(prefix="/api/v1")
-v1_router.include_router(chart_router, prefix="/chart", tags=["Chart"])
-v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
-v1_router.include_router(session_router, prefix="/session", tags=["Session"])
-
-# Make sure the v1_router is included with the app
-app.include_router(v1_router)
-
-# Add health endpoint to v1 router
-@v1_router.get("/health")
+# V1 Health check endpoint
+@app.get("/api/v1/health")
 async def v1_health_check():
     """Health check endpoint for v1 API"""
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "ai_service",
-        "middleware_bypassed": True,
-        "path": "/api/v1/health"
+        "service": "api_gateway",
+        "version": "v1"
     }
 
-# Specific implementation for the /api/geocode endpoint as per sequence diagram
-@app.post("/api/geocode")
-async def geocode_endpoint(request: Request):
-    """
-    Geocode a location and return coordinates and address details.
+# Session initialization endpoint
+@app.get("/api/v1/session/init")
+async def initialize_session():
+    """Initialize a new session and return a session token"""
+    session_id = str(uuid.uuid4())
 
-    Simplified implementation based on working code.
-    """
+    # Create session in Redis
+    session_data = {
+        "created_at": datetime.now().isoformat(),
+        "last_activity": datetime.now().isoformat(),
+        "client_ip": "unknown"  # Should be set from request in production
+    }
+
     try:
-        # Get session ID from header or cookie
-        session_id = request.headers.get("X-Session-ID", request.cookies.get(SESSION_COOKIE_NAME, ""))
+        if redis_client:
+            # Use mapping parameter for hset
+            def set_session_data():
+                if redis_client:
+                    return redis_client.hset(f"session:{session_id}", mapping=session_data)
+                return None
 
-        # Parse request body
-        try:
-            body = await request.json()
-            query = body.get("query", "")
-            if not query:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Missing query parameter"}
+            result = await run_redis_operation(set_session_data)
+            if result is not None:
+                logger.debug(f"Redis hset result: {result}")
+
+            # Set expiration
+            def set_expiration():
+                if redis_client:
+                    return redis_client.expire(f"session:{session_id}", JWT_EXPIRATION)
+                return None
+
+            expire_result = await run_redis_operation(set_expiration)
+            if expire_result is not None:
+                logger.debug(f"Redis expire result: {expire_result}")
+    except Exception as redis_err:
+        logger.error(f"Failed to create session in Redis: {redis_err}")
+        # Continue without Redis - we can still create the JWT token
+
+    # Generate JWT token
+    token_data = {
+        "session_id": session_id,
+        "exp": datetime.now().timestamp() + JWT_EXPIRATION
+    }
+    token = jwt.encode(token_data, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+    return {
+        "session_id": session_id,
+        "token": token,
+        "expires_in": JWT_EXPIRATION
+    }
+
+# API Gateway Configuration
+API_PATHS = {
+    "chart": "/api/v1/chart",
+    "questionnaire": "/api/v1/questionnaire",
+    "session": "/api/v1/session",
+    "geocode": "/api/v1/geocode",
+    "ai": "/api/v1/ai",
+    "user": "/api/v1/user"
+}
+
+# Legacy path mappings
+LEGACY_PATHS = {
+    # Root level paths
+    "/chart": "/api/v1/chart",
+    "/questionnaire": "/api/v1/questionnaire",
+    "/session": "/api/v1/session",
+    "/geocode": "/api/v1/geocode",
+    "/ai": "/api/v1/ai",
+    "/user": "/api/v1/user",
+
+    # API paths without version
+    "/api/chart": "/api/v1/chart",
+    "/api/questionnaire": "/api/v1/questionnaire",
+    "/api/session": "/api/v1/session",
+    "/api/geocode": "/api/v1/geocode",
+    "/api/ai": "/api/v1/ai",
+    "/api/user": "/api/v1/user"
+}
+
+# Standardized response structure
+def create_response(data: Any = None, error: Optional[Dict[str, Any]] = None, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Create a standardized API response"""
+    response = {
+        "timestamp": datetime.now().isoformat(),
+        "success": error is None
+    }
+
+    if data is not None:
+        response["data"] = data
+
+    if error is not None:
+        response["error"] = error
+
+    if meta is not None:
+        response["meta"] = meta
+
+    return response
+
+# Proxy function for forwarding requests to the AI service
+async def proxy_to_ai_service(request: Request, path: str, target_url: str) -> Any:
+    """Proxy a request to the AI service with standardized response handling"""
+    request_id = request.headers.get('X-Request-ID', str(uuid.uuid4().hex[:8]))
+    session_id = request.headers.get('X-Session-ID', 'no-session')
+
+    logger.info(f"[{request_id}] Proxying {request.method} request to {target_url}/{path}")
+
+    # Extract request body and query parameters
+    try:
+        body = await request.body()
+        params = dict(request.query_params)
+
+        # Extract request headers, forwarding essential ones
+        headers = {}
+        for key, value in request.headers.items():
+            if key.lower() in (
+                'authorization',
+                'content-type',
+                'user-agent',
+                'x-session-id',
+                'x-request-id'
+            ):
+                headers[key] = value
+
+        # Set timeout based on the operation
+        timeout = httpx.Timeout(
+            connect=5.0,                    # Connection timeout
+            read=30.0,                     # Read timeout
+            write=5.0,                     # Write timeout
+            pool=5.0                       # Connection pool timeout
+        )
+
+        # Some operations need extended timeouts
+        if 'rectify' in path or 'generate' in path:
+            timeout = httpx.Timeout(
+                connect=5.0,                # Connection timeout
+                read=120.0,                 # Extended read timeout
+                write=5.0,                  # Write timeout
+                pool=5.0                    # Connection pool timeout
+            )
+
+        # Make the request to the AI service
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            # Construct the final URL correctly
+            url = f"{target_url}/{path}"
+            logger.debug(f"Proxying to URL: {url}")
+
+            response = await client.request(
+                method=request.method,
+                url=url,
+                params=params,
+                headers=headers,
+                content=body
+            )
+
+            # Parse response
+            try:
+                response_data = response.json()
+            except json.JSONDecodeError:
+                response_data = response.text
+
+            # Return standardized response
+            if response.is_success:
+                return create_response(
+                    data=response_data,
+                    meta={"request_id": request_id}
                 )
-        except Exception as e:
-            logger.error(f"Error parsing request body: {str(e)}")
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"Invalid JSON format: {str(e)}"}
-            )
-
-        # Forward to AI service with short timeout
-        timeout = httpx.Timeout(5.0, connect=3.0)
-        logger.info(f"Geocoding request for '{query}' with session: {session_id}")
-
-        # Make request to AI service
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            response = await client.post(
-                f"{AI_SERVICE_URL}/api/v1/geocode",
-                json=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Session-ID": session_id,
-                    "X-Request-ID": str(uuid.uuid4())
-                }
-            )
-
-            # Handle response
-            if response.status_code == 200:
-                logger.info(f"Geocode successful for '{query}'")
-                return response.json()
             else:
-                logger.error(f"Geocode error: {response.status_code} - {response.text[:100]}")
-                return JSONResponse(
-                    status_code=response.status_code,
-                    content={"error": f"Geocode service error: {response.status_code}"}
+                return create_response(
+                    error={
+                        "code": f"AI_SERVICE_ERROR_{response.status_code}",
+                        "message": str(response_data),
+                        "status_code": response.status_code
+                    },
+                    meta={"request_id": request_id}
                 )
-    except httpx.TimeoutException as e:
-        logger.error(f"Geocode request timed out: {str(e)}")
-        return JSONResponse(
-            status_code=504,
-            content={"error": "Geocode service timed out"}
+
+    except httpx.TimeoutException:
+        logger.error(f"[{request_id}] Request to AI service timed out for {path}")
+        return create_response(
+            error={
+                "code": "TIMEOUT",
+                "message": "Request to AI service timed out",
+                "status_code": 504
+            },
+            meta={"request_id": request_id}
         )
     except Exception as e:
-        logger.error(f"Error in geocode endpoint: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)}
+        logger.error(f"[{request_id}] Error proxying request: {e}")
+        logger.error(traceback.format_exc())
+        return create_response(
+            error={
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": f"An unexpected error occurred: {str(e)}",
+                "status_code": 500
+            },
+            meta={"request_id": request_id}
         )
 
-# API v1 routes - exclude /api/geocode from this catch-all
+# Path rewriting middleware implementation
+class PathRewriterMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, add_deprecation_warnings: bool = True):
+        super().__init__(app)
+        self.add_deprecation_warnings = add_deprecation_warnings
+
+        # Define path mapping rules - from legacy paths to standardized v1 paths
+        self.path_mappings = [
+            # Root level legacy routes
+            (r"^/health$", "/api/v1/health"),
+            (r"^/geocode$", "/api/v1/geocode"),
+            (r"^/chart/(.*)$", r"/api/v1/chart/\1"),
+            (r"^/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
+            (r"^/export/(.*)$", r"/api/v1/export/\1"),
+
+            # Unversioned /api/ routes
+            (r"^/api/health$", "/api/v1/health"),
+            (r"^/api/geocode$", "/api/v1/geocode"),
+            (r"^/api/chart/(.*)$", r"/api/v1/chart/\1"),
+            (r"^/api/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
+            (r"^/api/export/(.*)$", r"/api/v1/export/\1"),
+            (r"^/api/session/init$", "/api/v1/session/init"),
+            (r"^/api/session/(.*)$", r"/api/v1/session/\1"),
+        ]
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        rewritten = False
+
+        # Check if path needs rewriting
+        for pattern, replacement in self.path_mappings:
+            if re.match(pattern, path):
+                rewritten_path = re.sub(pattern, replacement, path)
+                # Create modified scope with new path
+                new_scope = dict(request.scope)
+                new_scope["path"] = rewritten_path
+                new_scope["raw_path"] = rewritten_path.encode()
+
+                # Create new request with modified scope
+                request = Request(scope=new_scope, receive=request.receive)
+                rewritten = True
+                break
+
+        # Process the request
+        response = await call_next(request)
+
+        # Add deprecation headers if path was rewritten
+        if rewritten and self.add_deprecation_warnings:
+            response.headers["Deprecation"] = "true"
+            response.headers["Sunset"] = "Wed, 1 Jan 2025 00:00:00 GMT"
+            response.headers["Link"] = f"<{rewritten_path}>; rel=\"successor-version\""
+
+        return response
+
+# API v1 routes - Proxy all requests to the AI service
 @app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
 async def api_proxy_v1(request: Request, path: str):
-    """Proxy requests to AI service"""
-    # Skip proxying if this is a geocode request (we handle it directly above)
-    if request.url.path == "/api/geocode" and request.method == "POST":
-        return JSONResponse(
-            status_code=405,
-            content={"error": "Method not allowed for this path"}
-        )
+    """Proxy requests to the v1 API endpoints"""
+    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/api/v1")
 
-    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/api/v1/{path}")
-
-# Legacy API routes (without /api/v1 prefix) - exclude /api/geocode from this catch-all
+# Legacy API routes - Proxy with path rewriting
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
 async def api_proxy(request: Request, path: str):
-    """Proxy requests to AI service"""
-    # Skip proxying if this is a geocode request (we handle it directly above)
-    if request.url.path == "/api/geocode" and request.method == "POST":
-        return JSONResponse(
-            status_code=405,
-            content={"error": "Method not allowed for this path"}
+    """Proxy requests with legacy path rewriting"""
+    # Skip proxying health check (handled directly above)
+    if request.url.path == "/health":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found"
         )
 
-    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/{path}")
+    # Add deprecation header for legacy paths
+    original_path = request.url.path
+    rewritten = False
+    target_path = original_path
+
+    # Check if this is a legacy path that should be rewritten
+    for prefix, new_prefix in LEGACY_PATHS.items():
+        if original_path.startswith(prefix):
+            # Rewrite the path
+            rest_of_path = original_path[len(prefix):]
+            if rest_of_path and not rest_of_path.startswith("/"):
+                rest_of_path = f"/{rest_of_path}"
+            target_path = f"{new_prefix}{rest_of_path}"
+            rewritten = True
+            break
+
+    # Forward the request to the appropriate backend endpoint
+    response_data = await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}")
+
+    # Add deprecation header if path was rewritten
+    if rewritten:
+        # Create a JSONResponse with the data to add headers
+        response = JSONResponse(
+            content=response_data,
+            status_code=200
+        )
+        response.headers["X-API-Warning"] = f"This endpoint is deprecated. Please use {target_path} instead."
+        return response
+
+    return response_data
 
 # WebSocket endpoints
 @app.websocket("/ws/{session_id}")
@@ -324,10 +534,6 @@ async def websocket_endpoint_with_id(websocket: WebSocket, session_id: str):
     """
     WebSocket endpoint for real-time updates with session ID.
     Proxies the connection to the AI service.
-
-    Args:
-        websocket: The WebSocket connection
-        session_id: The session ID to associate with this connection
     """
     try:
         # Connect to the WebSocket proxy
@@ -343,8 +549,8 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint with proxy to AI service.
 
-    This endpoint handles real-time communication between the client and the AI service,
-    including authentication, message validation, and proper error recovery.
+    This endpoint handles WebSocket connections without a session ID.
+    A session ID will be generated and provided to the client.
     """
     # Generate client ID and session ID
     client_id = f"client-{uuid.uuid4().hex[:8]}"
@@ -355,11 +561,12 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
         logger.info(f"WebSocket connection established for client {client_id}")
 
-        # Send initial welcome message - this helps determine if connection is working
+        # Send initial welcome message
         await websocket.send_json({
             "type": "welcome",
             "client_id": client_id,
-            "message": "Connection established. Please send initialization message.",
+            "session_id": session_id,
+            "message": "Connection established. Please use this session ID for future communications.",
             "timestamp": datetime.now().isoformat()
         })
 
@@ -367,325 +574,96 @@ async def websocket_endpoint(websocket: WebSocket):
         try:
             # Set a timeout for receiving the initialization message
             init_message_task = asyncio.create_task(websocket.receive_json())
-            try:
-                init_message = await asyncio.wait_for(init_message_task, timeout=10.0)
+            init_message = await asyncio.wait_for(init_message_task, timeout=10.0)
 
-                # Get session ID from initialization message or use the default
-                provided_session_id = init_message.get("session_id")
-                if provided_session_id:
-                    session_id = provided_session_id
+            # Get session ID from initialization message or use the default
+            provided_session_id = init_message.get("session_id")
+            if provided_session_id:
+                session_id = provided_session_id
 
-                token = init_message.get("token")
+            token = init_message.get("token")
 
-                # Send acknowledgment immediately to confirm receipt
-                await websocket.send_json({
-                    "type": "initialize_ack",
-                    "session_id": session_id,
-                    "client_id": client_id,
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                # Start WebSocket proxy with error handling and recovery
-                await websocket_proxy.handle_websocket(
-                    websocket=websocket,
-                    session_id=session_id,
-                    upstream_url=f"{AI_SERVICE_WS_URL}/{session_id}",
-                    client_id=client_id,
-                    token=token or "",
-                    ping_interval=int(os.getenv("WS_PING_INTERVAL", "30"))
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"No initialization message received from client {client_id} within timeout")
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Initialization timeout. No initialization message received.",
-                    "timestamp": datetime.now().isoformat()
-                })
-                await websocket.close(1013)  # Try/again later
-                return
-
-        except json.JSONDecodeError as json_error:
-            logger.warning(f"Invalid JSON from client {client_id}: {str(json_error)}")
+            # Send acknowledgment
             await websocket.send_json({
-                "type": "error",
-                "message": "Invalid JSON in initialization message",
-                "error_details": str(json_error),
+                "type": "initialize_ack",
+                "session_id": session_id,
+                "client_id": client_id,
                 "timestamp": datetime.now().isoformat()
             })
-            await websocket.close(1003)  # Unsupported data
-            return
-        except WebSocketDisconnect:
-            logger.info(f"Client {client_id} disconnected during initialization")
-            return
 
-    except WebSocketDisconnect:
-        logger.info(f"Client {client_id} disconnected")
-    except Exception as e:
-        logger.error(f"Error in WebSocket handler for client {client_id}: {str(e)}")
-        logger.error(f"Stack trace: {traceback.format_exc()}")
-        try:
-            # Check if the connection is still open before sending error
-            if websocket.client_state.CONNECTED:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"WebSocket error: {str(e)}",
-                    "timestamp": datetime.now().isoformat()
-                })
-                await websocket.close(1011)  # Internal error
-        except Exception:
-            pass
-    finally:
-        # Clean up
-        logger.info(f"WebSocket connection closed for client {client_id}, session {session_id}")
-
-        # Clean up any resources for this session
-        try:
-            await websocket_proxy.disconnect(websocket, session_id)
-        except Exception as cleanup_error:
-            logger.warning(f"Error during WebSocket cleanup: {str(cleanup_error)}")
-
-# Proxy function to forward requests to AI service
-async def proxy_to_ai_service(request: Request, path: str, target_url: str):
-    """
-    Proxy requests to AI service.
-
-    Args:
-        request: The incoming request
-        path: The path of the request
-        target_url: The target URL to proxy to
-
-    Returns:
-        Response from AI service
-    """
-    try:
-        # Get session ID from cookie or headers
-        session_id = request.cookies.get(SESSION_COOKIE_NAME, request.headers.get("X-Session-ID", ""))
-
-        # Get request headers, removing CORS headers and adding session ID
-        headers = {k: v for k, v in request.headers.items()
-                  if k.lower() not in ["host", "cookie", "connection", "content-length"]}
-
-        # Add request ID and session ID if available
-        if session_id:
-            headers["X-Session-ID"] = session_id
-        headers["X-Request-ID"] = str(uuid.uuid4())
-
-        # Create HTTP client with appropriate timeout
-        timeout = 60.0  # Default timeout in seconds
-        if "stream" in path.lower() or "export" in path.lower():
-            timeout = 300.0  # Higher timeout for streaming and export endpoints
-
-        # Include query parameters in the target URL
-        query_string = request.url.query
-        if query_string:
-            target_url = f"{target_url}?{query_string}"
-
-        logger.info(f"Proxying {request.method} request to {target_url}")
-
-        # Get request body with proper error handling
-        try:
-            body = await request.body()
-        except starlette.requests.ClientDisconnect:
-            logger.warning(f"Client disconnected while reading request body for {path}")
-            return JSONResponse(
-                status_code=499,  # Client Closed Request
-                content={"error": "Client disconnected"}
+            # Start WebSocket proxy
+            await websocket_proxy.handle_websocket(
+                websocket=websocket,
+                session_id=session_id,
+                upstream_url=f"{AI_SERVICE_WS_URL}/{session_id}",
+                client_id=client_id,
+                token=token or "",
+                ping_interval=int(os.getenv("WS_PING_INTERVAL", "30"))
             )
-
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            try:
-                response = await client.request(
-                    method=request.method,
-                    url=target_url,
-                    headers=headers,
-                    content=body
-                )
-
-                # Handle streaming responses differently
-                if "stream" in path.lower():
-                    return StreamingResponse(
-                        response.aiter_bytes(),
-                        status_code=response.status_code,
-                        headers=dict(response.headers)
-                    )
-
-                # For regular responses, try to parse JSON
-                try:
-                    content = response.json() if response.headers.get("content-type", "").startswith("application/json") else {"message": response.text}
-                except json.JSONDecodeError:
-                    content = {"message": response.text}
-
-                # Log non-200 responses
-                if response.status_code >= 400:
-                    logger.error(f"AI service returned error for {path}: {response.status_code} - {response.text[:500]}")
-
-                return JSONResponse(
-                    status_code=response.status_code,
-                    content=content
-                )
-
-            except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP status error for {path}: {e}")
-                return JSONResponse(
-                    status_code=e.response.status_code,
-                    content={"error": f"AI service returned error: {e.response.text}"}
-                )
-            except httpx.TimeoutException as e:
-                logger.error(f"Request timeout for {path}: {e}")
-                return JSONResponse(
-                    status_code=504,
-                    content={"error": "Request timed out"}
-                )
-            except Exception as e:
-                logger.error(f"Error proxying request to AI service: {e}")
-                return JSONResponse(
-                    status_code=502,
-                    content={"error": f"Error communicating with AI service: {str(e)}"}
-                )
-
-    except starlette.requests.ClientDisconnect:
-        logger.warning(f"Client disconnected during request processing for {path}")
-        return JSONResponse(
-            status_code=499,  # Client Closed Request
-            content={"error": "Client disconnected"}
-        )
-    except httpx.RequestError as e:
-        logger.error(f"Proxy error for {path}: {e}")
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"Could not connect to AI service: {str(e)}"}
-        )
+        except asyncio.TimeoutError:
+            logger.warning(f"No initialization message received from client {client_id} within timeout")
+            await websocket.send_json({
+                "type": "error",
+                "error": "initialization_timeout",
+                "message": "No initialization message received within timeout period",
+                "timestamp": datetime.now().isoformat()
+            })
+            await websocket.close(code=1013)  # Try to close with "Try Again Later" code
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for client {client_id}")
     except Exception as e:
-        logger.error(f"Unexpected error proxying {path}: {e}")
-        logger.error(traceback.format_exc())
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Internal server error: {str(e)}"}
-        )
+        logger.error(f"WebSocket error for client {client_id}: {e}")
+        try:
+            await websocket.close(code=1011)  # Internal Error
+        except:
+            pass
 
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle all unhandled exceptions"""
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    """Handle all uncaught exceptions across the application."""
+    logger.error(f"Unhandled exception: {exc}")
+    logger.error(traceback.format_exc())
+
+    # Return a standardized error response
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "An internal server error occurred"},
+        content={
+            "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": str(exc) if os.getenv("DEBUG") == "true" else "An unexpected error occurred",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
     )
 
-# Not found handler
+# Not found exception handler
 @app.exception_handler(404)
 async def not_found_exception_handler(request: Request, exc: Exception):
-    """Handle 404 Not Found exceptions"""
+    """Handle 404 Not Found exceptions."""
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
-        content={"detail": "The requested resource was not found"},
+        content={
+            "error": {
+                "code": "NOT_FOUND",
+                "message": f"The requested resource was not found: {request.url.path}",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
     )
 
-# Add enhanced error handling
-add_error_handler(
-    app,
-    max_retries=3,
-    retry_delay=0.5,
-    retry_backoff_factor=2.0,
-    retry_status_codes=[502, 503, 504, 429],
-    debug_mode=os.getenv("ENVIRONMENT", "development") != "production"
-)
-
-# Entry point for running the app directly
+# Main entry point
 if __name__ == "__main__":
     import uvicorn
+
+    # Get port from environment or use default
+    port = int(os.environ.get("PORT", "3000"))
+    print(f"Starting API Gateway on port {port}")
+
+    # Run the API Gateway
     uvicorn.run(
-        "main:app",
+        app,  # Use the app instance directly instead of importing by string
         host="0.0.0.0",
-        port=3000,
-        reload=True,
-        log_level="info"
-    )
-
-@app.post("/api/geocode/simple")
-async def geocode_endpoint_simple(request: Request):
-    """Simplified geocoding endpoint for debugging"""
-
-    try:
-        # Simple fixed query to test service
-        query = "New York City"
-
-        # Log what we're doing
-        logger.info(f"Simple geocode test with fixed query: '{query}'")
-
-        # Forward directly to AI service with shorter timeout
-        timeout = httpx.Timeout(7.0, connect=3.0)
-
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            endpoint = f"{AI_SERVICE_URL}/api/v1/geocode"
-
-            logger.info(f"Sending test request to: {endpoint}")
-
-            response = await client.post(
-                endpoint,
-                json={"query": query, "limit": 1, "exactly_one": True},
-                headers={"Content-Type": "application/json"}
-            )
-
-            logger.info(f"Response status: {response.status_code}")
-
-            if response.status_code == 200:
-                logger.info("Geocode test successful!")
-                return response.json()
-            else:
-                logger.error(f"Geocode test failed: {response.text[:100]}")
-                return {
-                    "error": "Geocode test failed",
-                    "status_code": response.status_code,
-                    "details": response.text[:100]
-                }
-
-    except httpx.TimeoutException as e:
-        logger.error(f"Timeout in simple geocode test: {str(e)}")
-        return {"error": f"Timeout: {str(e)}"}
-    except Exception as e:
-        logger.error(f"Error in simple geocode test: {str(e)}")
-        logger.error(traceback.format_exc())
-        return {"error": str(e)}
-
-@app.post("/api/geocode/minimal")
-async def geocode_endpoint_minimal(request: Request):
-    """Most minimal geocoding endpoint possible for testing."""
-    await asyncio.sleep(0.1)  # Minimal delay
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": "success",
-            "message": "Hardcoded test response",
-            "query": "New York City",
-            "results": [
-                {
-                    "address": "New York City, NY, USA",
-                    "latitude": 40.7128,
-                    "longitude": -74.006,
-                    "provider": "test"
-                }
-            ]
-        }
-    )
-
-@app.post("/api/geocode/static")
-async def geocode_static():
-    """Static geocode endpoint that doesn't call any external service."""
-    await asyncio.sleep(0.1)  # Small delay
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": "success",
-            "message": "Static geocode response",
-            "results": [
-                {
-                    "address": "New York City, NY, USA",
-                    "latitude": 40.7128,
-                    "longitude": -74.006,
-                    "provider": "static"
-                }
-            ]
-        }
+        port=port,
+        reload=False
     )

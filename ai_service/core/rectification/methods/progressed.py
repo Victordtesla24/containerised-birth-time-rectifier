@@ -25,7 +25,7 @@ async def progressed_ascendant_rectification(
     Returns:
         Tuple of (rectified_datetime, confidence_score)
     """
-    from ..chart_calculator import calculate_chart
+    from ai_service.core.rectification.chart_calculator import calculate_chart
 
     # Define test times to check (within 2 hours before and after the given time)
     test_times = []

@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 # Create router with explicit prefix to ensure it's accessible
 router = APIRouter(
-    prefix="/health",
     tags=["Health"],
     responses={
         404: {"description": "Not found"},

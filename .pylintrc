@@ -1,0 +1,78 @@
+[MASTER]
+# Ignore the docstring for certain files
+ignore=CVS
+
+# Use multiple processes to speed up Pylint
+jobs=4
+
+# Allow loading of arbitrary C extensions
+unsafe-load-any-extension=no
+
+# Add files to be ignored here
+ignore-patterns=
+
+# Python code to execute
+init-hook=
+
+[MESSAGES CONTROL]
+# Disable specific messages or enable specific warnings
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    invalid-name,
+    too-few-public-methods,
+    too-many-arguments,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-instance-attributes,
+    duplicate-code,
+    line-too-long,
+    fixme,
+    protected-access,
+    broad-except,
+    bare-except,
+    no-self-argument
+
+# Enable specific warnings (in addition to default set)
+enable=
+    useless-suppression
+
+[TYPECHECK]
+# List of module names for which member attributes should not be checked
+ignored-modules=numpy,torch,tensorflow,cv2,PIL,pandas,pytest,swisseph
+
+# List of classes names for which member attributes should not be checked
+ignored-classes=SQLObject,numpy,torch,tensorflow
+
+# List of members which are set dynamically and missed by pylint inference system
+generated-members=REQUEST,acl_users,aq_parent,objects,DoesNotExist,id,pk,_meta,status_code,content
+
+[VARIABLES]
+# Tells whether unused globals should be treated as a violation
+allow-global-unused-variables=yes
+
+# A regular expression matching the name of dummy variables
+dummy-variables-rgx=_+$|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?$)|dummy|^ignored_|^unused_
+
+[REPORTS]
+# Set the output format [text, parseable, colorized, json, msvs]
+output-format=text
+
+[CLASSES]
+# List of method names used to declare instance attributes
+defining-attr-methods=__init__,__new__,setUp
+
+# Valid names for the first argument in a class method
+valid-classmethod-first-arg=cls,v,values,value,cls_or_self
+
+# Valid names for the first argument in a metaclass class method
+valid-metaclass-classmethod-first-arg=cls
+
+[METHOD_ARGS]
+# Regular expression which should only match correct method names
+method-rgx=(([a-z][a-z0-9_]{2,50})|(_[a-z0-9_]*))$
+
+# Good variable names which should always be accepted
+good-names=i,j,k,ex,Run,_,id,v,cls

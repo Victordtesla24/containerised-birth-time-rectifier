@@ -4,7 +4,7 @@ Defines data structures for comparing original and rectified charts.
 """
 
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, Union
 
 class DifferenceType(str, Enum):
@@ -77,8 +77,8 @@ class ChartComparisonResponse(BaseModel):
     summary: Optional[str] = None
     overall_impact: Optional[float] = None
 
-    model_config = ConfigDict(
-        json_schema_extra={
+    class Config:
+        schema_extra = {
             "example": {
                 "comparison_id": "comp_123456789",
                 "chart1_id": "chrt_987654321",
@@ -110,4 +110,3 @@ class ChartComparisonResponse(BaseModel):
                 "overall_impact": 0.72
             }
         }
-    )

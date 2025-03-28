@@ -23,6 +23,9 @@ async def acquire_pool() -> asyncpg.Pool:
 
     Returns:
         Connection pool instance
+
+    Raises:
+        RuntimeError: If pool cannot be created
     """
     global _DB_POOL
 
@@ -41,7 +44,11 @@ async def acquire_pool() -> asyncpg.Pool:
             logger.info("Database connection pool created successfully")
         except Exception as e:
             logger.error(f"Failed to create database connection pool: {e}")
-            raise
+            raise RuntimeError(f"Failed to create database connection pool: {e}")
+
+    if _DB_POOL is None:
+        # This should never happen due to the exception above, but to satisfy type checker
+        raise RuntimeError("Failed to create database connection pool: Unexpected error")
 
     return _DB_POOL
 

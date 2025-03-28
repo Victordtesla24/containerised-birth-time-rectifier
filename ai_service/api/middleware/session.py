@@ -82,11 +82,22 @@ def get_redis_client():
         return None
 
     try:
-        import redis  # type: ignore
         from ai_service.core.config import settings
+
+        # Skip Redis if explicitly disabled in settings
+        if not getattr(settings, "USE_REDIS", False):
+            logger.info("Redis usage is disabled in settings, using file-based storage")
+            return None
+
+        import redis  # type: ignore
 
         # Create connection pool if not already created
         if REDIS_CONNECTION_POOL is None:
+            # Skip if REDIS_URL is empty
+            if not settings.REDIS_URL:
+                logger.info("REDIS_URL is empty, using file-based storage")
+                return None
+
             REDIS_CONNECTION_POOL = redis.ConnectionPool.from_url(
                 settings.REDIS_URL,
                 decode_responses=True,
@@ -115,7 +126,7 @@ def get_redis_client():
         return redis_client
     except (ImportError, Exception) as e:
         error_msg = f"Redis not available for session storage: {e}"
-        logger.error(error_msg)
+        logger.warning(error_msg)  # Changed from error to warning since we have a fallback
         # Always return None to allow for file-based fallback
         return None
 

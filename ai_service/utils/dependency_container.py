@@ -7,6 +7,7 @@ It allows for easy mocking during tests while providing real implementations in 
 
 import logging
 from typing import Dict, Any, Type, TypeVar, Generic, Optional, cast, Union
+import os
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -146,112 +147,52 @@ def initialize_container() -> None:
 def register_openai_service():
     """Register the OpenAI service in the dependency container."""
     container = get_container()
-    if not container.has_service("openai_service"):
-        try:
-            # Import the OpenAI service dynamically to avoid circular imports
-            from ai_service.api.services.openai import get_openai_service_sync
 
-            # Try to get an already initialized instance
-            openai_service = get_openai_service_sync()
+    # If already registered, skip
+    if container.has_service("openai_service"):
+        logger.debug("OpenAI service already registered")
+        return
 
-            if openai_service:
-                # Register the existing instance
-                container.register_service("openai_service", openai_service)
-                logger.info("Registered existing OpenAI service instance")
-            else:
-                # Create a mock service for testing
-                class MockOpenAIService:
-                    """Mock OpenAI service for testing purposes."""
-                    async def verify_chart(self, chart_data):
-                        """Mock chart verification method."""
-                        return {
-                            "verified_with_openai": False,
-                            "status": "verification_mocked",
-                            "message": "OpenAI verification is not available in this environment",
-                            "confidence": 0.5,
-                            "corrections_applied": False
-                        }
+    try:
+        # Use the proper OpenAI service implementation
+        from ai_service.api.services.openai.service import OpenAIService
+        import os
 
-                # Register the mock service
-                mock_service = MockOpenAIService()
-                container.register_mock("openai_service", mock_service)
-                logger.info("Using mock OpenAI service for testing")
-        except Exception as e:
-            logger.warning(f"Failed to register OpenAI service: {e}")
-            # Don't raise an error - allow the application to run without OpenAI
-            logger.info("Using mock OpenAI service for testing")
+        # Get API key from environment
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            logger.error("OPENAI_API_KEY environment variable not set")
+            raise ValueError("OpenAI API key is required but not provided")
 
-            class FallbackMockOpenAIService:
-                """Mock OpenAI service for testing purposes."""
-                async def verify_chart(self, chart_data):
-                    """Mock chart verification method."""
-                    return {
-                        "verified_with_openai": False,
-                        "status": "verification_mocked",
-                        "message": "OpenAI verification is not available in this environment",
-                        "confidence": 0.5,
-                        "corrections_applied": False
-                    }
+        # Create the service
+        openai_service = OpenAIService(api_key=api_key)
 
-            # Register the mock service
-            mock_service = FallbackMockOpenAIService()
-            container.register_mock("openai_service", mock_service)
+        # Register the service
+        container.register_service("openai_service", openai_service)
+        logger.info("Registered OpenAI service with API key from environment")
+    except Exception as e:
+        logger.error(f"Failed to register OpenAI service: {e}")
+        # No fallback - raise the exception to enforce proper configuration
+        raise
 
 def register_chart_service():
     """Register the Chart service in the dependency container."""
     container = get_container()
     if not container.has_service("chart_service"):
         try:
-            # Import the real ChartService implementation
-            from ai_service.services.chart_service import ChartService, create_chart_service
+            # Get chart service implementation
+            from ai_service.services import get_chart_service
 
-            # Create a real instance using the factory function
-            chart_service = create_chart_service()
+            # Create a chart service instance
+            chart_service = get_chart_service()
 
             # Register the service
             container.register_service("chart_service", chart_service)
-            logger.info("Registered the production ChartService implementation")
+            logger.info("Registered the chart service implementation")
         except Exception as e:
-            logger.warning(f"Failed to register chart_service: {e}")
-            # Create a mock chart service instead
-            class MockChartService:
-                """Mock Chart service for testing."""
-                def __init__(self):
-                    self._initialized = True
-
-                async def initialize(self):
-                    return True
-
-                async def ensure_initialized(self):
-                    return True
-
-                async def generate_chart(self, birth_date, birth_time, latitude, longitude, **kwargs):
-                    """Generate a mock chart for testing."""
-                    import uuid
-                    chart_id = f"test_chart_{uuid.uuid4().hex[:8]}"
-                    return {
-                        "chart_id": chart_id,
-                        "birth_details": {
-                            "date": birth_date,
-                            "time": birth_time,
-                            "latitude": latitude,
-                            "longitude": longitude
-                        },
-                        "planets": {},
-                        "houses": {},
-                        "ascendant": {"sign": "Libra", "degree": 0},
-                        "verification": {
-                            "status": "verification_mocked",
-                            "message": "Chart verification is not available in this environment",
-                            "verified": True,
-                            "confidence": 1.0
-                        }
-                    }
-
-            # Register mock service
-            mock_service = MockChartService()
-            container.register_mock("chart_service", mock_service)
-            logger.info("Registered a TestChartService using real astronomical calculations")
+            logger.error(f"Failed to register chart_service: {e}")
+            # No fallback - raise the exception
+            raise RuntimeError(f"Chart service registration failed: {str(e)}")
 
 # Call this on module import to ensure the services are registered
 register_openai_service()

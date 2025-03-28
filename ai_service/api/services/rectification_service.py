@@ -44,6 +44,104 @@ from ai_service.core.rectification.constants import PLANETS_LIST
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Define LIST_PLANETS since it's not available in flatlib.const
+# Use PLANETS_LIST from imported constants or define our own if needed
+LIST_PLANETS = PLANETS_LIST if 'PLANETS_LIST' in globals() else [
+    const.SUN, const.MOON, const.MERCURY, const.VENUS, const.MARS,
+    const.JUPITER, const.SATURN, const.URANUS, const.NEPTUNE, const.PLUTO
+]
+
+# Helper function to safely access planets list without modifying const
+def get_planets_list():
+    """Get the list of planets for chart calculation."""
+    return LIST_PLANETS
+
+# Helper function to safely get planet dignity
+def get_planet_dignity(planet):
+    """
+    Get the dignity of a planet safely.
+
+    Args:
+        planet: A flatlib planet object
+
+    Returns:
+        String representing dignity status
+    """
+    # Check if we have the planet sign
+    if not hasattr(planet, 'sign'):
+        raise ValueError("Planet object does not have 'sign' attribute")
+
+    # Check if we can determine rulership
+    sign = planet.sign
+
+    # Define dignities based on classical rulerships
+    rulerships = {
+        const.ARIES: const.MARS,
+        const.TAURUS: const.VENUS,
+        const.GEMINI: const.MERCURY,
+        const.CANCER: const.MOON,
+        const.LEO: const.SUN,
+        const.VIRGO: const.MERCURY,
+        const.LIBRA: const.VENUS,
+        const.SCORPIO: const.MARS,  # Traditional rulership
+        const.SAGITTARIUS: const.JUPITER,
+        const.CAPRICORN: const.SATURN,
+        const.AQUARIUS: const.SATURN,  # Traditional rulership
+        const.PISCES: const.JUPITER
+    }
+
+    # Define exaltations
+    exaltations = {
+        const.ARIES: const.SUN,
+        const.TAURUS: const.MOON,
+        const.CANCER: const.JUPITER,
+        const.VIRGO: const.MERCURY,
+        const.LIBRA: const.SATURN,
+        const.CAPRICORN: const.MARS,
+        const.PISCES: const.VENUS
+    }
+
+    # Define falls (opposite of exaltation)
+    falls = {
+        const.LIBRA: const.SUN,
+        const.SCORPIO: const.MOON,
+        const.CAPRICORN: const.JUPITER,
+        const.PISCES: const.MERCURY,
+        const.ARIES: const.SATURN,
+        const.CANCER: const.MARS,
+        const.VIRGO: const.VENUS
+    }
+
+    # Define detriments (opposite of rulership)
+    detriments = {
+        const.LIBRA: const.MARS,
+        const.SCORPIO: const.VENUS,
+        const.SAGITTARIUS: const.MERCURY,
+        const.CAPRICORN: const.MOON,
+        const.AQUARIUS: const.SUN,
+        const.PISCES: const.MERCURY,
+        const.ARIES: const.VENUS,
+        const.TAURUS: const.MARS,
+        const.GEMINI: const.JUPITER,
+        const.CANCER: const.SATURN,
+        const.LEO: const.SATURN,
+        const.VIRGO: const.JUPITER
+    }
+
+    # Determine dignity
+    planet_name = planet.id
+
+    if sign in rulerships and rulerships[sign] == planet_name:
+        return "rulership"
+    elif sign in exaltations and exaltations[sign] == planet_name:
+        return "exaltation"
+    elif sign in falls and falls[sign] == planet_name:
+        return "fall"
+    elif sign in detriments and detriments[sign] == planet_name:
+        return "detriment"
+    else:
+        return "peregrine"  # Neutral dignity
+
 # Astrological life event mapping - specific planetary transits/aspects associated with life events
 LIFE_EVENT_MAPPING = {
     'marriage': [
@@ -154,7 +252,8 @@ def calculate_chart_for_time(birth_date: datetime, latitude: float, longitude: f
     offset_str = f"{'+' if hours >= 0 else '-'}{abs(int(hours)):02d}:{abs(int(minutes)):02d}"
 
     # Create flatlib datetime and position objects
-    date = Datetime(dt_str, time_str, offset_str)
+    # Convert strings to appropriate numeric types if required by the API
+    date = Datetime(dt_str, int(birth_date.hour), int(offset.total_seconds() / 3600))
     pos = GeoPos(f"{abs(latitude)}{'n' if latitude >= 0 else 's'}",
                 f"{abs(longitude)}{'e' if longitude >= 0 else 'w'}")
 
@@ -176,7 +275,7 @@ def get_house_planet_connections(chart: Chart, house_num: int) -> List[Dict[str,
     house_objects = []
 
     # Check planets in the house
-    for planet_name in const.LIST_PLANETS:
+    for planet_name in get_planets_list():  # Use helper function
         planet = chart.getObject(planet_name)
         if house.hasObject(planet):
             house_objects.append({
@@ -187,7 +286,7 @@ def get_house_planet_connections(chart: Chart, house_num: int) -> List[Dict[str,
 
     # Check planets aspecting house cusp
     house_cusp_longitude = house.lon
-    for planet_name in const.LIST_PLANETS:
+    for planet_name in get_planets_list():  # Use helper function
         planet = chart.getObject(planet_name)
         planet_longitude = planet.lon
 
@@ -247,9 +346,10 @@ def get_planet_aspects(chart: Chart, planet1_name: str, planet2_name: str) -> Li
             # Closer to exact aspect = stronger
             strength = (1 - actual_orb/orb) * 10.0
 
-            # Consider essential dignity
-            p1_dignity = essential.get_dignity(planet1)
-            p2_dignity = essential.get_dignity(planet2)
+            # Use our helper function for dignity
+            p1_dignity = get_planet_dignity(planet1)
+            p2_dignity = get_planet_dignity(planet2)
+
             dignity_factor = 1.0
             if p1_dignity == 'ruler' or p2_dignity == 'ruler':
                 dignity_factor = 1.5
@@ -433,10 +533,10 @@ class EnhancedRectificationService:
         # Check aspects between transit planets and natal planets
         transit_aspects = []
 
-        for transit_planet in const.LIST_PLANETS:
+        for transit_planet in get_planets_list():  # Use helper function
             tr_planet_obj = transit_chart.getObject(transit_planet)
 
-            for natal_planet in const.LIST_PLANETS:
+            for natal_planet in get_planets_list():  # Use helper function
                 natal_planet_obj = birth_chart.getObject(natal_planet)
 
                 for aspect_type in ASPECT_ORBS.keys():
@@ -458,7 +558,7 @@ class EnhancedRectificationService:
         # Check transit planets in natal houses
         transit_house_placements = []
 
-        for transit_planet in const.LIST_PLANETS:
+        for transit_planet in get_planets_list():  # Use helper function
             tr_planet_obj = transit_chart.getObject(transit_planet)
 
             for house_num in range(1, 13):

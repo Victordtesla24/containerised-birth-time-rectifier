@@ -173,8 +173,8 @@ async def timezone_endpoint(
         raise
     except Exception as e:
         logger.error(f"Error getting timezone for coordinates ({latitude}, {longitude}): {str(e)}")
-    return {
+        return {
             "success": False,
             "error": f"Timezone error: {str(e)}",
             "timezone": None
-    }
+        }

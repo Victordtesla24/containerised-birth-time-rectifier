@@ -1,337 +1,211 @@
 """
-Session management service for the API layer.
+Session service for API services.
 
-This module provides a session storage interface for the API layer,
-abstracting the underlying storage mechanism (files, Redis, etc.)
+This module provides session management functionality for the API services.
 """
 
 import os
 import json
-import time
-import uuid
 import logging
+import uuid
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 import asyncio
-from typing import Dict, Any, Optional, List, Union
-from pathlib import Path
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
-class SessionStore:
-    """
-    Session storage implementation with file-based persistence.
+# Global session store
+_session_store = None
 
-    This provides a simple interface for storing and retrieving session data
-    with local filesystem persistence for development and testing.
-    """
-
-    def __init__(self, persistence_dir: Optional[str] = None):
-        """
-        Initialize the session store.
-
-        Args:
-            persistence_dir: Directory to store session data (default: None, uses tmp directory)
-        """
-        if persistence_dir:
-            self.persistence_dir = persistence_dir
-        else:
-            # Use a directory in the project for session storage
-            project_root = Path(__file__).parent.parent.parent.parent
-            self.persistence_dir = os.path.join(project_root, "sessions")
-
-        # Create the directory if it doesn't exist
-        os.makedirs(self.persistence_dir, exist_ok=True)
-
-        # In-memory cache of sessions
-        self._sessions: Dict[str, Dict[str, Any]] = {}
-
-        # Default session expiry time (30 days in seconds)
-        self.session_expiry = 30 * 24 * 60 * 60
-
-        logger.info(f"Session store initialized with persistence dir: {self.persistence_dir}")
-
-    def _generate_session_id(self) -> str:
-        """Generate a unique session ID."""
-        return str(uuid.uuid4())
-
-    def _get_session_file_path(self, session_id: str) -> str:
-        """Get the file path for a session."""
-        return os.path.join(self.persistence_dir, f"{session_id}.json")
-
-    def _load_session_from_file(self, session_id: str) -> Dict[str, Any]:
-        """Load session data from file."""
-        file_path = self._get_session_file_path(session_id)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r') as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                logger.error(f"Failed to decode session file: {file_path}")
-            except Exception as e:
-                logger.error(f"Error loading session file: {e}")
-        return {}
-
-    def _save_session_to_file(self, session_id: str, data: Dict[str, Any]) -> bool:
-        """Save session data to file."""
-        file_path = self._get_session_file_path(session_id)
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(data, f)
-            return True
-        except Exception as e:
-            logger.error(f"Error saving session file: {e}")
-            return False
-
-    def create_session(self, session_id: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> str:
-        """
-        Create a new session.
-
-        Args:
-            session_id: Optional session ID (generated if not provided)
-            data: Initial session data
-
-        Returns:
-            The session ID
-        """
-        # Generate session ID if not provided
-        if not session_id:
-            session_id = self._generate_session_id()
-
-        # Create session data
-        session_data = data or {}
-        session_data.update({
-            "created_at": int(time.time()),
-            "expires_at": int(time.time()) + self.session_expiry,
-            "last_accessed": int(time.time())
-        })
-
-        # Store in memory and on disk
-        self._sessions[session_id] = session_data
-        self._save_session_to_file(session_id, session_data)
-
-        logger.info(f"Created session: {session_id}")
-        return session_id
-
-    async def create_session_async(self, session_id: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> str:
-        """Async version of create_session."""
-        return await asyncio.to_thread(self.create_session, session_id, data)
-
-    def get_session(self, session_id: str) -> Dict[str, Any]:
-        """
-        Get session data by ID.
-
-        Args:
-            session_id: The session ID
-
-        Returns:
-            Session data or empty dict if not found
-        """
-        # Check cache first
-        if session_id in self._sessions:
-            session_data = self._sessions[session_id]
-        else:
-            # Load from file
-            session_data = self._load_session_from_file(session_id)
-            if session_data:
-                self._sessions[session_id] = session_data
-
-        # Check if session exists and is not expired
-        if session_data and self.is_valid_session(session_id):
-            # Update last accessed time
-            session_data["last_accessed"] = int(time.time())
-            self._sessions[session_id] = session_data
-            return session_data
-
-        return {}
-
-    async def get_session_async(self, session_id: str) -> Dict[str, Any]:
-        """Async version of get_session."""
-        return await asyncio.to_thread(self.get_session, session_id)
-
-    def update_session(self, session_id: str, data: Dict[str, Any]) -> bool:
-        """
-        Update session data.
-
-        Args:
-            session_id: The session ID
-            data: Data to update (will be merged with existing data)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        # Get existing session
-        session_data = self.get_session(session_id)
-        if not session_data:
-            logger.error(f"Session not found: {session_id}")
-            return False
-
-        # Update session data (deep merge)
-        self._deep_update(session_data, data)
-
-        # Update last accessed time
-        session_data["last_accessed"] = int(time.time())
-
-        # Save to memory and disk
-        self._sessions[session_id] = session_data
-        success = self._save_session_to_file(session_id, session_data)
-
-        return success
-
-    async def update_session_async(self, session_id: str, data: Dict[str, Any]) -> bool:
-        """Async version of update_session."""
-        return await asyncio.to_thread(self.update_session, session_id, data)
-
-    def add_question_response(self, session_id: str, question: Dict[str, Any], response: Dict[str, Any]) -> bool:
-        """
-        Add a question and response to the session.
-
-        Args:
-            session_id: The session ID
-            question: Question data
-            response: Response data
-
-        Returns:
-            True if successful, False otherwise
-        """
-        # Get existing session
-        session_data = self.get_session(session_id)
-        if not session_data:
-            logger.error(f"Session not found: {session_id}")
-            return False
-
-        # Initialize questionnaire data if it doesn't exist
-        if "questionnaire" not in session_data:
-            session_data["questionnaire"] = {
-                "questions": [],
-                "responses": []
-            }
-
-        # Add question and response
-        session_data["questionnaire"]["questions"].append(question)
-        session_data["questionnaire"]["responses"].append(response)
-
-        # Save to memory and disk
-        self._sessions[session_id] = session_data
-        success = self._save_session_to_file(session_id, session_data)
-
-        return success
-
-    async def add_question_response_async(self, session_id: str, question: Dict[str, Any], response: Dict[str, Any]) -> bool:
-        """Async version of add_question_response."""
-        return await asyncio.to_thread(self.add_question_response, session_id, question, response)
-
-    def delete_session(self, session_id: str) -> bool:
-        """
-        Delete a session.
-
-        Args:
-            session_id: The session ID
-
-        Returns:
-            True if successful, False otherwise
-        """
-        # Remove from memory
-        if session_id in self._sessions:
-            del self._sessions[session_id]
-
-        # Remove from disk
-        file_path = self._get_session_file_path(session_id)
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-                logger.info(f"Deleted session: {session_id}")
-                return True
-            except Exception as e:
-                logger.error(f"Error deleting session file: {e}")
-
-        return False
-
-    async def delete_session_async(self, session_id: str) -> bool:
-        """Async version of delete_session."""
-        return await asyncio.to_thread(self.delete_session, session_id)
-
-    def is_valid_session(self, session_id: str) -> bool:
-        """
-        Check if a session is valid (exists and not expired).
-
-        Args:
-            session_id: The session ID
-
-        Returns:
-            True if valid, False otherwise
-        """
-        # Check if session exists in memory
-        if session_id in self._sessions:
-            session_data = self._sessions[session_id]
-        else:
-            # Load from file
-            session_data = self._load_session_from_file(session_id)
-            if session_data:
-                self._sessions[session_id] = session_data
-
-        # Check expiration
-        if session_data and "expires_at" in session_data:
-            current_time = int(time.time())
-            return current_time < session_data["expires_at"]
-
-        return False
-
-    def cleanup_expired_sessions(self) -> int:
-        """
-        Clean up expired sessions.
-
-        Returns:
-            Number of sessions cleaned up
-        """
-        count = 0
-        current_time = int(time.time())
-
-        # Get all session files
-        for filename in os.listdir(self.persistence_dir):
-            if filename.endswith(".json"):
-                session_id = filename.replace(".json", "")
-
-                # Load session data
-                session_data = self._load_session_from_file(session_id)
-
-                # Check if expired
-                if session_data and "expires_at" in session_data and current_time >= session_data["expires_at"]:
-                    # Delete session
-                    if self.delete_session(session_id):
-                        count += 1
-
-        if count > 0:
-            logger.info(f"Cleaned up {count} expired sessions")
-
-        return count
-
-    def _deep_update(self, target: Dict[str, Any], source: Dict[str, Any]) -> None:
-        """
-        Deep update a nested dictionary.
-
-        Args:
-            target: Target dictionary to update
-            source: Source dictionary with updates
-        """
-        for key, value in source.items():
-            if isinstance(value, dict) and key in target and isinstance(target[key], dict):
-                # Recursively update nested dictionaries
-                self._deep_update(target[key], value)
-            else:
-                # Replace or add the value
-                target[key] = value
-
-# Singleton pattern for session store
-_session_store: Optional[SessionStore] = None
-
-def get_session_store() -> SessionStore:
-    """
-    Get the session store instance (singleton).
-
-    Returns:
-        SessionStore instance
-    """
+def get_session_store():
+    """Get the global session store instance."""
     global _session_store
     if _session_store is None:
         _session_store = SessionStore()
     return _session_store
+
+class SessionStore:
+    """Session store for managing user sessions."""
+
+    def __init__(self, session_dir: Optional[str] = None):
+        """
+        Initialize the session store.
+
+        Args:
+            session_dir: Directory to store session data. If None, uses 'sessions' directory.
+        """
+        self.session_dir = session_dir or os.path.join(os.getcwd(), "sessions")
+        self.sessions = {}
+        self.session_expiry_days = int(os.environ.get("SESSION_EXPIRY_DAYS", "30"))
+
+        # Create session directory if it doesn't exist
+        os.makedirs(self.session_dir, exist_ok=True)
+
+        # Load any existing sessions
+        self._load_sessions()
+
+        logger.info(f"Session store initialized with directory: {self.session_dir}")
+
+    def _load_sessions(self):
+        """Load sessions from the session directory."""
+        try:
+            if not os.path.exists(self.session_dir):
+                return
+
+            for filename in os.listdir(self.session_dir):
+                if filename.endswith(".json"):
+                    session_id = os.path.splitext(filename)[0]
+                    file_path = os.path.join(self.session_dir, filename)
+
+                    try:
+                        with open(file_path, "r") as f:
+                            session_data = json.load(f)
+
+                            # Check if session is expired
+                            created_at = datetime.fromisoformat(session_data.get("created_at", "2000-01-01T00:00:00"))
+                            expiry_date = created_at + timedelta(days=self.session_expiry_days)
+
+                            if datetime.now() < expiry_date:
+                                self.sessions[session_id] = session_data
+                            else:
+                                # Remove expired session file
+                                os.remove(file_path)
+                                logger.info(f"Removed expired session: {session_id}")
+                    except Exception as e:
+                        logger.error(f"Error loading session {session_id}: {e}")
+
+            logger.info(f"Loaded {len(self.sessions)} sessions from {self.session_dir}")
+        except Exception as e:
+            logger.error(f"Error loading sessions: {e}")
+
+    async def create_session(self, initial_data: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Create a new session.
+
+        Args:
+            initial_data: Initial session data
+
+        Returns:
+            Session ID
+        """
+        session_id = f"session_{uuid.uuid4().hex[:8]}"
+
+        # Create session data
+        session_data = {
+            "session_id": session_id,
+            "created_at": datetime.now().isoformat(),
+            "last_accessed": datetime.now().isoformat(),
+            **(initial_data or {})
+        }
+
+        # Store session in memory
+        self.sessions[session_id] = session_data
+
+        # Save session to file
+        await self._save_session(session_id, session_data)
+
+        logger.info(f"Created new session: {session_id}")
+        return session_id
+
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get session data by ID.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Session data or None if not found
+        """
+        # Try to get from memory
+        session_data = self.sessions.get(session_id)
+
+        # If not in memory, try to load from file
+        if session_data is None:
+            try:
+                file_path = os.path.join(self.session_dir, f"{session_id}.json")
+                if os.path.exists(file_path):
+                    with open(file_path, "r") as f:
+                        session_data = json.load(f)
+                        self.sessions[session_id] = session_data
+            except Exception as e:
+                logger.error(f"Error loading session {session_id}: {e}")
+                return None
+
+        # Update last accessed timestamp
+        if session_data:
+            session_data["last_accessed"] = datetime.now().isoformat()
+            await self._save_session(session_id, session_data)
+
+        return session_data
+
+    async def update_session(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """
+        Update session data.
+
+        Args:
+            session_id: Session ID
+            data: New session data
+
+        Returns:
+            True if session was updated, False otherwise
+        """
+        # Check if session exists
+        if session_id not in self.sessions:
+            session = await self.get_session(session_id)
+            if not session:
+                return False
+
+        # Update session data
+        self.sessions[session_id] = data
+
+        # Update last accessed timestamp
+        data["last_accessed"] = datetime.now().isoformat()
+
+        # Save session to file
+        await self._save_session(session_id, data)
+
+        return True
+
+    async def delete_session(self, session_id: str) -> bool:
+        """
+        Delete a session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            True if session was deleted, False otherwise
+        """
+        # Remove from memory
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+
+        # Remove from file
+        try:
+            file_path = os.path.join(self.session_dir, f"{session_id}.json")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting session {session_id}: {e}")
+
+        return False
+
+    async def _save_session(self, session_id: str, data: Dict[str, Any]):
+        """
+        Save session data to file.
+
+        Args:
+            session_id: Session ID
+            data: Session data
+        """
+        try:
+            file_path = os.path.join(self.session_dir, f"{session_id}.json")
+            with open(file_path, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving session {session_id}: {e}")
+
+# Initialize the global session store
+_session_store = SessionStore()

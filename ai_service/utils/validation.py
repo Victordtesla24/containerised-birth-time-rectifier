@@ -215,8 +215,19 @@ class UserLogin(BaseModel):
     password: str = Field(..., description="User password")
 
 class UserCreate(UserBase):
-    """User creation model."""
-    password: str = Field(..., description="User password")
+    """
+    User registration model with password hashing.
+    """
+    password: str
+
+    @validator("password", allow_reuse=True)
+    def password_strength(cls, v):
+        """Validate password strength"""
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+        if not any(c.isalpha() for c in v):
+            raise ValueError('Password must contain at least one letter')
+        return v
 
 class UserResponse(UserBase):
     """User response model."""

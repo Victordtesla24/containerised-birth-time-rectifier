@@ -76,38 +76,26 @@ class ChartCalculatorService:
             List of transit aspects
         """
         try:
-            # Try to import the dedicated transit calculator
-            try:
-                from ai_service.core.rectification.transit_calculator import calculate_transits
-                return calculate_transits(
-                    natal_chart=natal_chart,
-                    transit_dt=transit_datetime,
-                    latitude=latitude,
-                    longitude=longitude,
-                    timezone_str=timezone_str or ""
-                )
-            except ImportError:
-                # Fall back to manual transit calculation
-                # 1. Calculate transit chart
-                transit_chart = self.create_chart(
-                    datetime_obj=transit_datetime,
-                    latitude=latitude,
-                    longitude=longitude,
-                    timezone_str=timezone_str
-                )
+            # Calculate transit chart
+            transit_chart = self.create_chart(
+                datetime_obj=transit_datetime,
+                latitude=latitude,
+                longitude=longitude,
+                timezone_str=timezone_str
+            )
 
-                # 2. Calculate aspects between transit and natal planets
-                from ai_service.services.chart_service_aspects import calculate_aspects
+            # Calculate aspects between transit and natal planets
+            from ai_service.services.chart_service_aspects import calculate_aspects
 
-                # 3. Merge charts for aspect calculation
-                merged_data = {
-                    "natal_planets": natal_chart.get("planets", {}),
-                    "transit_planets": transit_chart.get("planets", {}),
-                    "houses": natal_chart.get("houses", [])
-                }
+            # Merge charts for aspect calculation
+            merged_data = {
+                "natal_planets": natal_chart.get("planets", {}),
+                "transit_planets": transit_chart.get("planets", {}),
+                "houses": natal_chart.get("houses", [])
+            }
 
-                # Call calculate_aspects
-                return calculate_aspects(merged_data)
+            # Call calculate_aspects
+            return calculate_aspects(merged_data)
 
         except Exception as e:
             logger.error(f"Error calculating transits: {e}")
@@ -124,52 +112,47 @@ class ChartCalculatorService:
             Significance score (0.0-1.0)
         """
         try:
-            # Try to use dedicated calculator if available
-            try:
-                from ai_service.core.rectification.significance_calculator import calculate_transit_significance
-                return calculate_transit_significance(transits)
-            except ImportError:
-                # Fall back to simplified calculation
-                if not transits:
-                    return 0.0
-
-                # Assign weights to different aspect types
-                weights = {
-                    "conjunction": 1.0,
-                    "opposition": 0.8,
-                    "trine": 0.6,
-                    "square": 0.7,
-                    "sextile": 0.5
-                }
-
-                # Calculate significance
-                total_weight = 0.0
-                significant_count = 0
-
-                for transit in transits:
-                    aspect_type = transit.get("aspect", "")
-                    weight = weights.get(aspect_type.lower(), 0.3)
-
-                    planet1 = transit.get("planet1", "")
-                    planet2 = transit.get("planet2", "")
-
-                    # Major planets have higher significance
-                    major_planets = ["sun", "moon", "ascendant", "mc"]
-                    if planet1.lower() in major_planets or planet2.lower() in major_planets:
-                        weight *= 1.5
-
-                    # Apply orb factor - closer aspects are more significant
-                    orb = transit.get("orb", 5.0)
-                    orb_factor = max(0.2, 1.0 - (orb / 10.0))
-
-                    weight *= orb_factor
-                    total_weight += weight
-                    significant_count += 1
-
-                # Normalize to 0-1 scale with reasonable upper bound
-                if significant_count > 0:
-                    return min(1.0, total_weight / (significant_count * 0.8))
+            # Implement direct calculation without attempting to import
+            if not transits:
                 return 0.0
+
+            # Assign weights to different aspect types
+            weights = {
+                "conjunction": 1.0,
+                "opposition": 0.8,
+                "trine": 0.6,
+                "square": 0.7,
+                "sextile": 0.5
+            }
+
+            # Calculate significance
+            total_weight = 0.0
+            significant_count = 0
+
+            for transit in transits:
+                aspect_type = transit.get("aspect", "")
+                weight = weights.get(aspect_type.lower(), 0.3)
+
+                planet1 = transit.get("planet1", "")
+                planet2 = transit.get("planet2", "")
+
+                # Major planets have higher significance
+                major_planets = ["sun", "moon", "ascendant", "mc"]
+                if planet1.lower() in major_planets or planet2.lower() in major_planets:
+                    weight *= 1.5
+
+                # Apply orb factor - closer aspects are more significant
+                orb = transit.get("orb", 5.0)
+                orb_factor = max(0.2, 1.0 - (orb / 10.0))
+
+                weight *= orb_factor
+                total_weight += weight
+                significant_count += 1
+
+            # Normalize to 0-1 scale with reasonable upper bound
+            if significant_count > 0:
+                return min(1.0, total_weight / (significant_count * 0.8))
+            return 0.0
 
         except Exception as e:
             logger.error(f"Error evaluating transit significance: {e}")
@@ -189,42 +172,90 @@ class ChartCalculatorService:
             Progressed chart data
         """
         try:
-            # Try to import dedicated progression calculator
-            try:
-                from ai_service.core.rectification.progression_calculator import calculate_progressions
-                return calculate_progressions(
-                    natal_chart=natal_chart,
-                    target_date=progression_date,
-                    progression_type=progression_type
+            # Implement direct calculations without attempting to import
+            birth_data = natal_chart.get("birth_details", {})
+            birth_dt = datetime.fromisoformat(birth_data.get("birth_datetime", ""))
+
+            # Calculate days between birth and target date
+            days_diff = (progression_date - birth_dt).days
+
+            if progression_type == "secondary":
+                # Secondary progressions: 1 day = 1 year
+                prog_dt = birth_dt + timedelta(days=days_diff)
+
+                # Calculate chart for progressed date
+                return self.create_chart(
+                    datetime_obj=prog_dt,
+                    latitude=birth_data.get("latitude", 0),
+                    longitude=birth_data.get("longitude", 0),
+                    timezone_str=birth_data.get("timezone", "")
                 )
-            except ImportError:
-                # Fall back to basic secondary progression calculation
-                birth_data = natal_chart.get("birth_details", {})
-                birth_dt = datetime.fromisoformat(birth_data.get("birth_datetime", ""))
+            elif progression_type == "tertiary":
+                # Tertiary progressions: 1 lunar cycle ≈ 1 year (27.32 days)
+                lunar_days = days_diff * (27.32 / 365.25)
+                prog_dt = birth_dt + timedelta(days=lunar_days)
 
-                # Calculate days between birth and target date
-                days_diff = (progression_date - birth_dt).days
+                return self.create_chart(
+                    datetime_obj=prog_dt,
+                    latitude=birth_data.get("latitude", 0),
+                    longitude=birth_data.get("longitude", 0),
+                    timezone_str=birth_data.get("timezone", "")
+                )
+            elif progression_type == "solar_arc":
+                # Solar Arc: Move all planets by the same arc the Sun has moved
+                # Calculate the natal Sun position
+                natal_chart_data = calculate_chart(
+                    birth_dt=birth_dt,
+                    latitude=birth_data.get("latitude", 0),
+                    longitude=birth_data.get("longitude", 0),
+                    timezone_str=birth_data.get("timezone", "")
+                )
 
-                # Apply day-for-year formula (secondary progressions)
-                if progression_type == "secondary":
-                    # Calculate progressed date: each day = 1 year
-                    prog_dt = birth_dt + timedelta(days=days_diff)
+                # Calculate the progressed Sun position
+                years_diff = days_diff / 365.25
+                solar_arc_degrees = years_diff  # Sun moves approximately 1 degree per year
 
-                    # Calculate chart for progressed date
-                    return self.create_chart(
-                        datetime_obj=prog_dt,
-                        latitude=birth_data.get("latitude", 0),
-                        longitude=birth_data.get("longitude", 0),
-                        timezone_str=birth_data.get("timezone", "")
-                    )
-                else:
-                    # For other progression types, return the natal chart
-                    # This is a fallback; proper calculations should be implemented
-                    logger.warning(f"Progression type '{progression_type}' not implemented in fallback")
-                    return natal_chart
+                # Apply solar arc to all planets and points in natal chart
+                result_chart = natal_chart_data.copy()
+
+                # Adjust planet positions
+                for planet_name, planet_data in result_chart.get("planets", {}).items():
+                    if "longitude" in planet_data:
+                        new_longitude = (planet_data["longitude"] + solar_arc_degrees) % 360
+                        planet_data["longitude"] = new_longitude
+
+                        # Update sign and degree
+                        sign_num = int(new_longitude / 30)
+                        sign = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                               "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"][sign_num]
+                        degree = new_longitude % 30
+
+                        planet_data["sign"] = sign
+                        planet_data["sign_num"] = sign_num
+                        planet_data["degree"] = degree
+
+                # Update ascendant and other angles
+                if "ascendant" in result_chart:
+                    asc_data = result_chart["ascendant"]
+                    if "longitude" in asc_data:
+                        new_longitude = (asc_data["longitude"] + solar_arc_degrees) % 360
+                        asc_data["longitude"] = new_longitude
+
+                        # Update sign and degree
+                        sign_num = int(new_longitude / 30)
+                        sign = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+                               "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"][sign_num]
+                        degree = new_longitude % 30
+
+                        asc_data["sign"] = sign
+                        asc_data["degree"] = degree
+
+                return result_chart
+            else:
+                raise ValueError(f"Unsupported progression type: {progression_type}")
         except Exception as e:
             logger.error(f"Error calculating progressions: {e}")
-            return natal_chart
+            raise ValueError(f"Failed to calculate progressions: {e}")
 
     def calculate_sensitive_periods(self, birth_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -237,50 +268,45 @@ class ChartCalculatorService:
             List of sensitive periods with descriptions
         """
         try:
-            # Try to use the dedicated calculator if available
-            try:
-                from ai_service.api.services.questionnaire_service_chart_calculations import calculate_sensitive_periods
-                return calculate_sensitive_periods(birth_data)
-            except ImportError:
-                # Provide basic periods based on standard life cycles
-                birth_date = birth_data.get("birth_date", "")
-                birth_year = int(birth_date.split("-")[0]) if birth_date else 0
+            # Use direct calculation without attempting to import questionnaire_service module
+            birth_date = birth_data.get("birth_date", "")
+            birth_year = int(birth_date.split("-")[0]) if birth_date else 0
 
-                if birth_year == 0:
-                    return []
+            if birth_year == 0:
+                return []
 
-                return [
-                    {
-                        "age": 7,
-                        "year": birth_year + 7,
-                        "description": "First Saturn square - early childhood transition",
-                        "significance": 0.6
-                    },
-                    {
-                        "age": 14,
-                        "year": birth_year + 14,
-                        "description": "Second Saturn square - adolescence transition",
-                        "significance": 0.7
-                    },
-                    {
-                        "age": 21,
-                        "year": birth_year + 21,
-                        "description": "First Saturn opposition - early adulthood",
-                        "significance": 0.8
-                    },
-                    {
-                        "age": 29,
-                        "year": birth_year + 29,
-                        "description": "Saturn return - major life transition",
-                        "significance": 1.0
-                    },
-                    {
-                        "age": 38,
-                        "year": birth_year + 38,
-                        "description": "Uranus opposition - midlife transition",
-                        "significance": 0.9
-                    }
-                ]
+            return [
+                {
+                    "age": 7,
+                    "year": birth_year + 7,
+                    "description": "First Saturn square - early childhood transition",
+                    "significance": 0.6
+                },
+                {
+                    "age": 14,
+                    "year": birth_year + 14,
+                    "description": "Second Saturn square - adolescence transition",
+                    "significance": 0.7
+                },
+                {
+                    "age": 21,
+                    "year": birth_year + 21,
+                    "description": "First Saturn opposition - early adulthood",
+                    "significance": 0.8
+                },
+                {
+                    "age": 29,
+                    "year": birth_year + 29,
+                    "description": "Saturn return - major life transition",
+                    "significance": 1.0
+                },
+                {
+                    "age": 38,
+                    "year": birth_year + 38,
+                    "description": "Uranus opposition - midlife transition",
+                    "significance": 0.9
+                }
+            ]
         except Exception as e:
             logger.error(f"Error calculating sensitive periods: {e}")
             return []

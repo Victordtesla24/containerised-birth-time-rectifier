@@ -12,6 +12,9 @@ import json
 import logging
 import secrets
 from datetime import datetime, timedelta
+
+# Fix pydantic imports for v1.x compatibility
+# pylint: disable=no-name-in-module,no-member
 from pydantic import BaseModel, Field
 
 # AI Service URL

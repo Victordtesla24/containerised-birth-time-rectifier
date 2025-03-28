@@ -7,17 +7,17 @@ and location validation.
 
 import re
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import logging
 
 logger = logging.getLogger(__name__)
 
 async def validate_birth_details(
-    birth_date: str,
-    birth_time: str,
-    latitude: float,
-    longitude: float,
-    timezone: str
+    birth_date: Optional[str] = None,
+    birth_time: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    timezone: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Validate birth details for astrological calculations.
@@ -34,17 +34,42 @@ async def validate_birth_details(
     """
     errors = []
 
+    # Check if required values are provided
+    if birth_date is None:
+        errors.append("Birth date is required.")
+    if birth_time is None:
+        errors.append("Birth time is required.")
+    if latitude is None:
+        errors.append("Latitude is required.")
+    if longitude is None:
+        errors.append("Longitude is required.")
+    if timezone is None:
+        errors.append("Timezone is required.")
+
+    # Early return if required values are missing
+    if errors:
+        return {
+            "valid": False,
+            "errors": errors,
+            "birth_date": None,
+            "birth_time": None,
+            "latitude": None,
+            "longitude": None,
+            "timezone": None
+        }
+
     # Validate birth date
     try:
-        datetime.strptime(birth_date, "%Y-%m-%d")
+        if birth_date:
+            datetime.strptime(birth_date, "%Y-%m-%d")
     except ValueError:
         errors.append("Invalid birth date format. Use YYYY-MM-DD format.")
 
     # Validate birth time
     try:
-        if not re.match(r"^\d{1,2}:\d{2}:\d{2}$", birth_time):
+        if birth_time and not re.match(r"^\d{1,2}:\d{2}:\d{2}$", birth_time):
             errors.append("Invalid birth time format. Use HH:MM:SS format.")
-        else:
+        elif birth_time:
             hour, minute, second = map(int, birth_time.split(':'))
             if hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59:
                 errors.append("Invalid birth time values. Hours must be 0-23, minutes and seconds must be 0-59.")
@@ -52,11 +77,11 @@ async def validate_birth_details(
         errors.append(f"Invalid birth time: {str(e)}")
 
     # Validate latitude
-    if latitude < -90 or latitude > 90:
+    if latitude is not None and (latitude < -90 or latitude > 90):
         errors.append("Invalid latitude. Must be between -90 and 90 degrees.")
 
     # Validate longitude
-    if longitude < -180 or longitude > 180:
+    if longitude is not None and (longitude < -180 or longitude > 180):
         errors.append("Invalid longitude. Must be between -180 and 180 degrees.")
 
     # Validate timezone (basic check)

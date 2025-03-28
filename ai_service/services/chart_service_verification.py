@@ -140,6 +140,16 @@ def prepare_chart_for_verification(chart_data: Dict[str, Any]) -> Dict[str, Any]
         if not houses:
             raise ValueError("Missing house data required for verification")
 
+        # Handle houses in list format - convert to dictionary
+        if isinstance(houses, list):
+            houses_dict = {}
+            for i, house in enumerate(houses, 1):
+                if isinstance(house, dict):
+                    houses_dict[str(i)] = house
+                else:
+                    houses_dict[str(i)] = {"longitude": house}
+            houses = houses_dict
+
         # Create focused verification data structure
         verification_data = {
             "birth_details": birth_details,

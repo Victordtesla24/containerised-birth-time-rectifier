@@ -175,6 +175,7 @@ async def ai_assisted_rectification(
     while retry_count < max_retries:
         try:
             # Call OpenAI service
+            # pylint: disable=no-member
             ai_response = await openai_service.generate_completion(
                 prompt=prompt_str,
                 task_type="birth_time_rectification",

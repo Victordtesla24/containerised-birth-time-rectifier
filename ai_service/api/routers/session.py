@@ -4,11 +4,12 @@ Session management router for the Birth Time Rectifier API.
 This module provides endpoints for session initialization and management.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Header, Body
+from fastapi import APIRouter, HTTPException, Depends, Header, Body, status
 from typing import Dict, Any, Optional
 import logging
 import uuid
 import time
+# pylint: disable=no-name-in-module,no-member
 from pydantic import BaseModel
 
 from ai_service.core.config import settings

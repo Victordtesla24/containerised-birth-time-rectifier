@@ -16,13 +16,10 @@ router = APIRouter()
 # Helper function to request data from the AI service
 async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: str = "POST") -> Dict[str, Any]:
     """Send a request to the AI service for session operations"""
-    # Use the correct service URL with proper resolution
-    ai_service_host = os.getenv("AI_SERVICE_HOST", "localhost")
-    ai_service_port = os.getenv("AI_SERVICE_PORT", "8000")
-    ai_service_url = f"http://{ai_service_host}:{ai_service_port}"
+    ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai_service:8000")
 
-    url = f"{ai_service_url}/api/v1/session/{endpoint}"
-    logger.info(f"Requesting AI service at {url} with method {method}")
+    url = f"{ai_service_url}/api/v1/{endpoint}"
+    logger.info(f"Requesting AI service at {url}")
 
     try:
         # Use proper HTTP client configuration
