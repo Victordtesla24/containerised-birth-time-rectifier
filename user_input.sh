@@ -80,6 +80,72 @@ echo -e "${YELLOW}Executing: curl \"$API_BASE_URL/api/session/init\"${NC}"
 RESPONSE=$(curl -s "$API_BASE_URL/api/session/init")
 echo -e "${YELLOW}Raw response:${NC}\n$RESPONSE"
 
-echo -e "\n${GREEN}Session initialization test complete.${NC}"
-echo -e "${YELLOW}Please examine the API response above.${NC}"
+# Extract and save the session ID
+SESSION_ID=$(echo $RESPONSE | grep -o '"session_id":"[^"]*' | cut -d'"' -f4)
+if [[ -n "$SESSION_ID" ]]; then
+    echo -e "\n${GREEN}✓ Session ID extracted: ${SESSION_ID}${NC}"
+else
+    echo -e "\n${RED}✗ Failed to extract session ID from response.${NC}"
+    echo -e "${RED}Please check if the API is functioning correctly.${NC}"
+    exit 1
+fi
+
+# Geocode API
+echo -e "\n${BLUE}SEQUENCE 2: Geocoding${NC}"
+echo -e "${BLUE}------------------------------${NC}"
+echo -e "${YELLOW}API ENDPOINT REQUIREMENTS:${NC}"
+echo -e "${YELLOW}- Endpoint: /api/geocode?query=<location>&limit=<limit>&include_timezone=<true/false>${NC}"
+echo -e "${YELLOW}- Method: GET${NC}"
+echo -e "${YELLOW}- Response Format: {\"success\":true,\"query\":\"<location>\",\"count\":n,\"results\":[...]}${NC}"
+
+# User input for birth details
+echo -e "\n${BLUE}Please enter your birth details:${NC}"
+read -p "Birth Date (YYYY-MM-DD): " BIRTH_DATE
+read -p "Birth Time (HH:MM:SS): " BIRTH_TIME
+read -p "Birth Place (e.g., NYC, London, Tokyo): " BIRTH_PLACE
+
+# Validate inputs
+if [[ ! $BIRTH_DATE =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo -e "${RED}Invalid date format. Please use YYYY-MM-DD format.${NC}"
+    exit 1
+fi
+
+if [[ ! $BIRTH_TIME =~ ^[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+    echo -e "${RED}Invalid time format. Please use HH:MM:SS format.${NC}"
+    exit 1
+fi
+
+if [[ -z "$BIRTH_PLACE" ]]; then
+    echo -e "${RED}Birth place cannot be empty.${NC}"
+    exit 1
+fi
+
+# Construct the geocode API URL
+GEOCODE_URL="$API_BASE_URL/api/geocode?query=$(echo $BIRTH_PLACE | sed 's/ /%20/g')&limit=5&include_timezone=true"
+
+echo -e "\n${YELLOW}Executing: curl \"$GEOCODE_URL\"${NC}"
+GEOCODE_RESPONSE=$(curl -s "$GEOCODE_URL")
+echo -e "${YELLOW}Geocode response:${NC}\n$GEOCODE_RESPONSE"
+
+# Check if the geocode was successful
+if echo "$GEOCODE_RESPONSE" | grep -q '"success":true'; then
+    echo -e "\n${GREEN}✓ Geocoding successful!${NC}"
+
+    # Extract the first result's coordinates for use in the next step
+    LATITUDE=$(echo $GEOCODE_RESPONSE | grep -o '"latitude":[^,]*' | head -1 | cut -d':' -f2)
+    LONGITUDE=$(echo $GEOCODE_RESPONSE | grep -o '"longitude":[^,]*' | head -1 | cut -d':' -f2)
+
+    if [[ -n "$LATITUDE" && -n "$LONGITUDE" ]]; then
+        echo -e "${GREEN}✓ Coordinates extracted: Latitude=${LATITUDE}, Longitude=${LONGITUDE}${NC}"
+    else
+        echo -e "${YELLOW}⚠ Could not extract coordinates. You may need to select from the results.${NC}"
+    fi
+else
+    echo -e "\n${RED}✗ Geocoding failed. Please check your input and try again.${NC}"
+fi
+
+echo -e "\n${GREEN}Session initialization and geocoding test complete.${NC}"
+echo -e "${YELLOW}Saved session ID: ${SESSION_ID} for future API calls.${NC}"
+echo -e "${YELLOW}Birth details: Date=${BIRTH_DATE}, Time=${BIRTH_TIME}, Place=${BIRTH_PLACE}${NC}"
+echo -e "${YELLOW}Awaiting further instructions...${NC}"
 exit 0
