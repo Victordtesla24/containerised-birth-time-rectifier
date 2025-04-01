@@ -12,9 +12,13 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
+import re
 
 from ai_service.services.chart_service_aspects import calculate_aspects
 from ai_service.services.chart_service_dignities import calculate_dignities, calculate_planet_strengths
+from ai_service.services.chart_service_utils import determine_house_for_longitude, calculate_arc_difference
+from ai_service.utils.timezone import get_timezone_info, convert_to_timezone, validate_timezone
+from ai_service.core.rectification.chart_calculator import calculate_chart as core_calculate_chart
 
 logger = logging.getLogger(__name__)
 
@@ -22,37 +26,71 @@ def calculate_chart(birth_date: str, birth_time: str, latitude: float, longitude
                     timezone: str, chart_type: str = "vedic", house_system: str = "placidus",
                     verify_with_openai: bool = True, include_divisional: bool = True) -> Dict[str, Any]:
     """
-    Calculate a comprehensive astrological chart with proper Vedic standards.
+    Calculate an astrological chart with optional verification.
 
     Args:
-        birth_date: Date of birth in YYYY-MM-DD format
-        birth_time: Time of birth in HH:MM:SS format
-        latitude: Birth latitude in decimal degrees
-        longitude: Birth longitude in decimal degrees
-        timezone: IANA timezone identifier (e.g., 'America/New_York')
-        chart_type: Chart calculation method ('vedic' or 'tropical')
-        house_system: House system to use ('placidus', 'whole_sign', 'equal', etc.)
-        verify_with_openai: Whether to verify chart calculations with OpenAI
-        include_divisional: Whether to calculate divisional charts for Vedic charts
+        birth_date: Birth date in ISO format (YYYY-MM-DD)
+        birth_time: Birth time in format HH:MM:SS
+        latitude: Birth latitude
+        longitude: Birth longitude
+        timezone: Timezone string (IANA format, e.g., 'America/New_York')
+        chart_type: Type of chart to calculate (vedic or tropical)
+        house_system: House system to use
+        verify_with_openai: Whether to verify the chart with OpenAI
+        include_divisional: Whether to include divisional charts (for Vedic only)
 
     Returns:
-        Dictionary containing the complete chart data
+        Dictionary with chart data
     """
-    logger.info(f"Calculating {chart_type} chart with {house_system} house system")
+    import pytz
+    from ai_service.utils.timezone import get_timezone_for_coordinates
+
+    logger.info(f"Calculating chart for {birth_date} {birth_time} at {latitude}, {longitude} in timezone {timezone}")
 
     try:
-        # Parse date and time into datetime object
-        import pytz
+        # Validate timezone or use a default
+        if not timezone or not validate_timezone(timezone):
+            logger.warning(f"Invalid timezone {timezone}, inferring from coordinates")
+            try:
+                timezone = get_timezone_for_coordinates(latitude, longitude)
+                logger.info(f"Using inferred timezone: {timezone}")
+            except Exception as tz_error:
+                logger.warning(f"Could not determine timezone from coordinates: {tz_error}")
+                timezone = "UTC"
+                logger.info(f"Falling back to UTC timezone")
 
-        # Create a datetime object for the birth date and time
-        birth_dt_str = f"{birth_date} {birth_time}"
-        birth_dt_naive = datetime.strptime(birth_dt_str, "%Y-%m-%d %H:%M:%S")
+        # Ensure birth_date is in ISO format
+        if birth_date and not re.match(r'^\d{4}-\d{2}-\d{2}$', birth_date):
+            try:
+                # Try to parse and convert to ISO format
+                parsed_date = datetime.strptime(birth_date, "%m/%d/%Y")
+                birth_date = parsed_date.strftime("%Y-%m-%d")
+                logger.info(f"Converted birth date to ISO format: {birth_date}")
+            except ValueError:
+                logger.warning(f"Could not parse birth date: {birth_date}")
+                raise ValueError(f"Invalid birth date format: {birth_date}. Use YYYY-MM-DD format.")
 
-        # Get the timezone object
-        tz = pytz.timezone(timezone)
+        # Parse birth date and time to create datetime object
+        try:
+            # Handle both HH:MM:SS and HH:MM formats
+            if re.match(r'^\d{2}:\d{2}:\d{2}$', birth_time):
+                birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M:%S")
+            elif re.match(r'^\d{2}:\d{2}$', birth_time):
+                birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M")
+            else:
+                raise ValueError(f"Invalid birth time format: {birth_time}. Use HH:MM:SS or HH:MM format.")
 
-        # Convert naive datetime to timezone-aware datetime
-        birth_dt = tz.localize(birth_dt_naive)
+            # Create timezone-aware datetime using proper localization
+            tz = pytz.timezone(timezone)
+            birth_dt = tz.localize(birth_dt)
+
+            logger.info(f"Parsed birth datetime: {birth_dt} with timezone {timezone}")
+        except ValueError as ve:
+            logger.error(f"Error parsing birth date/time: {ve}")
+            raise ValueError(f"Invalid birth date/time: {birth_date} {birth_time}. {str(ve)}")
+        except pytz.exceptions.UnknownTimeZoneError:
+            logger.error(f"Unknown timezone: {timezone}")
+            raise ValueError(f"Unknown timezone: {timezone}")
 
         # Multi-library approach for redundancy and accuracy
         charts_data = []
@@ -75,10 +113,7 @@ def calculate_chart(birth_date: str, birth_time: str, latitude: float, longitude
                 charts_data.append(("primary_vedic", primary_chart_data))
             else:
                 # Use tropical/western calculation methods
-                from ai_service.core.rectification.chart_calculator import calculate_chart as calc_tropical
-
-                # Calculate the tropical chart
-                primary_chart_data = calc_tropical(
+                primary_chart_data = core_calculate_chart(
                     birth_dt=birth_dt,
                     latitude=latitude,
                     longitude=longitude,
@@ -385,7 +420,6 @@ def cross_validate_calculations(charts_data: List[Tuple[str, Dict[str, Any]]]) -
                 source2 = positions[j]["source"]
 
                 # Calculate angular difference
-                from ai_service.services.chart_service_utils import calculate_arc_difference
                 diff = calculate_arc_difference(pos1, pos2)
 
                 # Add to comparisons
@@ -442,7 +476,6 @@ def calculate_divisional_charts(chart_data: Dict[str, Any]) -> Dict[str, Dict[st
         ValueError: If chart_data is invalid or missing required components
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Validate input chart data
     if not chart_data or not isinstance(chart_data, dict):
@@ -504,7 +537,6 @@ def calculate_navamsa_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
         D9 chart data
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Create a deep copy of the chart data
     d9_chart = copy.deepcopy(chart_data)
@@ -577,7 +609,6 @@ def calculate_drekkana_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
         D3 chart data
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Create a deep copy of the chart data
     d3_chart = copy.deepcopy(chart_data)
@@ -657,7 +688,6 @@ def calculate_saptamsa_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
         D7 chart data
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Create a deep copy of the chart data
     d7_chart = copy.deepcopy(chart_data)
@@ -706,7 +736,6 @@ def calculate_saptamsa_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate aspects for the D7 chart
     try:
-        from ai_service.services.chart_service_aspects import calculate_aspects
         d7_chart["aspects"] = calculate_aspects(d7_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate aspects for D7 chart: {e}")
@@ -714,7 +743,6 @@ def calculate_saptamsa_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate dignities for the D7 chart
     try:
-        from ai_service.services.chart_service_dignities import calculate_dignities
         d7_chart["dignities"] = calculate_dignities(d7_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate dignities for D7 chart: {e}")
@@ -733,7 +761,6 @@ def calculate_dashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
         D10 chart data
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Create a deep copy of the chart data
     d10_chart = copy.deepcopy(chart_data)
@@ -786,7 +813,6 @@ def calculate_dashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate aspects for the D10 chart
     try:
-        from ai_service.services.chart_service_aspects import calculate_aspects
         d10_chart["aspects"] = calculate_aspects(d10_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate aspects for D10 chart: {e}")
@@ -794,7 +820,6 @@ def calculate_dashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate dignities for the D10 chart
     try:
-        from ai_service.services.chart_service_dignities import calculate_dignities
         d10_chart["dignities"] = calculate_dignities(d10_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate dignities for D10 chart: {e}")
@@ -813,7 +838,6 @@ def calculate_dwadashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
         D12 chart data
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Create a deep copy of the chart data
     d12_chart = copy.deepcopy(chart_data)
@@ -858,7 +882,6 @@ def calculate_dwadashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate aspects for the D12 chart
     try:
-        from ai_service.services.chart_service_aspects import calculate_aspects
         d12_chart["aspects"] = calculate_aspects(d12_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate aspects for D12 chart: {e}")
@@ -866,7 +889,6 @@ def calculate_dwadashamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate dignities for the D12 chart
     try:
-        from ai_service.services.chart_service_dignities import calculate_dignities
         d12_chart["dignities"] = calculate_dignities(d12_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate dignities for D12 chart: {e}")
@@ -885,7 +907,6 @@ def calculate_trimsamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
         D30 chart data
     """
     import copy
-    from ai_service.services.chart_service_utils import determine_house_for_longitude
 
     # Create a deep copy of the chart data
     d30_chart = copy.deepcopy(chart_data)
@@ -972,7 +993,6 @@ def calculate_trimsamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate aspects for the D30 chart
     try:
-        from ai_service.services.chart_service_aspects import calculate_aspects
         d30_chart["aspects"] = calculate_aspects(d30_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate aspects for D30 chart: {e}")
@@ -980,7 +1000,6 @@ def calculate_trimsamsha_chart(chart_data: Dict[str, Any]) -> Dict[str, Any]:
 
     # Calculate dignities for the D30 chart
     try:
-        from ai_service.services.chart_service_dignities import calculate_dignities
         d30_chart["dignities"] = calculate_dignities(d30_chart)
     except Exception as e:
         logger.warning(f"Failed to calculate dignities for D30 chart: {e}")

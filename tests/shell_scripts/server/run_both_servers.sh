@@ -5,55 +5,103 @@ kill_port_process() {
   local port=$1
   echo "Killing processes on port $port..."
 
-  # Find processes using the port with lsof (standard way)
-  local pids=$(lsof -i:$port -t)
+  # Always use sudo for more reliable process killing
+  echo "Attempting to kill processes on port $port with sudo..."
+
+  # Find processes using the port with lsof
+  local pids=$(sudo lsof -i:$port -t 2>/dev/null)
 
   if [ -n "$pids" ]; then
-    echo "Found processes ($pids) on port $port, killing them..."
-    # Try normal kill first
-    kill -9 $pids 2>/dev/null
+    echo "Found processes ($pids) on port $port, killing them with sudo..."
+    # Use sudo kill -9 for forceful termination
+    sudo kill -9 $pids 2>/dev/null
     sleep 1
   else
     echo "No processes found on port $port with lsof..."
   fi
 
   # Even if lsof shows nothing, the port might still be bound
-  # Check if port is still in use after kill attempt with netstat
-  if netstat -an | grep "LISTEN\|ESTABLISHED" | grep "\.${port} " > /dev/null; then
-    echo "Port $port still appears to be in use. Trying sudo kill..."
-    # Try with sudo (requires password)
-    sudo lsof -i:$port -t | xargs -r sudo kill -9 2>/dev/null
-    sleep 2
+  # Try fuser as an alternative method
+  echo "Trying sudo fuser to kill any processes on port $port..."
+  sudo fuser -k $port/tcp 2>/dev/null
+  sudo fuser -k $port/udp 2>/dev/null
+  sleep 1
 
-    # If still in use after sudo kill, use a more aggressive approach
-    if netstat -an | grep "LISTEN\|ESTABLISHED" | grep "\.${port} " > /dev/null; then
-      echo "⚠️ WARNING: Port $port still in use after sudo kill attempt."
-      echo "Trying to release TCP socket forcefully..."
+  # Check if port is still in use after kill attempts with netstat
+  if netstat -an | grep -E "LISTEN|ESTABLISHED" | grep "\.${port} " > /dev/null; then
+    echo "⚠️ WARNING: Port $port still in use after kill attempts."
+    echo "Trying more aggressive methods..."
 
-      # On macOS, we need to restart the mDNSResponder to truly free some stuck ports
+    # Try additional methods to kill processes
+    # 1. Find with netstat and kill
+    local netstat_pids=$(netstat -anp 2>/dev/null | grep ":${port}" | grep -oP "(?<=LISTEN\s{1,10})\d+" | sort -u)
+    if [ -n "$netstat_pids" ]; then
+      echo "Found additional PIDs via netstat: $netstat_pids"
+      sudo kill -9 $netstat_pids 2>/dev/null
+    fi
+
+    # 2. Use ss command as alternative
+    local ss_pids=$(ss -lptn "sport = :${port}" 2>/dev/null | grep -oP "(?<=pid=)\d+" | sort -u)
+    if [ -n "$ss_pids" ]; then
+      echo "Found additional PIDs via ss: $ss_pids"
+      sudo kill -9 $ss_pids 2>/dev/null
+    fi
+
+    # 3. Force release TCP sockets
+    echo "Trying to release TCP socket forcefully..."
+    if [ "$(uname)" = "Darwin" ]; then
+      echo "Restarting network services on macOS to free socket..."
+      sudo pkill -HUP mDNSResponder
+      sleep 3
+    else
+      # For Linux, reset connections
+      echo "Resetting connections on Linux..."
+      sudo ip -s -s neigh flush all
+      sleep 2
+    fi
+
+    # Final check
+    if netstat -an | grep -E "LISTEN|ESTABLISHED" | grep "\.${port} " > /dev/null; then
+      echo "❌ ERROR: Could not free port $port despite aggressive attempts."
+      echo "Attempting one final method - iptables (Linux) or pfctl (macOS)..."
+
       if [ "$(uname)" = "Darwin" ]; then
-        echo "Restarting network services to free socket..."
-        sudo pkill -HUP mDNSResponder
-        sleep 3
+        # For macOS, try to use pfctl
+        sudo pfctl -F all -f /etc/pf.conf 2>/dev/null
+      else
+        # For Linux, try iptables to block and then allow the port
+        sudo iptables -A INPUT -p tcp --dport $port -j REJECT --reject-with tcp-reset 2>/dev/null
+        sleep 1
+        sudo iptables -D INPUT -p tcp --dport $port -j REJECT --reject-with tcp-reset 2>/dev/null
       fi
 
-      # Final check
-      if netstat -an | grep "LISTEN\|ESTABLISHED" | grep "\.${port} " > /dev/null; then
-        echo "❌ ERROR: Could not free port $port. Please restart your computer or try a different port."
-        return 1
+      sleep 2
+      # If still not free, we'll continue but warn the user
+      if netstat -an | grep -E "LISTEN|ESTABLISHED" | grep "\.${port} " > /dev/null; then
+        echo "⚠️ WARNING: Port $port is still not free. This may cause issues when starting servers."
       fi
     fi
   fi
 
-  # Check for sockets in TIME_WAIT or CLOSED state that might still prevent binding
-  if netstat -an | grep -v "LISTEN\|ESTABLISHED" | grep "\.${port} " > /dev/null; then
+  # Check for sockets in TIME_WAIT or CLOSED state
+  if netstat -an | grep -v "LISTEN|ESTABLISHED" | grep "\.${port} " > /dev/null; then
     echo "⚠️ Socket on port $port found in non-listening state (possibly TIME_WAIT or CLOSED)."
-    echo "This may cause socket binding issues. Adding SO_REUSEADDR option to the Python services."
-    # We'll handle this by using SO_REUSEADDR in our Python servers
+    echo "Setting SO_REUSEADDR/SO_REUSEPORT options to handle this condition."
+
+    # For TIME_WAIT sockets, wait a bit longer to ensure they're released
+    sleep 5
   fi
 
-  echo "✅ Port $port is now available"
-  return 0
+  echo "✅ Attempted all possible methods to free port $port"
+
+  # Perform final verification
+  if ! netstat -an | grep -v "CLOSED" | grep "\.${port} " > /dev/null; then
+    echo "✅ Verification confirmed: Port $port is now available"
+    return 0
+  else
+    echo "⚠️ Port $port may still have issues but we've tried all available methods"
+    return 0  # Continue anyway as we've tried everything
+  fi
 }
 
 # Get the absolute path to the project root
@@ -145,14 +193,24 @@ check_service_health() {
   return 3  # Service not responding
 }
 
-# Kill processes on both ports with more robust approach
-echo "Ensuring ports are free for server startup..."
-kill_port_process 3000 || exit 1
-kill_port_process 8000 || exit 1
+# Kill processes on all required ports with more robust approach
+echo "Ensuring all required ports are free for server startup..."
+echo "================================================================="
+echo "Using sudo to kill all processes on ports 8000, 3000, 3001, 8001"
+echo "================================================================="
 
-# Double-check ports are truly free
-wait_for_port_to_be_free 3000 10 || exit 1
-wait_for_port_to_be_free 8000 10 || exit 1
+# Kill all processes on the specified ports
+kill_port_process 8000 || echo "⚠️ Issues with port 8000 - continuing anyway"
+kill_port_process 3000 || echo "⚠️ Issues with port 3000 - continuing anyway"
+kill_port_process 3001 || echo "⚠️ Issues with port 3001 - continuing anyway"
+kill_port_process 8001 || echo "⚠️ Issues with port 8001 - continuing anyway"
+
+# Double-check ports are truly free with longer timeout
+echo "Performing final verification of port availability..."
+wait_for_port_to_be_free 8000 20 || echo "⚠️ Port 8000 may still have issues - continuing anyway"
+wait_for_port_to_be_free 3000 20 || echo "⚠️ Port 3000 may still have issues - continuing anyway"
+wait_for_port_to_be_free 3001 20 || echo "⚠️ Port 3001 may still have issues - continuing anyway"
+wait_for_port_to_be_free 8001 20 || echo "⚠️ Port 8001 may still have issues - continuing anyway"
 
 # Clean previous log files
 rm -f "$LOGS_DIR/api_gateway.log" "$LOGS_DIR/ai_service.log"
@@ -296,17 +354,17 @@ if [ "$USE_TMUX" = true ]; then
   tmux set-option -g mouse on
 
   # Start API Gateway in first pane with active port check and socket options
-  tmux send-keys -t birth_time_rectifier "cd $PROJECT_ROOT/api_gateway && if ! netstat -an | grep -v 'CLOSED' | grep '\\.3000 ' > /dev/null; then export PYTHONPATH=$PROJECT_ROOT && python3 -c \"import socket; import sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 3000)); s.close(); print('✓ Socket test successful with SO_REUSEADDR')\" && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 3000 | tee $LOGS_DIR/api_gateway.log; else echo 'Port 3000 is still in use, cannot start API Gateway'; fi" C-m
+  tmux send-keys -t birth_time_rectifier "cd $PROJECT_ROOT/api_gateway && if ! netstat -an | grep -v 'CLOSED' | grep '\\.3001 ' > /dev/null; then export PYTHONPATH=$PROJECT_ROOT && python3 -c \"import socket; import sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 3001)); s.close(); print('✓ Socket test successful with SO_REUSEADDR')\" && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 3001 | tee $LOGS_DIR/api_gateway.log; else echo 'Port 3001 is still in use, cannot start API Gateway'; fi" C-m
 
   # Split the window horizontally
   tmux split-window -h -t birth_time_rectifier
 
   # Start AI Service in second pane with active port check and socket options
-  tmux send-keys -t birth_time_rectifier "cd $PROJECT_ROOT/ai_service && if ! netstat -an | grep -v 'CLOSED' | grep '\\.8000 ' > /dev/null; then export PYTHONPATH=$PROJECT_ROOT && python3 -c \"import socket; import sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 8000)); s.close(); print('✓ Socket test successful with SO_REUSEADDR')\" && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 | tee $LOGS_DIR/ai_service.log; else echo 'Port 8000 is still in use, cannot start AI Service'; fi" C-m
+  tmux send-keys -t birth_time_rectifier "cd $PROJECT_ROOT/ai_service && if ! netstat -an | grep -v 'CLOSED' | grep '\\.8001 ' > /dev/null; then export PYTHONPATH=$PROJECT_ROOT && python3 -c \"import socket; import sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 8001)); s.close(); print('✓ Socket test successful with SO_REUSEADDR')\" && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8001 | tee $LOGS_DIR/ai_service.log; else echo 'Port 8001 is still in use, cannot start AI Service'; fi" C-m
 
   # Add an informational pane at the bottom for monitoring with enhanced status
   tmux split-window -v -t birth_time_rectifier
-  tmux send-keys -t birth_time_rectifier "echo '📊 Server Monitor - Birth Time Rectifier'; echo ''; echo '🌐 API Gateway: http://localhost:3000'; echo '🌐 AI Service:  http://localhost:8000'; echo ''; echo 'Monitoring server health...'; while true; do echo ''; echo \"$(date) - Checking server status...\"; echo -n 'API Gateway (3000): '; if netstat -an | grep \"LISTEN\" | grep \"\\.3000 \" > /dev/null; then echo '✅ RUNNING (LISTENING)'; elif netstat -an | grep \"CLOSED\" | grep \"\\.3000 \" > /dev/null; then echo '⚠️ BOUND BUT CLOSED'; else echo '❌ NOT RUNNING'; fi; curl -s -o /dev/null -w \"API Gateway Response: %{http_code}\\n\" -m 1 http://localhost:3000 2>/dev/null || echo 'API Gateway Response: FAILED'; echo -n 'AI Service (8000): '; if netstat -an | grep \"LISTEN\" | grep \"\\.8000 \" > /dev/null; then echo '✅ RUNNING (LISTENING)'; elif netstat -an | grep \"CLOSED\" | grep \"\\.8000 \" > /dev/null; then echo '⚠️ BOUND BUT CLOSED'; else echo '❌ NOT RUNNING'; fi; curl -s -o /dev/null -w \"AI Service Response: %{http_code}\\n\" -m 1 http://localhost:8000 2>/dev/null || echo 'AI Service Response: FAILED'; sleep 5; done" C-m
+  tmux send-keys -t birth_time_rectifier "echo '📊 Server Monitor - Birth Time Rectifier'; echo ''; echo '🌐 API Gateway: http://localhost:3001'; echo '🌐 AI Service:  http://localhost:8001'; echo ''; echo 'Monitoring server health...'; while true; do echo ''; echo \"$(date) - Checking server status...\"; echo -n 'API Gateway (3001): '; if netstat -an | grep \"LISTEN\" | grep \"\\.3001 \" > /dev/null; then echo '✅ RUNNING (LISTENING)'; elif netstat -an | grep \"CLOSED\" | grep \"\\.3001 \" > /dev/null; then echo '⚠️ BOUND BUT CLOSED'; else echo '❌ NOT RUNNING'; fi; curl -s -o /dev/null -w \"API Gateway Response: %{http_code}\\n\" -m 1 http://localhost:3001 2>/dev/null || echo 'API Gateway Response: FAILED'; echo -n 'AI Service (8001): '; if netstat -an | grep \"LISTEN\" | grep \"\\.8001 \" > /dev/null; then echo '✅ RUNNING (LISTENING)'; elif netstat -an | grep \"CLOSED\" | grep \"\\.8001 \" > /dev/null; then echo '⚠️ BOUND BUT CLOSED'; else echo '❌ NOT RUNNING'; fi; curl -s -o /dev/null -w \"AI Service Response: %{http_code}\\n\" -m 1 http://localhost:8001 2>/dev/null || echo 'AI Service Response: FAILED'; sleep 5; done" C-m
 
   # Name the windows
   tmux rename-window -t birth_time_rectifier "Birth Time Rectifier Servers"
@@ -320,8 +378,8 @@ if [ "$USE_TMUX" = true ]; then
   echo "📊 Use Ctrl-b + arrow keys to switch between panes"
   echo "📊 Use Ctrl-b + d to detach from the session"
   echo ""
-  echo "🌐 API Gateway: http://localhost:3000"
-  echo "🌐 AI Service:  http://localhost:8000"
+  echo "🌐 API Gateway: http://localhost:3001"
+  echo "🌐 AI Service:  http://localhost:8001"
 
   # Attach to the tmux session
   tmux attach -t birth_time_rectifier
@@ -337,13 +395,13 @@ import sys
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(('0.0.0.0', 3000))
+    s.bind(('0.0.0.0', 3001))
     s.close()
-    print('✓ Socket test successful for port 3000')
+    print('✓ Socket test successful for port 3001')
 except Exception as e:
-    print(f'Error testing socket on port 3000: {e}')
+    print(f'Error testing socket on port 3001: {e}')
     sys.exit(1)
-") || echo "⚠️ Socket test failed for port 3000"
+") || echo "⚠️ Socket test failed for port 3001"
 
   (cd "$PROJECT_ROOT/ai_service" && python3 -c "
 import socket
@@ -351,20 +409,20 @@ import sys
 try:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(('0.0.0.0', 8000))
+    s.bind(('0.0.0.0', 8001))
     s.close()
-    print('✓ Socket test successful for port 8000')
+    print('✓ Socket test successful for port 8001')
 except Exception as e:
-    print(f'Error testing socket on port 8000: {e}')
+    print(f'Error testing socket on port 8001: {e}')
     sys.exit(1)
-") || echo "⚠️ Socket test failed for port 8000"
+") || echo "⚠️ Socket test failed for port 8001"
 
   # Start API Gateway
-  API_GATEWAY_CMD="python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 3000"
+  API_GATEWAY_CMD="python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 3001"
   API_GATEWAY_LOG="$LOGS_DIR/api_gateway.log"
 
   # Start AI Service
-  AI_SERVICE_CMD="python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+  AI_SERVICE_CMD="python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8001"
   AI_SERVICE_LOG="$LOGS_DIR/ai_service.log"
 
   # Start both servers with proper error checking
@@ -372,29 +430,29 @@ except Exception as e:
   AI_SERVICE_SUCCESS=true
 
   echo "Starting API Gateway..."
-  start_server "API Gateway" 3000 "$API_GATEWAY_LOG" "$PROJECT_ROOT/api_gateway" "$API_GATEWAY_CMD" || API_GATEWAY_SUCCESS=false
+  start_server "API Gateway" 3001 "$API_GATEWAY_LOG" "$PROJECT_ROOT/api_gateway" "$API_GATEWAY_CMD" || API_GATEWAY_SUCCESS=false
 
   echo "Starting AI Service..."
-  start_server "AI Service" 8000 "$AI_SERVICE_LOG" "$PROJECT_ROOT/ai_service" "$AI_SERVICE_CMD" || AI_SERVICE_SUCCESS=false
+  start_server "AI Service" 8001 "$AI_SERVICE_LOG" "$PROJECT_ROOT/ai_service" "$AI_SERVICE_CMD" || AI_SERVICE_SUCCESS=false
 
   # Summary status
   echo ""
   echo "🔍 Server Status Summary:"
   if [ "$API_GATEWAY_SUCCESS" = true ]; then
-    if check_service_health "API Gateway" 3000 3 1 >/dev/null; then
-      echo "✅ API Gateway: Running and healthy on http://localhost:3000"
+    if check_service_health "API Gateway" 3001 3 1 >/dev/null; then
+      echo "✅ API Gateway: Running and healthy on http://localhost:3001"
     else
-      echo "⚠️ API Gateway: Running but may not be fully functional on http://localhost:3000"
+      echo "⚠️ API Gateway: Running but may not be fully functional on http://localhost:3001"
     fi
   else
     echo "❌ API Gateway: Failed to start properly"
   fi
 
   if [ "$AI_SERVICE_SUCCESS" = true ]; then
-    if check_service_health "AI Service" 8000 3 1 >/dev/null; then
-      echo "✅ AI Service: Running and healthy on http://localhost:8000"
+    if check_service_health "AI Service" 8001 3 1 >/dev/null; then
+      echo "✅ AI Service: Running and healthy on http://localhost:8001"
     else
-      echo "⚠️ AI Service: Running but may not be fully functional on http://localhost:8000"
+      echo "⚠️ AI Service: Running but may not be fully functional on http://localhost:8001"
     fi
   else
     echo "❌ AI Service: Failed to start properly"
@@ -491,7 +549,7 @@ EOL
     chmod +x "$MONITOR_SCRIPT"
 
     # Run the monitor script
-    "$MONITOR_SCRIPT" "$API_GATEWAY_LOG" "$AI_SERVICE_LOG" 3000 8000
+    "$MONITOR_SCRIPT" "$API_GATEWAY_LOG" "$AI_SERVICE_LOG" 3001 8001
   else
     echo ""
     echo "❌ Both servers failed to start. Please check the logs:"

@@ -6,78 +6,73 @@ following the Unified API Gateway Architecture.
 """
 
 import logging
-from fastapi import FastAPI, APIRouter
-from fastapi.middleware.cors import CORSMiddleware
 import os
-
-# Import the application startup and lifespan contexts
-from ai_service.app_startup import lifespan, initialize_services
-from ai_service.core.config import settings
-
-# Import custom middleware
-from ai_service.api.middleware.legacy_support import PathRewriterMiddleware
-from ai_service.api.middleware.error_handling import validation_exception_handler, http_exception_handler
-
-# Import all API routers
-from ai_service.api.routers.consolidated_chart import router as consolidated_chart_router
-from ai_service.api.routers.health import router as health_router
-from ai_service.api.routers.geocode import router as geocode_router
-from ai_service.api.routers.session import router as session_router
-from ai_service.api.routers.questionnaire import router as questionnaire_router
-from ai_service.api.routers.ai_status import router as ai_status_router
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from ai_service.api.routers import router
 
 # Configure logging
 logging.basicConfig(
-    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO")),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
-logger = logging.getLogger("ai_service")
+logger = logging.getLogger(__name__)
 
-# Create FastAPI application with lifespan context
+# Create FastAPI application
 app = FastAPI(
     title="Birth Time Rectifier API",
-    description="API for astrological birth time rectification",
-    version=settings.VERSION,
-    lifespan=lifespan,
-    docs_url="/docs" if settings.DEBUG else None,
-    redoc_url="/redoc" if settings.DEBUG else None,
+    description="API for birth time rectification following the Original Sequence Diagram implementation",
+    version="1.0.0",
 )
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # In production, replace with specific origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Add legacy path rewriter middleware
-app.add_middleware(PathRewriterMiddleware)
+# Include router
+app.include_router(router)
 
-# Register error handlers
-app.add_exception_handler(Exception, validation_exception_handler)
-app.add_exception_handler(Exception, http_exception_handler)
-
-# Initialize services at startup
-initialize_services()
-
-# Create the v1 API router with proper prefix
-v1_router = APIRouter(prefix="/api/v1")
-
-# Register all routers with the v1 API router
-v1_router.include_router(health_router, tags=["Health"])
-v1_router.include_router(session_router, prefix="/session", tags=["Session"])
-v1_router.include_router(geocode_router, prefix="/geocode", tags=["Geocoding"])
-v1_router.include_router(consolidated_chart_router, prefix="/chart", tags=["Chart"])
-v1_router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
-v1_router.include_router(ai_status_router, prefix="/ai", tags=["AI Status"])
-
-# Include the v1 router in the app
-app.include_router(v1_router)
-
-# Add root redirect
-@app.get("/", include_in_schema=False)
+# Add root endpoint to fix 404 error
+@app.get("/", tags=["Info"])
 async def root():
-    """Root endpoint that redirects to documentation."""
-    return {"message": "Birth Time Rectifier API. See /docs for documentation."}
+    """
+    Root endpoint that returns basic service information.
+    """
+    return {
+        "service": "Birth Time Rectifier AI Service",
+        "status": "online",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "api": "/api/v1",
+            "docs": "/docs"
+        }
+    }
+
+# Add health check endpoint
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """
+    Health check endpoint to verify the API is running.
+    """
+    return {"status": "ok"}
+
+# Starting message
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Birth Time Rectifier API starting up")
+    host = os.environ.get("API_HOST", "localhost")
+    port = os.environ.get("API_PORT", "3001")
+    logger.info(f"API will be accessible at http://{host}:{port}")
+    logger.info("Ready to serve requests")
+
+if __name__ == "__main__":
+    import uvicorn
+    host = os.environ.get("API_HOST", "localhost")
+    port = int(os.environ.get("API_PORT", "3001"))
+    uvicorn.run("ai_service.main:app", host=host, port=port, reload=True)

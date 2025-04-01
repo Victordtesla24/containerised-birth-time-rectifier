@@ -7,20 +7,13 @@ algorithms and AI-based approaches with real calculations.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Tuple, Optional, Union
-import math
+from typing import Dict, List, Any, Tuple, Optional
 from flatlib.datetime import Datetime
 from flatlib.geopos import GeoPos
 from flatlib.chart import Chart
 from flatlib import const
-from flatlib.dignities import essential
-import numpy as np
 from timezonefinder import TimezoneFinder
-import os
-from pathlib import Path
-import re
-import json
-import uuid
+from ai_service.core.rectification.constants import PLANETS_LIST
 
 # Define constants for error handling
 PYTZ_AVAILABLE = True
@@ -35,11 +28,6 @@ except ImportError:
 # Define our own exception class regardless of pytz availability
 class UnknownTimeZoneError(Exception):
     """Exception raised when a timezone cannot be found."""
-    pass
-
-# Use the new modularized structure
-from ai_service.core.rectification.chart_calculator import calculate_chart
-from ai_service.core.rectification.constants import PLANETS_LIST
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -229,31 +217,30 @@ def is_aspect_active(angle1: float, angle2: float, aspect_type: str) -> bool:
 
 def calculate_chart_for_time(birth_date: datetime, latitude: float, longitude: float, timezone_str: str) -> Chart:
     """
-    Calculate astrological chart for a specific birth time.
+    Calculate astrological chart for a specific time and location.
 
     Args:
         birth_date: Birth datetime
         latitude: Birth location latitude
         longitude: Birth location longitude
-        timezone_str: Birth location timezone
+        timezone_str: Birth location timezone string
 
     Returns:
         Flatlib Chart object
     """
     # Format date for flatlib
     dt_str = birth_date.strftime('%Y/%m/%d')
-    time_str = birth_date.strftime('%H:%M')
 
     # Convert timezone to offset format (+/-HH:MM)
     timezone = pytz.timezone(timezone_str)
     offset = timezone.utcoffset(birth_date)
-    hours, remainder = divmod(offset.total_seconds(), 3600)
-    minutes, _ = divmod(remainder, 60)
-    offset_str = f"{'+' if hours >= 0 else '-'}{abs(int(hours)):02d}:{abs(int(minutes)):02d}"
+
+    # Calculate the offset in hours for the date object
+    offset_hours = int(offset.total_seconds() / 3600)
 
     # Create flatlib datetime and position objects
     # Convert strings to appropriate numeric types if required by the API
-    date = Datetime(dt_str, int(birth_date.hour), int(offset.total_seconds() / 3600))
+    date = Datetime(dt_str, int(birth_date.hour), offset_hours)
     pos = GeoPos(f"{abs(latitude)}{'n' if latitude >= 0 else 's'}",
                 f"{abs(longitude)}{'e' if longitude >= 0 else 'w'}")
 
@@ -290,10 +277,9 @@ def get_house_planet_connections(chart: Chart, house_num: int) -> List[Dict[str,
         planet = chart.getObject(planet_name)
         planet_longitude = planet.lon
 
-        for aspect_type in ASPECT_ORBS.keys():
+        for aspect_type, orb in ASPECT_ORBS.items():
             if is_aspect_active(house_cusp_longitude, planet_longitude, aspect_type):
                 # Calculate strength based on aspect type and orb
-                orb = ASPECT_ORBS[aspect_type]
                 target_angle = get_aspect_angle(aspect_type)
                 diff = abs(house_cusp_longitude - planet_longitude) % 360
                 if diff > 180:
@@ -333,10 +319,9 @@ def get_planet_aspects(chart: Chart, planet1_name: str, planet2_name: str) -> Li
     planet2 = chart.getObject(planet2_name)
 
     aspects = []
-    for aspect_type in ASPECT_ORBS.keys():
+    for aspect_type, orb in ASPECT_ORBS.items():
         if is_aspect_active(planet1.lon, planet2.lon, aspect_type):
             # Calculate strength based on aspect type and orb
-            orb = ASPECT_ORBS[aspect_type]
             target_angle = get_aspect_angle(aspect_type)
             diff = abs(planet1.lon - planet2.lon) % 360
             if diff > 180:
@@ -420,7 +405,7 @@ async def rectify_birth_time(
     Returns:
         Tuple of (rectified_time, confidence)
     """
-    logger.info(f"Rectifying birth time for {birth_dt} at {latitude}, {longitude}")
+    logger.info("Rectifying birth time for %s at %s, %s", birth_dt, latitude, longitude)
 
     # Generate candidate birth times to test (30-minute window in 5-minute increments)
     time_window = 30  # minutes
@@ -444,7 +429,6 @@ async def rectify_birth_time(
             # Process each answer/life event
             for answer in answers:
                 event_type = answer.get('event_type')
-                event_date = answer.get('event_date')
                 confidence = answer.get('confidence', 1.0)
 
                 if event_type and event_type in LIFE_EVENT_MAPPING:
@@ -454,7 +438,7 @@ async def rectify_birth_time(
 
             candidate_scores.append((candidate_time, total_score))
         except Exception as e:
-            logger.error(f"Error calculating chart for {candidate_time}: {str(e)}")
+            logger.error("Error calculating chart for %s: %s", candidate_time, str(e))
             continue
 
     # Find the best candidate time
@@ -483,7 +467,7 @@ async def rectify_birth_time(
     else:
         confidence = 50.0
 
-    logger.info(f"Rectified time: {best_time}, confidence: {confidence}, score: {best_score}")
+    logger.info("Rectified time: %s, confidence: %s, score: %s", best_time, confidence, best_score)
 
     return best_time, confidence
 
@@ -539,7 +523,7 @@ class EnhancedRectificationService:
             for natal_planet in get_planets_list():  # Use helper function
                 natal_planet_obj = birth_chart.getObject(natal_planet)
 
-                for aspect_type in ASPECT_ORBS.keys():
+                for aspect_type, _ in ASPECT_ORBS.items():
                     if is_aspect_active(tr_planet_obj.lon, natal_planet_obj.lon, aspect_type):
                         # Calculate orb
                         target_angle = get_aspect_angle(aspect_type)
@@ -681,7 +665,7 @@ class EnhancedRectificationService:
                     'moon_sign': birth_chart.getObject(const.MOON).sign
                 })
             except Exception as e:
-                logger.error(f"Error evaluating birth time {current_time}: {str(e)}")
+                logger.error("Error evaluating birth time %s: %s", current_time, str(e))
 
             # Move to next time step
             current_time += timedelta(minutes=step_minutes)
@@ -731,7 +715,7 @@ class EnhancedRectificationService:
         Returns:
             Dict containing rectified_time, confidence, and explanation
         """
-        logger.info(f"Enhanced rectification for {birth_dt} at {latitude}, {longitude}")
+        logger.info("Enhanced rectification for %s at %s, %s", birth_dt, latitude, longitude)
 
         # Apply constraints if provided
         min_hour = constraints.get("min_hours", 0) if constraints else 0
@@ -811,7 +795,7 @@ class EnhancedRectificationService:
                 f"Midheaven: {best_candidate['mc']}."
             )
 
-        logger.info(f"Enhanced rectified time: {rectified_time}, confidence: {confidence}")
+        logger.info("Enhanced rectified time: %s, confidence: %s", rectified_time, confidence)
 
         return {
             "rectified_time": rectified_time,
@@ -835,31 +819,33 @@ def get_timezone_info(latitude: float, longitude: float) -> Dict[str, Any]:
         ValueError: If the timezone cannot be determined
     """
     try:
-        import pytz
-        from timezonefinder import TimezoneFinder
+        if not PYTZ_AVAILABLE:
+            raise ImportError("pytz module is not available")
+
+        # Create TimezoneFinder instance
+        tf = TimezoneFinder()
+
+        # Get timezone for coordinates
+        timezone_str = tf.timezone_at(lat=latitude, lng=longitude)
+
+        if not timezone_str:
+            error_msg = f"Could not determine timezone for coordinates: {latitude}, {longitude}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # Get timezone information
+        timezone = pytz.timezone(timezone_str)
+
+        # Calculate current UTC offset
+        now = datetime.now()
+        offset = timezone.utcoffset(now)
+        offset_seconds = offset.total_seconds() if offset is not None else 0
     except ImportError as e:
-        error_msg = f"Required modules not available: {e}"
+        error_msg = f"Required modules not available: {str(e)}"
         logger.error(error_msg)
-        raise ImportError(error_msg)
-
-    # Create TimezoneFinder instance
-    tf = TimezoneFinder()
-
-    # Get timezone for coordinates
-    timezone_str = tf.timezone_at(lat=latitude, lng=longitude)
-
-    if not timezone_str:
-        error_msg = f"Could not determine timezone for coordinates: {latitude}, {longitude}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-
-    # Get timezone information
-    timezone = pytz.timezone(timezone_str)
+        raise ImportError(error_msg) from e
 
     # Calculate current UTC offset
-    now = datetime.now()
-    offset = timezone.utcoffset(now)
-    offset_seconds = offset.total_seconds() if offset is not None else 0
     offset_hours = offset_seconds / 3600
 
     # Format UTC offset string

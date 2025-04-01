@@ -8,6 +8,7 @@ using the shared authentication utilities in ai_service/utils/auth_utils.py.
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, cast, Union
+import json
 
 import jwt
 
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 # User type
 User = Dict[str, Any]
 
-def authenticate_user(email: str, password: str) -> Optional[User]:
+async def authenticate_user(email: str, password: str) -> Optional[User]:
     """
     Authenticate a user with email and password.
 
@@ -39,18 +40,42 @@ def authenticate_user(email: str, password: str) -> Optional[User]:
     Returns:
         User object if authentication is successful, None otherwise
     """
-    # Get user from repository
-    user = user_repository.get_user_by_email(email)
-
-    # Check if user exists
-    if not user:
+    if not email or not password:
+        logger.warning("Authentication attempt with empty credentials")
         return None
 
-    # Verify password
-    if not verify_password(password, user["password"]):
-        return None
+    try:
+        # Get user from repository
+        try:
+            user = await user_repository["get_user_by_email"](email)
+        except KeyError:
+            logger.error("User repository missing method 'get_user_by_email'")
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving user by email: {e}")
+            return None
 
-    return cast(User, user)
+        # Check if user exists
+        if not user:
+            logger.info(f"Authentication failed: No user found with email {email}")
+            return None
+
+        # Verify password
+        try:
+            if not verify_password(password, user["password_hash"]):
+                logger.info(f"Authentication failed: Invalid password for user {email}")
+                return None
+        except KeyError:
+            logger.error(f"User data missing password_hash field")
+            return None
+        except Exception as e:
+            logger.error(f"Error verifying password: {e}")
+            return None
+
+        return cast(User, user)
+    except Exception as e:
+        logger.error(f"Unexpected error during authentication: {e}")
+        return None
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
@@ -83,7 +108,7 @@ def hash_password(password: str) -> str:
     password_service = container.get("password_service")
     return password_service.hash_password(password)
 
-def create_user(email: str, password: str, full_name: str) -> Optional[User]:
+async def create_user(email: str, password: str, full_name: str) -> Optional[User]:
     """
     Create a new user.
 
@@ -96,29 +121,31 @@ def create_user(email: str, password: str, full_name: str) -> Optional[User]:
         Created user object if successful, None if user already exists
     """
     # Check if user already exists
-    if user_repository.get_user_by_email(email):
+    existing_user = await user_repository["get_user_by_email"](email)
+    if existing_user:
         return None
 
     # Hash password
     hashed_password = hash_password(password)
 
-    # Create user
+    # Create user with all required fields
     user = {
         "email": email,
-        "password": hashed_password,
+        "username": email.split('@')[0],  # Use first part of email as username
+        "password_hash": hashed_password,
         "full_name": full_name,
+        "preferences": json.dumps({}),  # Store empty dict as JSON string
         "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
-        "preferences": {}
+        "updated_at": datetime.now().isoformat()
     }
 
     # Save user
-    user_id = user_repository.create_user(user)
+    user_id = await user_repository["create_user"](user)
     if not user_id:
         return None
 
     # Add ID to user object
-    user["id"] = user_id
+    user["user_id"] = user_id
 
     return cast(User, user)
 
@@ -140,7 +167,7 @@ def create_access_token(
     """
     return shared_create_access_token(user_id, expires_delta, additional_data)
 
-def verify_token(token: str) -> Optional[str]:
+async def verify_token(token: str) -> Optional[str]:
     """
     Verify and decode a JWT token using the shared implementation.
 
@@ -150,20 +177,46 @@ def verify_token(token: str) -> Optional[str]:
     Returns:
         User ID if token is valid, None otherwise
     """
+    if not token:
+        logger.warning("Empty token received for verification")
+        return None
+
     try:
         # Use shared implementation
         user_id = shared_verify_token(token)
 
+        if not user_id:
+            logger.warning("Token verification failed: No user ID returned")
+            return None
+
         # Additional check: verify that user exists in our database
-        if user_id and not user_repository.user_exists(user_id):
-            logger.warning(f"User ID {user_id} from token does not exist in database")
+        try:
+            user_exists = await user_repository["user_exists"](user_id)
+            if not user_exists:
+                logger.warning(f"User ID {user_id} from token does not exist in database")
+                return None
+        except KeyError:
+            logger.error("User repository missing method 'user_exists'")
+            return None
+        except Exception as e:
+            logger.error(f"Error checking user existence: {e}")
             return None
 
         return user_id
-    except jwt.PyJWTError:
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token verification failed: Token has expired")
+        return None
+    except jwt.InvalidTokenError:
+        logger.warning("Token verification failed: Invalid token format")
+        return None
+    except jwt.PyJWTError as e:
+        logger.warning(f"Token verification failed: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error during token verification: {str(e)}")
         return None
 
-def get_user_by_id(user_id: str) -> Optional[User]:
+async def get_user_by_id(user_id: str) -> Optional[User]:
     """
     Get a user by ID.
 
@@ -173,7 +226,7 @@ def get_user_by_id(user_id: str) -> Optional[User]:
     Returns:
         User object if found, None otherwise
     """
-    user_dict = user_repository.get_user(user_id)
+    user_dict = await user_repository["get_user"](user_id)
     return cast(User, user_dict) if user_dict else None
 
 def convert_to_user_out(user: User) -> Dict[str, Any]:
@@ -187,15 +240,15 @@ def convert_to_user_out(user: User) -> Dict[str, Any]:
         Dictionary representation of UserOut
     """
     return {
-        "id": user["id"],
-        "email": user["email"],
-        "full_name": user["full_name"],
-        "created_at": user["created_at"],
-        "updated_at": user["updated_at"],
-        "preferences": user["preferences"]
+        "id": user.get("user_id", ""),
+        "email": user.get("email", ""),
+        "full_name": user.get("full_name", ""),
+        "created_at": user.get("created_at", ""),
+        "updated_at": user.get("updated_at", ""),
+        "preferences": user.get("preferences", {})
     }
 
-def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> bool:
+async def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> bool:
     """
     Update a user's preferences.
 
@@ -206,9 +259,27 @@ def update_user_preferences(user_id: str, preferences: Dict[str, Any]) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    return user_repository.update_preferences(user_id, preferences)
+    try:
+        # Check if user exists before updating preferences
+        if not await user_repository["user_exists"](user_id):
+            logger.error(f"Cannot update preferences: User ID {user_id} does not exist")
+            return False
 
-def get_user_charts(user_id: str) -> List[str]:
+        # Convert preferences to JSON string if needed by the repository
+        preferences_data = json.dumps(preferences) if isinstance(preferences, dict) else preferences
+
+        return await user_repository["update_preferences"](user_id, preferences_data)
+    except KeyError as ke:
+        logger.error(f"Repository method error: {ke}")
+        return False
+    except json.JSONDecodeError as je:
+        logger.error(f"JSON serialization error: {je}")
+        return False
+    except Exception as e:
+        logger.error(f"Error updating user preferences: {e}")
+        return False
+
+async def get_user_charts(user_id: str) -> List[str]:
     """
     Get a user's saved charts.
 
@@ -218,9 +289,9 @@ def get_user_charts(user_id: str) -> List[str]:
     Returns:
         List of chart IDs
     """
-    return user_repository.get_user_charts(user_id)
+    return await user_repository["get_user_charts"](user_id)
 
-def add_chart_to_user(user_id: str, chart_id: str) -> bool:
+async def add_chart_to_user(user_id: str, chart_id: str) -> bool:
     """
     Add a chart to a user's saved charts.
 
@@ -231,9 +302,9 @@ def add_chart_to_user(user_id: str, chart_id: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    return user_repository.add_chart(user_id, chart_id)
+    return await user_repository["add_chart"](user_id, chart_id)
 
-def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
+async def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
     """
     Remove a chart from a user's saved charts.
 
@@ -244,4 +315,4 @@ def remove_chart_from_user(user_id: str, chart_id: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    return user_repository.remove_chart(user_id, chart_id)
+    return await user_repository["remove_chart"](user_id, chart_id)

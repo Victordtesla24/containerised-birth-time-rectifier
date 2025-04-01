@@ -11,6 +11,10 @@ import uuid
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 import asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from ai_service.api.models.session import Session
 
 logger = logging.getLogger(__name__)
 
@@ -209,3 +213,76 @@ class SessionStore:
 
 # Initialize the global session store
 _session_store = SessionStore()
+
+async def get_session_by_id(session_id: str, db: AsyncSession) -> Optional[Session]:
+    """
+    Get a session by ID from the database.
+
+    Args:
+        session_id: The session ID to look up
+        db: Database session
+
+    Returns:
+        Session if found, None otherwise
+    """
+    try:
+        result = await db.execute(select(Session).where(Session.id == session_id))
+        return result.scalar_one_or_none()
+    except Exception as e:
+        logger.error(f"Error getting session {session_id}: {e}")
+        return None
+
+
+async def create_session(db: AsyncSession, data: Dict[str, Any]) -> Optional[Session]:
+    """
+    Create a new session in the database.
+
+    Args:
+        db: Database session
+        data: Session data
+
+    Returns:
+        Created session or None if creation failed
+    """
+    try:
+        session = Session.from_dict(data)
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
+        return session
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error creating session: {e}")
+        return None
+
+
+async def update_session(db: AsyncSession, session_id: str, data: Dict[str, Any]) -> Optional[Session]:
+    """
+    Update an existing session in the database.
+
+    Args:
+        db: Database session
+        session_id: The session ID to update
+        data: Updated session data
+
+    Returns:
+        Updated session or None if update failed
+    """
+    try:
+        session = await get_session_by_id(session_id, db)
+        if not session:
+            logger.warning(f"Session {session_id} not found for update")
+            return None
+
+        # Update fields
+        for key, value in data.items():
+            if hasattr(session, key):
+                setattr(session, key, value)
+
+        await db.commit()
+        await db.refresh(session)
+        return session
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error updating session {session_id}: {e}")
+        return None

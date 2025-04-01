@@ -56,13 +56,38 @@ async def geocode_endpoint(
         if include_timezone:
             for result in results:
                 if "latitude" in result and "longitude" in result:
+                    # Get timezone info for the coordinates
                     timezone_info = await get_timezone_for_coordinates(
                         result["latitude"],
                         result["longitude"]
                     )
-                    result["timezone"] = timezone_info.get("timezone")
-                    result["timezone_offset"] = timezone_info.get("offset")
-                    result["timezone_abbreviation"] = timezone_info.get("abbreviation")
+
+                    # Map the timezone information to the expected fields
+                    # The timezone_info contains different keys than what we're mapping to
+                    result["timezone"] = timezone_info.get("timezone_id")  # Changed from "timezone" to "timezone_id"
+
+                    # Get total offset, which is the sum of raw offset and DST offset
+                    total_offset = timezone_info.get("total_offset")
+                    if total_offset is not None:
+                        # Convert seconds to hours for better readability
+                        result["timezone_offset"] = total_offset / 3600  # Convert seconds to hours
+
+                    # Calculate abbreviation from timezone_id if not present
+                    # We don't have direct access to the abbreviation, so derive it from the timezone_id
+                    timezone_name = timezone_info.get("timezone_name", "")
+                    if timezone_name:
+                        # Extract a simple abbreviation (e.g., EST, CST) from the timezone name
+                        # This is a best-effort approach
+                        parts = timezone_name.split()
+                        if parts:
+                            result["timezone_abbreviation"] = ''.join([p[0] for p in parts if p])
+                    else:
+                        # Default to empty if we can't determine an abbreviation
+                        result["timezone_abbreviation"] = None
+
+                    # Add additional timezone information that might be useful
+                    result["timezone_name"] = timezone_info.get("timezone_name")
+                    result["is_dst"] = timezone_info.get("dst_offset", 0) > 0
 
         return {
             "success": True,
@@ -108,17 +133,47 @@ async def reverse_geocode_endpoint(
         results = await reverse_geocode(latitude, longitude)
 
         # If requested, add timezone information
-        timezone_info = None
+        timezone_data = None
         if include_timezone:
             timezone_info = await get_timezone_for_coordinates(latitude, longitude)
 
+            # Process timezone information in the same format as the timezone endpoint
+            # Calculate an abbreviation from the timezone_id
+            abbreviation = None
+            timezone_name = timezone_info.get("timezone_name", "")
+            if timezone_name:
+                parts = timezone_name.split()
+                if parts:
+                    abbreviation = ''.join([p[0] for p in parts if p])
+
+            # Safely get offset values and convert to hours
+            total_offset = timezone_info.get("total_offset")
+            total_offset_hours = total_offset / 3600 if total_offset is not None else 0
+
+            raw_offset = timezone_info.get("raw_offset")
+            raw_offset_hours = raw_offset / 3600 if raw_offset is not None else 0
+
+            dst_offset = timezone_info.get("dst_offset")
+            dst_offset_hours = dst_offset / 3600 if dst_offset is not None else 0
+
+            # Format the timezone data consistently
+            timezone_data = {
+                "timezone": timezone_info.get("timezone_id"),
+                "timezone_name": timezone_info.get("timezone_name"),
+                "offset": total_offset_hours,
+                "raw_offset": raw_offset_hours,
+                "dst_offset": dst_offset_hours,
+                "is_dst": timezone_info.get("dst_offset", 0) > 0,
+                "abbreviation": abbreviation
+            }
+
         return {
             "success": True,
-                            "latitude": latitude,
-                            "longitude": longitude,
+            "latitude": latitude,
+            "longitude": longitude,
             "count": len(results),
             "results": results,
-            "timezone": timezone_info if include_timezone else None
+            "timezone": timezone_data
         }
 
     except HTTPException:
@@ -158,14 +213,36 @@ async def timezone_endpoint(
         # Use the canonical implementation
         timezone_info = await get_timezone_for_coordinates(latitude, longitude)
 
+        # Calculate an abbreviation from the timezone_id
+        abbreviation = None
+        timezone_name = timezone_info.get("timezone_name", "")
+        if timezone_name:
+            parts = timezone_name.split()
+            if parts:
+                abbreviation = ''.join([p[0] for p in parts if p])
+
+        # Safely get offset values and convert to hours
+        total_offset = timezone_info.get("total_offset")
+        total_offset_hours = total_offset / 3600 if total_offset is not None else 0
+
+        raw_offset = timezone_info.get("raw_offset")
+        raw_offset_hours = raw_offset / 3600 if raw_offset is not None else 0
+
+        dst_offset = timezone_info.get("dst_offset")
+        dst_offset_hours = dst_offset / 3600 if dst_offset is not None else 0
+
+        # Map the timezone information to the expected fields
         return {
             "success": True,
             "latitude": latitude,
             "longitude": longitude,
-            "timezone": timezone_info.get("timezone"),
-            "offset": timezone_info.get("offset"),
-            "dst": timezone_info.get("dst", False),
-            "abbreviation": timezone_info.get("abbreviation")
+            "timezone": timezone_info.get("timezone_id"),  # Use timezone_id instead of timezone
+            "timezone_name": timezone_info.get("timezone_name"),
+            "offset": total_offset_hours,
+            "raw_offset": raw_offset_hours,
+            "dst_offset": dst_offset_hours,
+            "is_dst": timezone_info.get("dst_offset", 0) > 0,
+            "abbreviation": abbreviation
         }
 
     except HTTPException:

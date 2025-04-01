@@ -18,6 +18,8 @@ ENV/
 node_modules/
 dist/
 build/
+Reports/
+ephemiris/
 
 ## Development Containers & CI
 .devcontainer/

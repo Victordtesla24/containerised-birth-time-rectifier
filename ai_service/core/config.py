@@ -6,7 +6,8 @@ import os
 from typing import Optional, Dict, Any, List
 import logging
 from dotenv import load_dotenv
-from pydantic import BaseSettings, Field, validator
+from pydantic_settings import BaseSettings
+from pydantic import Field, validator
 
 # Load .env file
 load_dotenv()
@@ -14,8 +15,14 @@ load_dotenv()
 # Configure logging
 logger = logging.getLogger("birth-time-rectifier.config")
 
+# Get the current environment
+ENV = os.environ.get("ENVIRONMENT", os.environ.get("APP_ENV", "development")).lower()
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables with defaults"""
+
+    # Environment
+    environment: str = Field(default="development")
 
     # API settings
     API_PREFIX: str = "/api/v1"
@@ -43,18 +50,22 @@ class Settings(BaseSettings):
     if not REDIS_URL and USE_REDIS:
         REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
 
-    # Database settings
-    DB_HOST: str = os.getenv("DB_HOST", "postgres")  # Default to service name in docker-compose
-    DB_PORT: int = int(os.getenv("DB_PORT", "5432"))
-    DB_USER: str = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "postgres")
-    DB_NAME: str = os.getenv("DB_NAME", "birth_time_rectifier")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+    # Database settings with safe defaults
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = ""
+    DB_NAME: str = "birth_time_rectifier"
+    DB_SSL: bool = False
+    DATABASE_URL: Optional[str] = None  # Add this field for the validator
+
+    # Add a flag to skip DB initialization if needed - default to True in development
+    DB_SKIP_INIT: bool = True if ENV in ("development", "test") else False
 
     # Media and export settings
     MEDIA_ROOT: str = os.getenv("MEDIA_ROOT", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media"))
-    UPLOADS_DIR: str = os.path.join(MEDIA_ROOT, "uploads")
-    EXPORTS_DIR: str = os.path.join(MEDIA_ROOT, "exports")
+    UPLOADS_DIR: str = os.getenv("UPLOADS_DIR", os.path.join(MEDIA_ROOT, "uploads"))
+    EXPORTS_DIR: str = os.getenv("EXPORTS_DIR", os.path.join(MEDIA_ROOT, "exports"))
 
     # OpenAI API settings (for AI integration)
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -96,9 +107,18 @@ class Settings(BaseSettings):
         return float(raw_value)
 
     @validator("DATABASE_URL", pre=True)
-    def assemble_db_url(cls, v: Optional[str], values) -> str:  # pylint: disable=E0213
+    def assemble_db_url(cls, v: Optional[str], values) -> Optional[str]:  # pylint: disable=E0213
+        """
+        Build a database URL from individual components if not explicitly provided
+        """
         if v and len(v) > 0:
             return v
+
+        # Default to None if any required value is missing
+        required_fields = ['DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT', 'DB_NAME']
+        for field in required_fields:
+            if field not in values or values.get(field) is None:
+                return None
 
         # Build the URL from separate components
         db_user = values.get('DB_USER')
@@ -107,11 +127,20 @@ class Settings(BaseSettings):
         db_port = values.get('DB_PORT')
         db_name = values.get('DB_NAME')
 
+        # Return PostgreSQL connection string
         return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        validate_assignment = True
+        # Note: validate_all has been renamed to validate_default in Pydantic v2
+        validate_default = True
+        # This property tells Pydantic not to check that all validator fields exist in the model
+        # Essential for inheritance scenarios where fields might be added later
+        check_fields = False
+        # Allow extra fields to be included, fixing the 'extra inputs are not permitted' error
+        extra = "allow"
 
     def dict_with_secrets_hidden(self) -> Dict[str, Any]:
         """Returns settings dict with sensitive values hidden"""

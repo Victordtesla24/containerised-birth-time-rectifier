@@ -10,10 +10,18 @@ import logging
 import json
 import re
 import time
-from typing import Dict, Any, List, Optional, Union
+import asyncio
+from typing import Dict, Any, List, Optional, Union, TypedDict, cast, Mapping, Literal, TypeVar, Generic, Awaitable, Protocol
 from datetime import datetime
-import openai
-import backoff
+
+try:
+    import openai
+    from openai.types.chat import ChatCompletion
+    from openai.types.chat.chat_completion import Choice
+    from openai.types.chat.chat_completion_message import ChatCompletionMessage
+    import backoff
+except ImportError as exc:
+    raise ImportError("Required packages 'openai' and 'backoff' not found. Please install them with: pip install openai backoff") from exc
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -33,11 +41,34 @@ def __getattr__(name):
         return fn
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
+class SupportsIndex(Protocol):
+    def __index__(self) -> int: ...
+
+class PlanetData(TypedDict):
+    sign: str
+    degree: float
+    longitude: float
+    house: int
+
+class ModelUsage(TypedDict):
+    calls: int
+    tokens: int
+    cost: float
+
+class UsageStatistics(TypedDict):
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_cost: float
+    calls: int
+    model_usage: Dict[str, ModelUsage]
+    last_updated: str
+
 class OpenAIService:
     """
     Complete OpenAI service implementation for chart verification and rectification.
     """
-    def __init__(self, api_key=None):
+    def __init__(self, api_key: Optional[str] = None):
         """
         Initialize the OpenAI service with API key.
 
@@ -48,8 +79,9 @@ class OpenAIService:
         if not self.api_key:
             logger.warning("OpenAI API key not provided! Verification features will not work.")
 
-        self.client = openai.Client(api_key=self.api_key)
-        self.usage_statistics = {
+        self.client: Optional[openai.AsyncClient] = None
+        self._init_lock = asyncio.Lock()
+        self.usage_statistics: UsageStatistics = {
             "total_tokens": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -58,6 +90,28 @@ class OpenAIService:
             "model_usage": {},
             "last_updated": datetime.now().isoformat()
         }
+
+    async def _ensure_client(self) -> openai.AsyncClient:
+        """
+        Ensure the OpenAI client is initialized.
+
+        Returns:
+            The initialized OpenAI client
+        """
+        if self.client is not None:
+            return self.client
+
+        async with self._init_lock:
+            if self.client is not None:
+                return self.client
+
+            try:
+                self.client = openai.AsyncClient(api_key=self.api_key)
+                logger.info("OpenAI client initialized successfully")
+                return self.client
+            except Exception as e:
+                logger.error("Failed to initialize OpenAI client: %s", e)
+                raise
 
     def select_model(self, task_type: str) -> str:
         """
@@ -84,7 +138,7 @@ class OpenAIService:
         }
 
         model = model_env_vars.get(task_category, model_env_vars["auxiliary"])
-        logger.info(f"Selected model {model} for task type {task_type}")
+        logger.info("Selected model %s for task type %s", model, task_type)
         return model
 
     def _get_task_category(self, task_type: str) -> str:
@@ -118,8 +172,9 @@ class OpenAIService:
     @backoff.on_exception(backoff.expo,
                          (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError),
                          max_tries=3)
-    async def chat_completion(self, messages, model=None, temperature=0.7, max_tokens=None,
-                             stream=False, response_format=None):
+    async def chat_completion(self, messages: List[Dict[str, str]], model: Optional[str] = None,
+                            temperature: float = 0.7, max_tokens: Optional[int] = None,
+                            stream: bool = False, response_format: Optional[Dict[str, str]] = None) -> ChatCompletion:
         """
         Send a chat completion request to OpenAI with backoff retry logic.
 
@@ -138,8 +193,11 @@ class OpenAIService:
             model = "gpt-4-turbo"
 
         try:
-            # Prepare parameters
-            params = {
+            client = await self._ensure_client()
+            if not client:
+                raise ValueError("OpenAI client initialization failed")
+
+            params: Dict[str, Any] = {
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
@@ -152,12 +210,10 @@ class OpenAIService:
             if response_format:
                 params["response_format"] = response_format
 
-            # Make the API call
             start_time = time.time()
-            response = await self.client.chat.completions.create(**params)
+            response = await client.chat.completions.create(**params)
             elapsed = time.time() - start_time
 
-            # Update usage statistics
             if not stream and hasattr(response, "usage") and response.usage:
                 self._update_usage_statistics(
                     model=model,
@@ -168,38 +224,41 @@ class OpenAIService:
 
             return response
         except Exception as e:
-            logger.error(f"OpenAI chat completion error: {str(e)}")
+            logger.error("OpenAI chat completion error: %s", str(e))
             raise
 
-    def _update_usage_statistics(self, model, prompt_tokens, completion_tokens, elapsed_time):
+    def _update_usage_statistics(self, model: str, prompt_tokens: int,
+                               completion_tokens: int, elapsed_time: float) -> None:
         """Update internal usage statistics after an API call."""
         from ai_service.api.services.openai.cost_calculator import calculate_cost
 
-        self.usage_statistics["total_tokens"] += prompt_tokens + completion_tokens
-        self.usage_statistics["prompt_tokens"] += prompt_tokens
-        self.usage_statistics["completion_tokens"] += completion_tokens
-        self.usage_statistics["calls"] += 1
-        self.usage_statistics["last_updated"] = datetime.now().isoformat()
+        stats = self.usage_statistics
+        stats["total_tokens"] += prompt_tokens + completion_tokens
+        stats["prompt_tokens"] += prompt_tokens
+        stats["completion_tokens"] += completion_tokens
+        stats["calls"] += 1
+        stats["last_updated"] = datetime.now().isoformat()
 
-        # Update model-specific usage
-        if model not in self.usage_statistics["model_usage"]:
-            self.usage_statistics["model_usage"][model] = {
+        model_usage = stats["model_usage"]
+        if model not in model_usage:
+            model_usage[model] = {
                 "calls": 0,
                 "tokens": 0,
                 "cost": 0.0
             }
 
         model_cost = calculate_cost(model, prompt_tokens, completion_tokens)
-        self.usage_statistics["model_usage"][model]["calls"] += 1
-        self.usage_statistics["model_usage"][model]["tokens"] += prompt_tokens + completion_tokens
-        self.usage_statistics["model_usage"][model]["cost"] += model_cost
-        self.usage_statistics["total_cost"] += model_cost
+        current_model_usage = model_usage[model]
+        current_model_usage["calls"] += 1
+        current_model_usage["tokens"] += prompt_tokens + completion_tokens
+        current_model_usage["cost"] += model_cost
+        stats["total_cost"] += model_cost
 
-    def get_usage_statistics(self) -> Dict[str, Any]:
+    def get_usage_statistics(self) -> UsageStatistics:
         """Get current usage statistics for monitoring."""
         return self.usage_statistics
 
-    def verify_chart(self, chart_data: dict) -> dict:
+    async def verify_chart(self, chart_data: dict) -> dict:
         """
         Verify chart calculations against Vedic astrological standards using OpenAI.
 
@@ -215,8 +274,13 @@ class OpenAIService:
             # Prepare the prompt with structured chart data
             prompt = self._prepare_verification_prompt(chart_data)
 
+            # Ensure client is initialized
+            client = await self._ensure_client()
+            if client is None:
+                raise ValueError("OpenAI client unavailable")
+
             # Send to OpenAI for verification
-            response = self.client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": "You are a Vedic astrology expert verifying chart calculations."},
@@ -225,8 +289,13 @@ class OpenAIService:
                 response_format={"type": "json_object"}
             )
 
-            # Parse the verification result
-            verification_result = self._parse_verification_result(response.choices[0].message.content)
+            # Parse the verification result (await the coroutine result first)
+            response_content = ""
+            if hasattr(response, "choices") and len(response.choices) > 0:
+                if hasattr(response.choices[0], "message") and hasattr(response.choices[0].message, "content"):
+                    response_content = response.choices[0].message.content
+
+            verification_result = self._parse_verification_result(response_content)
 
             # Apply corrections if needed
             corrected_chart = chart_data.copy()
@@ -245,7 +314,7 @@ class OpenAIService:
                 }
             }
         except Exception as e:
-            logger.error(f"OpenAI verification failed: {e}")
+            logger.error("OpenAI verification failed: %s", e)
             # Return the original chart data with verification failure information
             return {
                 "chart_data": chart_data,
@@ -354,7 +423,7 @@ Please be detailed and specific with any corrections needed.
 """
         return prompt
 
-    def _parse_verification_result(self, content: str) -> Dict[str, Any]:
+    def _parse_verification_result(self, content: Optional[str]) -> Dict[str, Any]:
         """
         Parse the OpenAI verification response.
 
@@ -366,6 +435,15 @@ Please be detailed and specific with any corrections needed.
         """
         try:
             # Try to parse as JSON
+            if not content:
+                return {
+                    "verified": False,
+                    "confidence_score": 0,
+                    "corrections_needed": False,
+                    "message": "Empty verification result",
+                    "corrections": []
+                }
+
             if isinstance(content, str):
                 result = json.loads(content)
             else:
@@ -390,7 +468,7 @@ Please be detailed and specific with any corrections needed.
 
             return result
         except Exception as e:
-            logger.error(f"Error parsing verification result: {str(e)}")
+            logger.error("Error parsing verification result: %s", str(e))
             # Return default result on parsing error
             return {
                 "verified": False,
@@ -474,7 +552,7 @@ Please be detailed and specific with any corrections needed.
                         self._update_ascendant(corrected_chart["angles"]["asc"], correct_value)
 
             except Exception as e:
-                logger.error(f"Error applying correction {correction}: {str(e)}")
+                logger.error("Error applying correction %s: %s", correction, str(e))
 
         return corrected_chart
 
@@ -485,13 +563,13 @@ Please be detailed and specific with any corrections needed.
             # If correction is a full object
             if isinstance(correct_value, dict):
                 if "sign" in correct_value:
-                    planet_data["sign"] = correct_value["sign"]
+                    planet_data["sign"] = correct_value.get("sign")
                 if "degree" in correct_value:
-                    planet_data["degree"] = float(correct_value["degree"])
+                    planet_data["degree"] = float(correct_value.get("degree", 0))
                 if "longitude" in correct_value:
-                    planet_data["longitude"] = float(correct_value["longitude"])
+                    planet_data["longitude"] = float(correct_value.get("longitude", 0))
                 if "house" in correct_value:
-                    planet_data["house"] = int(correct_value["house"])
+                    planet_data["house"] = int(correct_value.get("house", 0))
 
             # If correction is a string like "Aries 15.5°"
             elif isinstance(correct_value, str):
@@ -512,7 +590,7 @@ Please be detailed and specific with any corrections needed.
                 if house_match:
                     planet_data["house"] = int(house_match.group(1))
         except Exception as e:
-            logger.error(f"Error updating planet position: {str(e)}")
+            logger.error("Error updating planet position: %s", str(e))
 
     def _update_house_cusp(self, house_data: Dict[str, Any], correct_value: str) -> None:
         """Update house cusp data with corrected values."""
@@ -520,11 +598,11 @@ Please be detailed and specific with any corrections needed.
             # If correction is a full object
             if isinstance(correct_value, dict):
                 if "sign" in correct_value:
-                    house_data["sign"] = correct_value["sign"]
+                    house_data["sign"] = correct_value.get("sign")
                 if "degree" in correct_value:
-                    house_data["degree"] = float(correct_value["degree"])
+                    house_data["degree"] = float(correct_value.get("degree", 0))
                 if "longitude" in correct_value:
-                    house_data["longitude"] = float(correct_value["longitude"])
+                    house_data["longitude"] = float(correct_value.get("longitude", 0))
 
             # If correction is a string like "Aries 15.5°"
             elif isinstance(correct_value, str):
@@ -540,7 +618,7 @@ Please be detailed and specific with any corrections needed.
                 if longitude_match:
                     house_data["longitude"] = float(longitude_match.group(1))
         except Exception as e:
-            logger.error(f"Error updating house cusp: {str(e)}")
+            logger.error("Error updating house cusp: %s", str(e))
 
     def _update_ascendant(self, ascendant_data: Dict[str, Any], correct_value: str) -> None:
         """Update ascendant data with corrected values."""
@@ -548,11 +626,11 @@ Please be detailed and specific with any corrections needed.
             # If correction is a full object
             if isinstance(correct_value, dict):
                 if "sign" in correct_value:
-                    ascendant_data["sign"] = correct_value["sign"]
+                    ascendant_data["sign"] = correct_value.get("sign")
                 if "degree" in correct_value:
-                    ascendant_data["degree"] = float(correct_value["degree"])
+                    ascendant_data["degree"] = float(correct_value.get("degree", 0))
                 if "longitude" in correct_value:
-                    ascendant_data["longitude"] = float(correct_value["longitude"])
+                    ascendant_data["longitude"] = float(correct_value.get("longitude", 0))
 
             # If correction is a string like "Aries 15.5°"
             elif isinstance(correct_value, str):
@@ -568,7 +646,7 @@ Please be detailed and specific with any corrections needed.
                 if longitude_match:
                     ascendant_data["longitude"] = float(longitude_match.group(1))
         except Exception as e:
-            logger.error(f"Error updating ascendant: {str(e)}")
+            logger.error("Error updating ascendant: %s", str(e))
 
     async def rectify_birth_time(self, chart_data: Dict[str, Any],
                                answers: List[Dict[str, Any]],
@@ -602,20 +680,26 @@ Please be detailed and specific with any corrections needed.
             )
 
             # Parse the rectification result
-            content = response.choices[0].message.content
-            if isinstance(content, str):
-                result = json.loads(content)
-            else:
-                result = content
+            content = ""
+            if hasattr(response, "choices") and len(response.choices) > 0:
+                if hasattr(response.choices[0], "message") and hasattr(response.choices[0].message, "content"):
+                    content = response.choices[0].message.content
+
+            result = {}
+            if content and isinstance(content, str):
+                try:
+                    result = json.loads(content)
+                except json.JSONDecodeError:
+                    result = {}
 
             # Validate required fields
-            if "rectified_time" not in result:
+            if not isinstance(result, dict) or "rectified_time" not in result:
                 raise ValueError("Rectification result missing required field 'rectified_time'")
 
             # Format result
             return {
                 "original_time": chart_data.get("birth_details", {}).get("birth_time", "Unknown"),
-                "rectified_time": result["rectified_time"],
+                "rectified_time": result.get("rectified_time", "Unknown"),
                 "confidence": result.get("confidence", 0.0),
                 "explanation": result.get("explanation", ""),
                 "time_difference_minutes": result.get("time_difference_minutes", 0),
@@ -623,7 +707,7 @@ Please be detailed and specific with any corrections needed.
                 "rectified_at": datetime.now().isoformat()
             }
         except Exception as e:
-            logger.error(f"Birth time rectification failed: {e}")
+            logger.error("Birth time rectification failed: %s", e)
             return {
                 "error": f"Rectification failed: {str(e)}",
                 "status": "error",

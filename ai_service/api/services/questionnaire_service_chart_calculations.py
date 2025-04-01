@@ -111,7 +111,7 @@ def calculate_chart_data(birth_date: str, birth_time: str, latitude: float, long
                 birth_dt = tz.localize(birth_dt)
             except Exception as e:
                 logger.warning(f"Error setting timezone: {e}, using UTC")
-                birth_dt = pytz.UTC.localize(birth_dt)
+                birth_dt = birth_dt.replace(tzinfo=pytz.UTC)
 
         # Get chart service for calculations
         chart_service = get_chart_service()
@@ -125,7 +125,7 @@ def calculate_chart_data(birth_date: str, birth_time: str, latitude: float, long
                 timezone=timezone,
                 chart_type="vedic",
                 house_system="whole_sign",
-                verify_with_openai=False
+                verify_with_openai=True
             )
             return chart_data if chart_data else {}
         else:
@@ -171,7 +171,7 @@ def calculate_periods(birth_date: str, birth_time: str, latitude: float, longitu
                 birth_dt = tz.localize(birth_dt)
             except Exception as e:
                 logger.warning(f"Error setting timezone: {e}, using UTC")
-                birth_dt = pytz.UTC.localize(birth_dt)
+                birth_dt = birth_dt.replace(tzinfo=pytz.UTC)
 
         # Convert to UTC for calculations
         birth_dt_utc = birth_dt.astimezone(pytz.UTC)
@@ -188,7 +188,7 @@ def calculate_periods(birth_date: str, birth_time: str, latitude: float, longitu
                 timezone=timezone,
                 chart_type="vedic",
                 house_system="whole_sign",
-                verify_with_openai=False
+                verify_with_openai=True
             )
 
             if chart:
@@ -349,7 +349,10 @@ class ChartCalculator:
                     birth_time=birth_time,
                     latitude=latitude,
                     longitude=longitude,
-                    timezone=timezone
+                    timezone=timezone,
+                    chart_type="vedic",
+                    house_system="whole_sign",
+                    verify_with_openai=True
                 )
                 if chart_data:
                     return chart_data
@@ -438,7 +441,7 @@ class ChartCalculator:
                     timezone=timezone,
                     chart_type="vedic",
                     house_system="whole_sign",
-                    verify_with_openai=False
+                    verify_with_openai=True
                 )
                 if chart:
                     chart_data = chart
@@ -511,7 +514,7 @@ class ChartCalculator:
                             timezone=timezone,
                             chart_type="vedic",
                             house_system="whole_sign",
-                            verify_with_openai=False
+                            verify_with_openai=True
                         )
 
                         if chart and "ascendant" in chart:

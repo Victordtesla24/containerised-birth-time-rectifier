@@ -1,3 +1,7 @@
+"""
+Session management route handlers for the Birth Time Rectifier API Gateway.
+"""
+
 from fastapi import APIRouter, HTTPException, Request, status
 from typing import Dict, Any, Optional
 import httpx
@@ -6,17 +10,23 @@ import logging
 import time
 import uuid
 import traceback
+import json
 
 # Set up logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("api_gateway.routes.session")
 
-# Initialize router
-router = APIRouter()
+# Create router
+router = APIRouter(prefix="/api/session", tags=["session"])
+
+# AI Service URL
+AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://localhost:8001")
+if AI_SERVICE_URL and AI_SERVICE_URL.endswith("/"):
+    AI_SERVICE_URL = AI_SERVICE_URL[:-1]
 
 # Helper function to request data from the AI service
 async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: str = "POST") -> Dict[str, Any]:
     """Send a request to the AI service for session operations"""
-    ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai_service:8000")
+    ai_service_url = AI_SERVICE_URL
 
     url = f"{ai_service_url}/api/v1/{endpoint}"
     logger.info(f"Requesting AI service at {url}")
@@ -25,7 +35,10 @@ async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: s
         # Use proper HTTP client configuration
         timeout_seconds = 15.0  # Increase timeout for reliability
 
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            verify=True,  # Explicitly enable SSL verification
+            timeout=timeout_seconds
+        ) as client:
             if method == "GET":
                 response = await client.get(url, params=data)
             else:
@@ -61,31 +74,54 @@ async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: s
         )
 
 @router.get("/init")
-async def init_session_get():
+async def initialize_session(request: Request):
     """
     Initialize a new session.
-
-    Returns a session token that should be included in subsequent requests.
+    Proxies to the AI service's session initialization endpoint.
     """
     try:
-        # Forward to AI service - no local generation
-        result = await request_ai_service("init", {}, method="GET")
+        # Construct target URL
+        target_url = f"{AI_SERVICE_URL}/api/v1/session/init"
 
-        # Return the session data directly from the backend service
-        return result
-    except Exception as e:
-        logger.error(f"Error initializing session: {e}")
-        if isinstance(e, HTTPException):
-            raise e
+        # Extract headers
+        headers = {k: v for k, v in request.headers.items()
+                  if k.lower() not in ["host", "content-length"]}
+
+        logger.info("Session initialization request")
+
+        # Make request to AI service
+        async with httpx.AsyncClient(
+            verify=True,  # Explicitly enable SSL verification
+            timeout=30.0
+        ) as client:
+            response = await client.get(target_url, headers=headers)
+
+            # Check response status
+            if response.status_code >= 400:
+                logger.error(f"Error from AI service: {response.status_code} - {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Error initializing session: {response.text}"
+                )
+
+            # Parse response
+            try:
+                result = response.json()
+                logger.info(f"Session initialized successfully: {result.get('session_id', 'unknown')}")
+                return result
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing session response: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Invalid response from session service"
+                )
+
+    except httpx.RequestError as e:
+        logger.error(f"Error making request to session service: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initialize session: {str(e)}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Session service unavailable"
         )
-
-@router.post("/init")
-async def init_session_post():
-    """POST version of session initialization endpoint"""
-    return await init_session_get()
 
 @router.get("/status")
 async def get_session_status(session_id: str):

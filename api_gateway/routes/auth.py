@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 
 # AI Service URL
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
 
 # Configure logging
 logger = logging.getLogger("api_gateway.routes.auth")

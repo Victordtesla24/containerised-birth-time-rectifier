@@ -141,9 +141,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize GPU manager if available
     try:
-        gpu_manager = GPUMemoryManager()
+        from ai_service.utils.gpu_manager import get_gpu_manager
+        gpu_manager = get_gpu_manager()
         container.register_instance("gpu_manager", gpu_manager)
-        logger.info(f"GPU Memory Manager initialized with {gpu_manager.get_memory_info()}")
+
+        # Get memory info, log only if available
+        memory_info = gpu_manager.get_memory_info()
+        if memory_info and memory_info.get("status") == "gpu_available":
+            logger.info(f"GPU Memory Manager initialized with {len(memory_info.get('devices', 0))} devices")
+        else:
+            logger.info("GPU Memory Manager initialized (no GPU devices detected)")
     except Exception as e:
         logger.warning(f"GPU Manager initialization failed: {e}. Continuing without GPU support.")
 
@@ -231,8 +238,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Close GPU resources if initialized
     if 'gpu_manager' in locals():
         try:
-            gpu_manager.cleanup()
-            logger.info("GPU resources released")
+            # Call cleanup if it exists
+            if hasattr(gpu_manager, 'cleanup') and callable(gpu_manager.cleanup):
+                gpu_manager.cleanup()
+                logger.info("GPU resources released")
+            else:
+                logger.info("GPU manager doesn't have cleanup method, skipping GPU resource release")
         except Exception as e:
             logger.warning(f"Error cleaning up GPU resources: {e}")
 
@@ -265,48 +276,33 @@ def initialize_services():
         # Get the container instance
         container = get_container()
 
-        # Initialize OpenAI service if API key is available - check both env and .env file
-        api_key = get_env_with_fallback("OPENAI_API_KEY")
-        if api_key:
-            from ai_service.api.services.openai.service import OpenAIService
-
-            # Create OpenAI service with API key
-            openai_service = OpenAIService(api_key=api_key)
-            container.register_instance("openai_service", openai_service)
-            # Set feature flag indicating OpenAI is available
-            container.register_instance("openai_enabled", True)
-            logger.info("OpenAI service initialized successfully")
-        else:
-            # Set feature flag indicating OpenAI is not available
-            container.register_instance("openai_enabled", False)
-            logger.warning("OPENAI_API_KEY not found in environment or .env file. Advanced features requiring OpenAI will be disabled.")
-
-        # Initialize chart service - with retry
-        from ai_service.services import get_chart_service
-
-        # Create a chart service instance
-        chart_service = get_chart_service()
-
-        # Register it in the container (it will be initialized during app startup)
-        container.register_instance("chart_service", chart_service)
-        logger.info("Chart service registered (will be initialized asynchronously)")
-
+        # Just register basic services that don't depend on database or async initialization
         # Initialize session service
-        from ai_service.services.session_service import SessionService
-        session_service = SessionService()
-        container.register_instance("session_service", session_service)
-        logger.info("Session service initialized successfully")
+        try:
+            from ai_service.services.session_service import SessionService
+            session_service = SessionService()
+            container.register_instance("session_service", session_service)
+            logger.info("Session service initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing session service: {e}")
+            logger.error(traceback.format_exc())
 
         # Initialize WebSocket service
-        from ai_service.utils.websocket_manager import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        container.register_instance("websocket_manager", websocket_manager)
-        logger.info("WebSocket manager initialized successfully")
+        try:
+            from ai_service.utils.websocket_manager import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            container.register_instance("websocket_manager", websocket_manager)
+            logger.info("WebSocket manager initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing WebSocket manager: {e}")
+            logger.error(traceback.format_exc())
+
+        logger.info("Basic services initialized successfully")
 
     except Exception as e:
         logger.error(f"Error initializing services: {e}")
         logger.error(traceback.format_exc())
-        raise
+        # Don't raise - let the application continue with limited functionality
 
 # Add a new function to asynchronously initialize services
 async def initialize_services_async():
@@ -356,11 +352,13 @@ async def initialize_services_async():
 async def initialize_database_async():
     """Initialize database connections asynchronously."""
     # Check for test/development mode
-    env = os.environ.get("ENVIRONMENT", os.environ.get("APP_ENV", "production"))
+    env = os.environ.get("ENVIRONMENT", os.environ.get("APP_ENV", "development"))
     skip_db = os.environ.get("SKIP_DB_INIT", "").lower() in ("true", "1", "yes")
 
     if skip_db or env in ("test", "development"):
-        logger.info("Skipping database initialization in test/development mode")
+        logger.info(f"Using in-memory database fallbacks in {env} environment")
+        # Set environment variable to skip database initialization in other components
+        os.environ["SKIP_DB_INIT"] = "true"
         return
 
     try:
@@ -377,11 +375,14 @@ async def initialize_database_async():
 
             logger.info("Database initialization completed successfully")
         except ImportError as e:
-            logger.warning(f"Database module import failed: {e}, skipping initialization")
+            logger.warning(f"Database module import failed: {e}, using in-memory fallbacks")
+            # Set environment variable to skip database initialization in other components
+            os.environ["SKIP_DB_INIT"] = "true"
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
-        # Don't use file-based storage as fallback
-        raise
+        logger.warning("Using in-memory storage as fallback")
+        # Set environment variable to skip database initialization in other components
+        os.environ["SKIP_DB_INIT"] = "true"
 
 def configure_compatibility():
     """Configure compatibility settings for external dependencies."""

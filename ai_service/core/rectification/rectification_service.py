@@ -6,11 +6,9 @@ using multiple astrological methods and AI assistance.
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple, Union
+from datetime import datetime
+from typing import Dict, List, Any, Optional
 import uuid
-import json
-import os
 import traceback
 
 from .methods.ai_rectification import ai_assisted_rectification
@@ -71,7 +69,7 @@ class EnhancedRectificationService:
         Returns:
             Dictionary with rectification results
         """
-        logger.info(f"Processing rectification for birth time {birth_dt} with {len(answers)} answers")
+        logger.info("Processing rectification for birth time %s with %d answers", birth_dt, len(answers))
 
         # Extract life events from answers if provided
         events = extract_life_events_from_answers(answers) if answers else None
@@ -117,7 +115,7 @@ class EnhancedRectificationService:
         # Generate a rectification ID for tracking
         rectification_id = f"rect_{uuid.uuid4().hex[:8]}"
 
-        logger.info(f"Starting rectification {rectification_id} for {birth_dt} at {latitude}, {longitude}")
+        logger.info("Starting rectification %s for %s at %s, %s", rectification_id, birth_dt, latitude, longitude)
 
         # Verify ephemeris files are available
         if not verify_ephemeris_files():
@@ -148,7 +146,7 @@ class EnhancedRectificationService:
                 methods_succeeded.append("ai_rectification")
                 candidates.append((ai_time, ai_confidence, "ai"))
             except Exception as e:
-                logger.warning(f"AI-assisted rectification failed: {e}")
+                logger.warning("AI-assisted rectification failed: %s", e)
 
         # Try solar arc rectification
         try:
@@ -159,7 +157,7 @@ class EnhancedRectificationService:
             methods_succeeded.append("solar_arc")
             candidates.append((solar_arc_time, solar_arc_confidence, "solar_arc"))
         except Exception as e:
-            logger.warning(f"Solar arc rectification failed: {e}")
+            logger.warning("Solar arc rectification failed: %s", e)
 
         # Try progressed ascendant rectification
         try:
@@ -170,7 +168,7 @@ class EnhancedRectificationService:
             methods_succeeded.append("progressed")
             candidates.append((progressed_time, progressed_confidence, "progressed"))
         except Exception as e:
-            logger.warning(f"Progressed ascendant rectification failed: {e}")
+            logger.warning("Progressed ascendant rectification failed: %s", e)
 
         # If we have events, try transit analysis
         if events:
@@ -182,7 +180,7 @@ class EnhancedRectificationService:
                 methods_succeeded.append("transit")
                 candidates.append((transit_time, transit_confidence, "transit"))
             except Exception as e:
-                logger.warning(f"Transit analysis failed: {e}")
+                logger.warning("Transit analysis failed: %s", e)
 
         # If no methods succeeded, return original time with low confidence
         if not candidates:
@@ -213,7 +211,6 @@ class EnhancedRectificationService:
             weights = [c[1]/total_confidence for c in candidates]
 
             # Convert times to minutes since midnight
-            midnight = birth_dt.replace(hour=0, minute=0, second=0, microsecond=0)
             time_minutes = []
 
             for candidate in candidates:
@@ -247,7 +244,6 @@ class EnhancedRectificationService:
             time_difference = f"-{time_difference}"
         else:
             time_difference = f"+{time_difference}"
-
         # Generate explanation
         if method == "combined":
             explanation = f"Birth time rectified using multiple methods ({', '.join(methods_succeeded)}). "
@@ -266,7 +262,7 @@ class EnhancedRectificationService:
             )
             rectified_chart_id = rectified_chart.get("chart_id", f"chart_{uuid.uuid4().hex[:8]}")
         except Exception as e:
-            logger.error(f"Failed to calculate rectified chart: {e}")
+            logger.error("Failed to calculate rectified chart: %s", e)
             rectified_chart = None
             rectified_chart_id = None
 
@@ -289,9 +285,9 @@ class EnhancedRectificationService:
                 await self.chart_repository.store_rectification_result(
                     rectification_id, result, chart_id
                 )
-                logger.info(f"Stored rectification result {rectification_id} for chart {chart_id}")
+                logger.info("Stored rectification result %s for chart %s", rectification_id, chart_id)
             except Exception as e:
-                logger.error(f"Failed to store rectification result: {e}")
+                logger.error("Failed to store rectification result: %s", e)
 
         # Store rectified chart if available
         if rectified_chart and self.chart_repository:
@@ -302,11 +298,11 @@ class EnhancedRectificationService:
                     birth_dt=birth_dt,
                     rectified_time_dt=rectified_time
                 )
-                logger.info(f"Stored rectified chart {rectified_chart_id}")
+                logger.info("Stored rectified chart %s", rectified_chart_id)
             except Exception as e:
-                logger.error(f"Failed to store rectified chart: {e}")
+                logger.error("Failed to store rectified chart: %s", e)
 
-        logger.info(f"Rectification complete: {rectified_time}, confidence: {confidence:.1f}")
+        logger.info("Rectification complete: %s, confidence: %.1f", rectified_time, confidence)
         return result
 
     async def save_rectification_result(self, result: Dict[str, Any]) -> None:
@@ -320,14 +316,14 @@ class EnhancedRectificationService:
             # Store rectification results in the database
             if self.chart_repository:
                 await self.chart_repository.store_rectification_result(result)
-                logger.info(f"Saved rectification result with ID {result.get('rectification_id')}")
+                logger.info("Saved rectification result with ID %s", result.get('rectification_id'))
             else:
                 # Raise exception if database storage is unavailable
                 error_msg = "Unable to save rectification result: Chart repository not available"
                 logger.error(error_msg)
                 raise RuntimeError(error_msg)
         except Exception as e:
-            logger.error(f"Error saving rectification result: {e}")
+            logger.error("Error saving rectification result: %s", e)
             logger.error(traceback.format_exc())
             # Raise the exception to ensure caller is aware
             raise RuntimeError(f"Failed to save rectification result: {str(e)}") from e

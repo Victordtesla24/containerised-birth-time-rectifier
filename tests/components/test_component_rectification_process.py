@@ -5,21 +5,25 @@ This test verifies the complete rectification process from the "Original Sequenc
 section, ensuring all calculations and AI integrations work together properly.
 """
 
+import os
+import sys
+import json
 import pytest
 import asyncio
-import os
 import uuid
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Fix import to avoid circular references
+import ai_service.core.rectification.main as rectification_module
+
 # Import required components for real implementation
 from ai_service.api.services.openai.service import OpenAIService
-from ai_service.core.rectification.main import comprehensive_rectification
 from ai_service.core.rectification.chart_calculator import EnhancedChartCalculator
 from ai_service.services.chart_service import ChartService
 from ai_service.database.repositories import ChartRepository
@@ -105,7 +109,7 @@ async def test_birth_time_rectification_process(openai_service, chart_service):
     )
 
     # Use comprehensive rectification with real AI analysis
-    rectification_result = await comprehensive_rectification(
+    rectification_result = await rectification_module.comprehensive_rectification(
         birth_dt=birth_datetime,
         latitude=TEST_BIRTH_DETAILS["latitude"],
         longitude=TEST_BIRTH_DETAILS["longitude"],

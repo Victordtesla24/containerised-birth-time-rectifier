@@ -49,12 +49,18 @@ async def verify_with_openai(
 
     while retry_count < max_retries:
         try:
+            # Create proper message format for chat completion
+            messages = [
+                {"role": "system", "content": "You are an expert astrologer verifying birth time rectification."},
+                {"role": "user", "content": prompt}
+            ]
+
             # Call OpenAI with retry
-            response = await openai_service.generate_completion(
-                prompt={"messages": [{"role": "user", "content": prompt}]},
-                task_type="chart_verification",
-                max_tokens=500,
-                temperature=temperature
+            response = await openai_service.chat_completion(
+                messages=messages,
+                model="gpt-4",  # Use GPT-4 for best accuracy
+                temperature=temperature,
+                max_tokens=800
             )
 
             if not response:
@@ -107,7 +113,34 @@ async def _parse_verification_response(content: str) -> Tuple[bool, float, str]:
             data = json.loads(content)
             if isinstance(data, dict):
                 verified = data.get("verified", False)
-                confidence = float(data.get("confidence", 0))
+
+                # Safely convert confidence to float with proper error handling
+                confidence_value = data.get("confidence", 0)
+                if isinstance(confidence_value, (int, float)):
+                    confidence = float(confidence_value)
+                elif isinstance(confidence_value, str):
+                    # Clean the string and handle various formats
+                    clean_value = confidence_value.strip()
+                    # Handle case where value is just a decimal point or empty
+                    if not clean_value or clean_value == '.':
+                        confidence = 70.0  # Default confidence
+                    else:
+                        try:
+                            confidence = float(clean_value)
+                        except ValueError:
+                            # If decimal point is causing issues, try removing non-digits
+                            digits_only = re.sub(r'[^\d.]', '', clean_value)
+                            # Check again for just a decimal point
+                            if not digits_only or digits_only == '.':
+                                confidence = 70.0  # Default confidence
+                            else:
+                                try:
+                                    confidence = float(digits_only)
+                                except ValueError:
+                                    confidence = 70.0  # Default confidence
+                else:
+                    confidence = 70.0  # Default for non-numeric types
+
                 message = data.get("message", "")
                 return verified, confidence, message
         except (json.JSONDecodeError, ValueError):
@@ -120,12 +153,33 @@ async def _parse_verification_response(content: str) -> Tuple[bool, float, str]:
 
         if "confidence" in content.lower():
             # Try to extract confidence value
-            matches = re.findall(r"confidence[:\s]*(\d+)", content.lower())
+            # Updated regex to better handle decimal points and various formats
+            matches = re.findall(r"confidence[:\s]*(\d+(?:\.\d+)?)", content.lower())
             if matches:
                 try:
-                    confidence = float(matches[0])
-                except ValueError:
-                    pass
+                    # Clean the confidence value before conversion
+                    cleaned_value = matches[0].strip()
+                    # Handle case where value is just a decimal point or empty
+                    if not cleaned_value or cleaned_value == '.':
+                        confidence = 70.0  # Default value
+                    else:
+                        try:
+                            confidence = float(cleaned_value)
+                        except ValueError:
+                            # If decimal point is causing issues, try with only digits
+                            digits_only = re.sub(r'[^\d]', '', matches[0])
+                            if digits_only:
+                                try:
+                                    confidence = float(digits_only)
+                                    # If it's likely a percentage (>10), convert to 0-1 scale
+                                    if confidence > 10:
+                                        confidence = confidence / 100
+                                except ValueError:
+                                    confidence = 70.0  # Default if conversion fails
+                            else:
+                                confidence = 70.0  # Default if no digits found
+                except Exception:
+                    confidence = 70.0  # Default if any parsing error occurs
 
         # Extract message - use the whole content if nothing better found
         message = content
@@ -251,55 +305,55 @@ async def verify_astrological_accuracy(chart_data: Dict[str, Any], openai_servic
 
     try:
         # Create verification prompt
-        verification_prompt = {
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an expert astrologer specializing in verifying astrological charts. "
-                              "Your task is to verify the accuracy of the chart data provided, including planetary positions, "
-                              "house cusps, and aspects."
-                },
-                {
-                    "role": "user",
-                    "content": f"Please verify the following astrological chart data for accuracy. "
-                               f"Check the planetary positions and house cusps if they appear correct. "
-                               f"Chart data: {json.dumps(chart_data, indent=2)}"
-                }
-            ]
-        }
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert astrologer specializing in verifying astrological charts. "
+                          "Your task is to verify the accuracy of the chart data provided, including planetary positions, "
+                          "house cusps, and aspects."
+            },
+            {
+                "role": "user",
+                "content": f"Please verify the following astrological chart data for accuracy. "
+                           f"Check the planetary positions and house cusps if they appear correct. "
+                           f"Chart data: {json.dumps(chart_data, indent=2)}"
+            }
+        ]
 
         # Call OpenAI API
-        response = await openai_service.generate_completion(
-            prompt=verification_prompt,
-            task_type="verification",
-            max_tokens=800,
-            temperature=0.2
+        response = await openai_service.chat_completion(
+            messages=messages,
+            model="gpt-4",  # Use GPT-4 for best accuracy
+            temperature=0.2,
+            max_tokens=800
         )
 
         # Process response
-        if not response or "content" not in response:
+        if not response or "choices" not in response or not response["choices"]:
             error_msg = "Invalid response from verification service"
             logger.error(error_msg)
             raise ValueError(error_msg)
+
+        content = response["choices"][0]["message"]["content"]
 
         # Structure verification result
         verification_result = {
             "verified": True,  # Default to verified
             "confidence": 85,  # Default confidence
             "issues": [],
-            "message": response["content"]
+            "message": content
         }
 
         # Check for issues in the response
-        content = response["content"].lower()
-        if "incorrect" in content or "error" in content or "issue" in content:
+        content_lower = content.lower()
+        if "incorrect" in content_lower or "error" in content_lower or "issue" in content_lower:
             verification_result["verified"] = False
             verification_result["confidence"] = 40
 
             # Extract issues (simplified approach)
             issues = []
             for line in content.split("\n"):
-                if any(k in line for k in ["incorrect", "error", "issue", "problem"]):
+                if any(k in line.lower() for k in ["incorrect", "error", "issue", "problem"]):
                     issues.append(line.strip())
 
             verification_result["issues"] = issues

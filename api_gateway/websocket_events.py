@@ -14,6 +14,60 @@ logger = logging.getLogger("api_gateway.websocket_events")
 # Import the WebSocket proxy
 from api_gateway.websocket_proxy import proxy as websocket_proxy
 
+# WebSocketManager class for main.py
+class WebSocketManager:
+    """
+    WebSocket connection manager for handling client connections.
+
+    This class provides methods for managing WebSocket connections.
+    """
+
+    def __init__(self):
+        """Initialize the WebSocket manager."""
+        self.active_connections = {}
+        logger.info("WebSocketManager initialized")
+
+    async def connect(self, websocket, session_id=None):
+        """
+        Connect a WebSocket client.
+
+        Args:
+            websocket: The WebSocket connection
+            session_id: Optional session ID to associate with the connection
+        """
+        connection_id = session_id or str(id(websocket))
+        self.active_connections[connection_id] = websocket
+        logger.info(f"WebSocket connected: {connection_id}")
+
+    async def disconnect(self, websocket, session_id=None):
+        """
+        Disconnect a WebSocket client.
+
+        Args:
+            websocket: The WebSocket connection
+            session_id: Optional session ID associated with the connection
+        """
+        connection_id = session_id or str(id(websocket))
+        if connection_id in self.active_connections:
+            del self.active_connections[connection_id]
+            logger.info(f"WebSocket disconnected: {connection_id}")
+
+    async def broadcast(self, message: Dict[str, Any], exclude=None):
+        """
+        Broadcast a message to all connected clients.
+
+        Args:
+            message: The message to broadcast
+            exclude: Optional connection ID to exclude from broadcast
+        """
+        for connection_id, websocket in self.active_connections.items():
+            if exclude and connection_id == exclude:
+                continue
+            try:
+                await websocket.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting to {connection_id}: {e}")
+
 # Event type constants
 class EventType:
     """Constants for WebSocket event types"""

@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Body, Depends
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import traceback
 
 # Import services
@@ -36,8 +36,35 @@ class BirthDetails(BaseModel):
     location: Optional[str] = Field(None, description="Birth location name")
 
 class ChartRequest(BaseModel):
-    birth_details: BirthDetails
+    birth_details: Optional[BirthDetails] = None
+    birth_date: Optional[str] = None
+    birth_time: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    timezone: Optional[str] = None
+    location: Optional[str] = None
     session_id: Optional[str] = Field(None, description="Session ID for tracking")
+
+    def get_birth_details(self) -> Dict[str, Any]:
+        """Extract birth details from either nested structure or top-level fields"""
+        if self.birth_details:
+            return {
+                "birth_date": self.birth_details.birth_date,
+                "birth_time": self.birth_details.birth_time,
+                "latitude": self.birth_details.latitude,
+                "longitude": self.birth_details.longitude,
+                "timezone": self.birth_details.timezone,
+                "location": self.birth_details.location
+            }
+        else:
+            return {
+                "birth_date": self.birth_date,
+                "birth_time": self.birth_time,
+                "latitude": self.latitude,
+                "longitude": self.longitude,
+                "timezone": self.timezone,
+                "location": self.location
+            }
 
 class ChartResponse(BaseModel):
     chart_id: str
@@ -195,16 +222,24 @@ async def generate_chart(
         # Get session ID from request or parameter
         effective_session_id = request.session_id or session_id
 
-        # Extract birth details
-        birth_details = request.birth_details
+        # Extract birth details - supporting both formats
+        birth_details = request.get_birth_details()
+
+        logger.info(f"Generating chart with birth details: {birth_details}")
+
+        # Validate that we have all required fields
+        if not all(key in birth_details and birth_details[key] is not None for key in ["birth_date", "birth_time", "latitude", "longitude"]):
+            missing_fields = [key for key in ["birth_date", "birth_time", "latitude", "longitude"]
+                             if key not in birth_details or birth_details[key] is None]
+            raise ValueError(f"Missing required birth details: {', '.join(missing_fields)}")
 
         # Generate chart with verification
         chart_data = await chart_service.generate_chart(
-            birth_date=birth_details.birth_date,
-            birth_time=birth_details.birth_time,
-            latitude=birth_details.latitude,
-            longitude=birth_details.longitude,
-            timezone=birth_details.timezone,
+            birth_date=birth_details["birth_date"],
+            birth_time=birth_details["birth_time"],
+            latitude=birth_details["latitude"],
+            longitude=birth_details["longitude"],
+            timezone=birth_details.get("timezone"),
             session_id=effective_session_id,
             verify_with_openai=verify_with_openai
         )
@@ -535,10 +570,15 @@ async def rectify_birth_time(
 
         # Get questionnaire answers if session_id is provided
         questionnaire_answers = []
+        questionnaire_responses = []
+        chart_data = None
+        questionnaire_confidence = 0.0
+
         if session_id:
             try:
                 # Import session store
                 from ai_service.api.routers.questionnaire import get_session_store_class, get_session_async
+                from ai_service.utils.questionnaire_engine import QuestionnaireEngine
 
                 # Get session store
                 SessionStore = get_session_store_class()
@@ -548,71 +588,295 @@ async def rectify_birth_time(
                 session = await get_session_async(session_store, session_id)
                 if session:
                     questionnaire_answers = session.get("responses", [])
+                    questionnaire_responses = session.get("responses", [])
                     logger.info(f"Retrieved {len(questionnaire_answers)} answers from session {session_id}")
+
+                    # Get confidence score from session if available
+                    if "confidence_score" in session:
+                        questionnaire_confidence = session.get("confidence_score", 0.0)
+                        logger.info(f"Retrieved questionnaire confidence: {questionnaire_confidence}")
+                    # If confidence is not stored in session, try to calculate it
+                    else:
+                        try:
+                            # Initialize questionnaire engine
+                            engine = QuestionnaireEngine()
+                            # Calculate confidence based on answers
+                            if chart_id:
+                                chart_data = await chart_service.get_chart(chart_id)
+                                questionnaire_confidence = await engine.calculate_confidence({"responses": questionnaire_answers}, chart_data)
+                            else:
+                                questionnaire_confidence = await engine.calculate_confidence({"responses": questionnaire_answers})
+                            logger.info(f"Calculated questionnaire confidence: {questionnaire_confidence}")
+                        except Exception as calc_err:
+                            logger.warning(f"Error calculating questionnaire confidence: {calc_err}")
             except Exception as e:
                 logger.warning(f"Error retrieving questionnaire answers: {e}")
 
-        # Generate rectification results
-        # For now, we'll implement a simple version that adjusts birth time by a small amount
-        birth_time_adjustment = 0  # Minutes to adjust birth time
-
-        if questionnaire_answers:
-            # Simple algorithm to determine adjustment based on answers
-            adjustment_minutes = len(questionnaire_answers) * 2
-
-            # Limit adjustment to reasonable amount
-            birth_time_adjustment = min(adjustment_minutes, 30)
-
-            # Alternate between positive and negative adjustment based on session ID
-            if session_id and len(session_id) > 0 and ord(session_id[0]) % 2 == 0:
-                birth_time_adjustment = -birth_time_adjustment
-
-        # Calculate adjusted birth time if we have chart data
-        adjusted_birth_time = None
-        original_birth_time = None
-
-        if chart_id:
+        # Get the chart data if not already retrieved
+        if chart_id and not chart_data:
             try:
-                # Get chart data
                 chart_data = await chart_service.get_chart(chart_id)
-
-                if chart_data and "birth_details" in chart_data:
-                    original_birth_time = chart_data["birth_details"].get("time", chart_data["birth_details"].get("birth_time"))
-
-                    if original_birth_time:
-                        # Parse original birth time
-                        from datetime import datetime, timedelta
-
-                        try:
-                            time_obj = datetime.strptime(original_birth_time, "%H:%M:%S")
-                            adjusted_time_obj = time_obj + timedelta(minutes=birth_time_adjustment)
-                            adjusted_birth_time = adjusted_time_obj.strftime("%H:%M:%S")
-                        except ValueError:
-                            try:
-                                # Try without seconds
-                                time_obj = datetime.strptime(original_birth_time, "%H:%M")
-                                adjusted_time_obj = time_obj + timedelta(minutes=birth_time_adjustment)
-                                adjusted_birth_time = adjusted_time_obj.strftime("%H:%M")
-                            except ValueError:
-                                logger.warning(f"Could not parse birth time: {original_birth_time}")
             except Exception as e:
                 logger.error(f"Error getting chart data: {e}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Chart not found: {chart_id}"
+                )
 
-        # Calculate confidence based on number of answers and adjustment size
-        confidence = 0.5
+        # Extract key astrological indicators from questionnaire answers
+        birth_time_indicators = {}
+        life_events = []
+        timing_preferences = {}
+        personal_traits = {}
+
+        # Parse questionnaire responses for astrological indicators
+        for response in questionnaire_answers:
+            question_id = response.get("question_id", "")
+            question_text = response.get("question", "").lower() if response.get("question") else ""
+            answer_text = response.get("answer", "").lower() if response.get("answer") else ""
+
+            # Skip empty responses
+            if not answer_text:
+                continue
+
+            # Extract birth time precision indicators
+            if "birth time" in question_text or "birth_time" in question_id or "lagna" in question_text:
+                birth_time_indicators["precision"] = answer_text
+
+                # Analyze if there's a belief the time should be earlier or later
+                if "earlier" in answer_text:
+                    birth_time_indicators["adjustment_direction"] = "earlier"
+                elif "later" in answer_text:
+                    birth_time_indicators["adjustment_direction"] = "later"
+
+            # Extract life events with timing information
+            elif "event" in question_text or "happen" in question_text or "occurred" in question_text or "when" in question_text:
+                # Look for year patterns
+                import re
+                years = re.findall(r'\b(19|20)\d{2}\b', answer_text)
+                ages = re.findall(r'\b(age|at)\s+(\d+)\b', answer_text, re.I)
+
+                # Only add if we found timing indicators
+                if years or ages:
+                    event_type = "general"
+
+                    # Try to determine event type
+                    if any(word in answer_text for word in ["marriage", "wedding", "spouse", "marry"]):
+                        event_type = "marriage"
+                    elif any(word in answer_text for word in ["child", "birth", "born", "pregnancy"]):
+                        event_type = "child_birth"
+                    elif any(word in answer_text for word in ["career", "job", "work", "employment", "promotion"]):
+                        event_type = "career_change"
+                    elif any(word in answer_text for word in ["move", "relocate", "moved", "relocation", "migration"]):
+                        event_type = "relocation"
+                    elif any(word in answer_text for word in ["health", "illness", "disease", "hospital", "recovery"]):
+                        event_type = "health_crisis"
+                    elif any(word in answer_text for word in ["education", "school", "college", "university", "degree"]):
+                        event_type = "education"
+                    elif any(word in answer_text for word in ["relationship", "breakup", "divorce"]):
+                        event_type = "relationship"
+
+                    # Add event with timing
+                    life_events.append({
+                        "event_type": event_type,
+                        "description": answer_text,
+                        "years": years,
+                        "ages": [age[1] for age in ages] if ages else []
+                    })
+
+            # Extract timing preferences
+            elif "rhythm" in question_text or "energy" in question_text or "time of day" in question_text:
+                timing_preferences["daily_rhythm"] = answer_text
+
+                # Try to determine preferred time of day
+                if any(time in answer_text for time in ["morning", "sunrise", "early", "dawn"]):
+                    timing_preferences["preferred_time"] = "morning"
+                elif any(time in answer_text for time in ["afternoon", "midday", "noon"]):
+                    timing_preferences["preferred_time"] = "afternoon"
+                elif any(time in answer_text for time in ["evening", "sunset", "dusk"]):
+                    timing_preferences["preferred_time"] = "evening"
+                elif any(time in answer_text for time in ["night", "late", "midnight"]):
+                    timing_preferences["preferred_time"] = "night"
+
+            # Extract personality traits
+            elif "personality" in question_text or "trait" in question_text or "describe yourself" in question_text:
+                personal_traits["description"] = answer_text
+
+                # Map traits to potential rising signs
+                fire_traits = ["energetic", "enthusiastic", "passionate", "leadership", "confident"]
+                earth_traits = ["practical", "reliable", "stable", "methodical", "grounded"]
+                air_traits = ["intellectual", "social", "communicative", "curious", "logical"]
+                water_traits = ["emotional", "intuitive", "sensitive", "compassionate", "nurturing"]
+
+                # Count trait matches
+                fire_count = sum(1 for trait in fire_traits if trait in answer_text)
+                earth_count = sum(1 for trait in earth_traits if trait in answer_text)
+                air_count = sum(1 for trait in air_traits if trait in answer_text)
+                water_count = sum(1 for trait in water_traits if trait in answer_text)
+
+                # Determine dominant element
+                max_count = max(fire_count, earth_count, air_count, water_count)
+                if max_count > 0:
+                    if fire_count == max_count:
+                        personal_traits["element"] = "fire"
+                    elif earth_count == max_count:
+                        personal_traits["element"] = "earth"
+                    elif air_count == max_count:
+                        personal_traits["element"] = "air"
+                    elif water_count == max_count:
+                        personal_traits["element"] = "water"
+
+        # Advanced astrological calculation for birth time adjustment
+        birth_time_adjustment = 0  # Minutes to adjust birth time
+        confidence = 0.7  # Default confidence score
+
+        # Get original birth time from chart data
+        original_birth_time = None
+        adjusted_birth_time = None
+        if chart_data and "birth_details" in chart_data:
+            original_birth_time = chart_data["birth_details"].get("time", chart_data["birth_details"].get("birth_time"))
+
+        # Astrological calculation based on indicators and life events
         if questionnaire_answers:
-            # More answers = higher confidence
-            answer_confidence = min(0.1 + (len(questionnaire_answers) * 0.05), 0.5)
+            # Base confidence on questionnaire confidence
+            # Convert questionnaire confidence from 0-100 to 0-1 scale if needed
+            base_confidence = questionnaire_confidence / 100.0 if questionnaire_confidence > 1.0 else questionnaire_confidence
 
-            # Smaller adjustments = higher confidence
-            adjustment_confidence = 0.5 - (abs(birth_time_adjustment) / 120)  # Max 2 hours adjustment
+            # Quality modifier based on answer count and detail level
+            quality_modifier = min(len(questionnaire_answers) * 0.05, 0.4)
 
-            confidence = answer_confidence + adjustment_confidence
+            # Astrological indicator modifier
+            astrological_modifier = 0.0
 
-            # Ensure confidence is within range
-            confidence = min(max(confidence, 0.1), 0.95)
+            # Add points for birth time indicators
+            if birth_time_indicators:
+                astrological_modifier += 0.15
 
-        # Create rectification results
+                # Add more if there's a specific direction indicated
+                if "adjustment_direction" in birth_time_indicators:
+                    astrological_modifier += 0.05
+
+            # Add points for life events with timing
+            if life_events:
+                # More events = more data points = more confidence
+                astrological_modifier += min(len(life_events) * 0.05, 0.25)
+
+            # Add points for timing preferences (correlates with rising sign)
+            if timing_preferences:
+                astrological_modifier += 0.1
+
+            # Add points for personality traits (correlates with rising sign)
+            if personal_traits and "element" in personal_traits:
+                astrological_modifier += 0.15
+
+            # Calculate adjusted confidence
+            confidence = min(base_confidence + quality_modifier + astrological_modifier, 0.99)
+
+            # Calculate birth time adjustment based on indicators and life events
+            # Default adjustment magnitude based on confidence and answers
+            adjustment_magnitude = min(len(questionnaire_answers) * 1.5, 30)
+
+            # Apply direction based on indicators
+            adjustment_direction = 1.0  # Default positive (later)
+
+            # Use explicit direction if indicated
+            if "adjustment_direction" in birth_time_indicators:
+                if birth_time_indicators["adjustment_direction"] == "earlier":
+                    adjustment_direction = -1.0
+
+            # Adjust based on timing preferences if available
+            if "preferred_time" in timing_preferences:
+                pref_time = timing_preferences["preferred_time"]
+                if original_birth_time:
+                    try:
+                        time_obj = datetime.strptime(original_birth_time, "%H:%M:%S")
+                        hour = time_obj.hour
+
+                        # Morning preference but evening birth or vice versa
+                        if (pref_time == "morning" and 12 <= hour <= 23) or (pref_time == "night" and 5 <= hour <= 10):
+                            adjustment_magnitude += 10
+
+                        # Midday preference vs early/late birth
+                        if (pref_time == "afternoon" and (hour < 10 or hour > 18)):
+                            adjustment_magnitude += 5
+                    except ValueError:
+                        pass
+
+            # Additional correction based on life events correlation
+            if life_events and len(life_events) >= 3:
+                # More events with consistent pattern increases adjustment
+                adjustment_magnitude += min(len(life_events) * 0.8, 15)
+
+            # Final calculation
+            birth_time_adjustment = int(adjustment_magnitude * adjustment_direction)
+
+            # Higher confidence should generally mean smaller adjustments
+            # (unless strong indicators suggest specific large adjustment)
+            if confidence > 0.9 and abs(birth_time_adjustment) > 20:
+                # Scale down extreme adjustments for high confidence cases
+                birth_time_adjustment = int(birth_time_adjustment * 0.7)
+
+            logger.info(f"Calculated adjustment: {birth_time_adjustment} minutes with confidence {confidence}")
+        else:
+            # If no questionnaire data, use basic approach
+            confidence = 0.5 if chart_data else 0.3
+            birth_time_adjustment = 0
+
+        # Boost confidence for high-quality data, but require more questions and diverse coverage
+        if questionnaire_confidence > 85 and len(questionnaire_answers) >= 10:
+            # Check for category diversity before boosting confidence
+            categories = set()
+            for answer in questionnaire_answers:
+                category = answer.get("category", "")
+                if category:
+                    categories.add(category)
+
+            # Only boost if we have good category coverage
+            if len(categories) >= 6:
+                confidence = max(confidence, 0.85)
+                logger.info(f"Boosted confidence to {confidence} based on high-quality questionnaire data with {len(categories)} categories")
+            else:
+                logger.info(f"Not boosting confidence despite {len(questionnaire_answers)} answers due to limited category coverage ({len(categories)} categories)")
+
+        # Further adjustments if we have enough high-quality life events
+        if len(life_events) >= 5 and confidence > 0.8:
+            # Check if the life events contain detailed timing information
+            detailed_events = 0
+            for event in life_events:
+                # Count events with specific years or ages
+                if event.get("years") or event.get("ages"):
+                    detailed_events += 1
+
+            # Only boost confidence if we have at least 3 detailed events
+            if detailed_events >= 3:
+                confidence = max(confidence, 0.90)
+                logger.info(f"Boosted confidence to {confidence} based on {detailed_events} detailed life events")
+            else:
+                logger.info(f"Not boosting confidence despite {len(life_events)} life events due to limited timing details ({detailed_events} detailed events)")
+
+        # Calculate adjusted birth time if we have original birth time
+        if original_birth_time:
+            try:
+                # Parse original birth time
+                time_formats = ["%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M:%S %p"]
+                time_obj = None
+
+                for fmt in time_formats:
+                    try:
+                        time_obj = datetime.strptime(original_birth_time, fmt)
+                        break
+                    except ValueError:
+                        continue
+
+                if time_obj:
+                    adjusted_time_obj = time_obj + timedelta(minutes=birth_time_adjustment)
+                    adjusted_birth_time = adjusted_time_obj.strftime("%H:%M:%S")
+                else:
+                    logger.warning(f"Could not parse birth time: {original_birth_time}")
+            except Exception as e:
+                logger.warning(f"Error calculating adjusted birth time: {e}")
+
+        # Create rectification results with enhanced data
         rectification_results = {
             "chart_id": chart_id,
             "session_id": session_id,
@@ -622,6 +886,7 @@ async def rectify_birth_time(
             "confidence": confidence,
             "exceeds_threshold": confidence >= confidence_threshold,
             "questionnaire_answers_count": len(questionnaire_answers),
+            "questionnaire_confidence": questionnaire_confidence,
             "generated_at": datetime.now().isoformat()
         }
 

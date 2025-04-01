@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger("api_gateway.routes.chart")
 
 # Initialize router
-router = APIRouter()
+router = APIRouter(prefix="/api/chart", tags=["chart"])
 
 # Define request/response models
 class ChartRectificationRequest(BaseModel):
@@ -44,186 +44,139 @@ class ChartGenerationRequest(BaseModel):
     house_system: str = Field(default="P", description="House system to use (P=Placidus, etc.)")
     zodiac_type: str = Field(default="sidereal", description="Zodiac type (sidereal/tropical)")
 
-# Helper function to request data from the AI service
-async def request_ai_service(endpoint: str, data: Dict[str, Any] = {}, method: str = "POST") -> Dict[str, Any]:
-    """Send a request to the AI service"""
-    ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai_service:8000")
+# AI Service URL
+AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://localhost:8001")
+if AI_SERVICE_URL and AI_SERVICE_URL.endswith("/"):
+    AI_SERVICE_URL = AI_SERVICE_URL[:-1]
 
-    url = f"{ai_service_url}/api/v1/{endpoint}"
-    logger.info(f"Requesting AI service at {url}")
-
-    try:
-        async with httpx.AsyncClient() as client:
-            if method == "GET":
-                response = await client.get(url, params=data, timeout=60.0)
-            else:
-                response = await client.post(url, json=data, timeout=60.0)
-
-            if response.status_code != 200:
-                logger.error(f"AI service returned error: {response.status_code} - {response.text}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"AI service error: {response.text}"
-                )
-
-            return response.json()
-    except httpx.RequestError as e:
-        logger.error(f"Error requesting AI service: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI service unavailable"
-        )
-
-# Chart comparison endpoint (GET) - Must be defined BEFORE the {chart_id} endpoint
-@router.get("/compare", response_model=Dict[str, Any])
-async def compare_charts_get(
-    chart1_id: str = Query(..., description="ID of the first chart"),
-    chart2_id: str = Query(..., description="ID of the second chart"),
-    comparison_type: str = Query("differences", description="Type of comparison to perform"),
-    include_significance: bool = Query(True, description="Include significance ratings")
-):
+async def proxy_chart_request(request: Request, path: str) -> Dict[str, Any]:
     """
-    Compare two astrological charts using a GET request with query parameters.
-
-    This endpoint analyzes differences between two charts, such as planetary positions,
-    house placements, and aspects. It supports different comparison types.
+    Generic proxy function to forward chart requests to the AI service.
 
     Args:
-        chart1_id: ID of the first chart
-        chart2_id: ID of the second chart
-        comparison_type: Type of comparison to perform (differences, full, summary)
-        include_significance: Whether to include significance ratings
+        request: The incoming request
+        path: Path to append to the AI service URL (without leading slash)
 
     Returns:
-        A detailed comparison of the two charts
+        The JSON response from the AI service
     """
-    logger.info(f"GET compare request: chart1={chart1_id}, chart2={chart2_id}, type={comparison_type}")
+    # Normalize path by removing any leading slashes
+    path = path.lstrip('/')
+
+    # Construct the target URL
+    target_url = f"{AI_SERVICE_URL}/api/v1/chart/{path}"
+
+    # Get request method and params
+    method = request.method
+    params = dict(request.query_params)
+
+    logger.info(f"Proxying {method} chart request to {target_url}")
+
+    # Extract headers (excluding host)
+    headers = {k: v for k, v in request.headers.items()
+               if k.lower() not in ["host", "content-length"]}
 
     try:
-        # Using the /compare/root endpoint to avoid routing conflicts with the {chart_id} endpoint
-        result = await request_ai_service(
-            endpoint="chart/compare/root",
-            data={
-                "chart1_id": chart1_id,
-                "chart2_id": chart2_id,
-                "comparison_type": comparison_type,
-                "include_significance": include_significance
-            },
-            method="GET"
-        )
-        return result
-    except Exception as e:
-        logger.error(f"Chart comparison failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Chart comparison failed: {str(e)}")
+        async with httpx.AsyncClient(
+            verify=True,  # Explicitly enable SSL verification
+            timeout=60.0
+        ) as client:
+            # Handle request based on method
+            if method == "GET":
+                response = await client.get(target_url, params=params, headers=headers)
+            elif method == "POST":
+                body = await request.body()
+                response = await client.post(target_url, content=body, headers=headers)
+            elif method == "PUT":
+                body = await request.body()
+                response = await client.put(target_url, content=body, headers=headers)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+                    detail=f"Method {method} not allowed"
+                )
 
-# Chart comparison endpoint (POST)
-@router.post("/compare", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
-async def compare_charts_post(request: ChartComparisonRequest):
-    """
-    Compare two charts and highlight key differences using POST method.
+            # Check if response is successful
+            if response.status_code >= 400:
+                logger.error(f"Error from AI service: {response.status_code} - {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Error from chart service: {response.text}"
+                )
 
-    Request body:
-    - chart1_id: ID of the first chart
-    - chart2_id: ID of the second chart
-    - comparison_type: Type of comparison (differences, full, summary)
-    - include_significance: Whether to include significance ratings
-    """
-    try:
-        # Use the correct endpoint path for the AI service
-        result = await request_ai_service("chart/compare", request.dict())
-        return result
-    except Exception as exc:
-        logger.error(f"Error in chart comparison: {exc}")
+            # Return response content
+            try:
+                return response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"Error decoding JSON response: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Invalid response from chart service"
+                )
+    except httpx.RequestError as e:
+        logger.error(f"Error making request to AI service: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chart comparison failed: {str(exc)}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chart service unavailable"
         )
 
-# Chart generation endpoint
-@router.post("/generate", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
-async def generate_chart(request: ChartGenerationRequest):
+@router.post("/validate")
+async def validate_chart(request: Request):
     """
-    Generate an astrological chart based on birth details.
-
-    Request body:
-    - birth_date: Birth date in ISO format (YYYY-MM-DD)
-    - birth_time: Birth time in 24-hour format (HH:MM)
-    - latitude: Latitude of birth location
-    - longitude: Longitude of birth location
-    - location: Birth location name
-    - timezone: Timezone of birth location
-    - verify_with_openai: Whether to verify with OpenAI
-    - house_system: House system to use
-    - zodiac_type: Zodiac type (sidereal/tropical)
+    Validate birth chart data.
+    Proxies to the AI service's chart validation endpoint.
     """
-    try:
-        logger.info(f"Generating chart for {request.birth_date} {request.birth_time} at {request.latitude}, {request.longitude}")
+    return await proxy_chart_request(request, "validate")
 
-        # Use the correct endpoint path for the AI service
-        result = await request_ai_service("chart/generate", request.dict())
-
-        # Ensure we have a chart_id in the response
-        if "chart_id" not in result:
-            result["chart_id"] = f"chart_{os.urandom(5).hex()}"
-
-        return result
-    except Exception as exc:
-        logger.error(f"Error in chart generation: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chart generation failed: {str(exc)}"
-        )
-
-@router.get("/{chart_id}", status_code=status.HTTP_200_OK)
-async def get_chart(chart_id: str):
+@router.post("/generate")
+async def generate_chart(request: Request):
     """
-    Get a chart by ID.
+    Generate a birth chart.
+    Proxies to the AI service's chart generation endpoint.
     """
-    try:
-        result = await request_ai_service(f"chart/{chart_id}", {}, method="GET")
-        return result
-    except Exception as exc:
-        logger.error(f"Error retrieving chart: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chart retrieval failed: {str(exc)}"
-        )
+    return await proxy_chart_request(request, "generate")
 
-@router.post("/v1/charts/generate", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
-async def api_v1_generate_chart(request: Request):
+@router.get("/{chart_id}")
+async def get_chart(request: Request, chart_id: str):
     """
-    API v1 endpoint for generating an astrological chart.
-    This endpoint is used by the integration tests and follows a different request format.
+    Get chart details by ID.
+    Proxies to the AI service's chart retrieval endpoint.
     """
-    try:
-        # Parse the request body
-        request_data = await request.json()
-        logger.info(f"API v1 chart generation request: {request_data}")
+    return await proxy_chart_request(request, chart_id)
 
-        # Extract birth details from the request
-        birth_details = request_data.get("birth_details", {})
+@router.post("/rectify")
+async def rectify_chart(request: Request):
+    """
+    Rectify a birth chart.
+    Proxies to the AI service's chart rectification endpoint.
+    """
+    return await proxy_chart_request(request, "rectify")
 
-        # Convert to the format expected by the AI service
-        ai_service_request = {
-            "birth_date": birth_details.get("birth_date"),
-            "birth_time": birth_details.get("birth_time"),
-            "latitude": birth_details.get("latitude"),
-            "longitude": birth_details.get("longitude"),
-            "timezone": birth_details.get("timezone", "UTC"),
-            "location": birth_details.get("location", ""),
-            "verify_with_openai": request_data.get("verify_with_openai", False),
-            "house_system": birth_details.get("house_system", "P"),
-            "zodiac_type": birth_details.get("zodiac_type", "sidereal"),
-            "session_id": request_data.get("session_id")
-        }
+@router.get("/compare")
+async def compare_charts(
+    request: Request,
+    chart1: str,
+    chart2: str
+):
+    """
+    Compare two charts.
+    Proxies to the AI service's chart comparison endpoint.
+    """
+    # Add chart IDs to query parameters
+    return await proxy_chart_request(request, "compare")
 
-        # Forward to the AI service
-        result = await request_ai_service("chart/generate", ai_service_request)
+@router.post("/export")
+async def export_chart(request: Request):
+    """
+    Export a chart.
+    Proxies to the AI service's chart export endpoint.
+    """
+    return await proxy_chart_request(request, "export")
 
-        return result
-    except Exception as exc:
-        logger.error(f"Error in API v1 chart generation: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chart generation failed: {str(exc)}"
-        )
+@router.get("/export/{export_id}/download")
+async def download_export(request: Request, export_id: str):
+    """
+    Download a chart export.
+    Proxies to the AI service's chart export download endpoint.
+    """
+    return await proxy_chart_request(request, f"export/{export_id}/download")

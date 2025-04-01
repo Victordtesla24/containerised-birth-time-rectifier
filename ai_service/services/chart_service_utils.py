@@ -119,6 +119,67 @@ def calculate_arc_difference(longitude1: float, longitude2: float) -> float:
 
     return diff
 
+def determine_house_for_longitude(houses: list, longitude: float) -> int:
+    """
+    Determine which house contains a given longitude.
+
+    This function works with both house cusp lists and house dictionaries.
+
+    Args:
+        houses: List of house cusps or list of house dictionaries
+        longitude: Celestial longitude to check (0-360)
+
+    Returns:
+        House number (1-12)
+    """
+    # Normalize longitude to 0-360
+    longitude = float(longitude) % 360
+
+    # Handle different house data formats
+    house_cusps = []
+
+    # If houses is a list of floats or integers (simple cusp longitudes)
+    if houses and all(isinstance(h, (int, float, str)) for h in houses):
+        house_cusps = [float(h) % 360 for h in houses]
+
+    # If houses is a list of dictionaries
+    elif houses and all(isinstance(h, dict) for h in houses):
+        for house in houses:
+            # Try different possible keys
+            if "longitude" in house:
+                house_cusps.append(float(house["longitude"]) % 360)
+            elif "cusp" in house:
+                house_cusps.append(float(house["cusp"]) % 360)
+            elif "cusp_longitude" in house:
+                house_cusps.append(float(house["cusp_longitude"]) % 360)
+
+    # If no valid house data found, return 1 as default
+    if not house_cusps or len(house_cusps) != 12:
+        logger.warning(f"Invalid house data for determine_house_for_longitude: {houses}")
+        return 1
+
+    # Create pairs of house cusps with their house numbers
+    house_pairs = [(i+1, house_cusps[i]) for i in range(12)]
+
+    # Sort by cusp longitude
+    house_pairs.sort(key=lambda x: x[1])
+
+    # Check each house
+    for i in range(len(house_pairs)):
+        current_cusp = house_pairs[i][1]
+        next_cusp = house_pairs[(i+1) % 12][1]
+
+        # Handle case where house spans 0 degrees
+        if next_cusp < current_cusp:
+            if longitude >= current_cusp or longitude < next_cusp:
+                return house_pairs[i][0]
+        # Normal case
+        elif current_cusp <= longitude < next_cusp:
+            return house_pairs[i][0]
+
+    # Default to house 1 if not found (should not happen with properly formatted data)
+    return 1
+
 def validate_birth_details(birth_details: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate birth details for chart generation.

@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("api_gateway.websocket_proxy")
 
 # Configuration from environment variables
-AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://ai_service:8000/ws")
+AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://ai_service:8001/ws")
 WS_PING_INTERVAL = int(os.getenv("WS_PING_INTERVAL", "20"))
 WS_PING_TIMEOUT = int(os.getenv("WS_PING_TIMEOUT", "20"))
 WS_MAX_SIZE = int(os.getenv("WS_MAX_SIZE", "16777216"))  # 16MB

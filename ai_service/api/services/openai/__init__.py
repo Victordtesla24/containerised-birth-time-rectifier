@@ -7,12 +7,26 @@ OpenAI service package for interacting with OpenAI API.
 from typing import Optional
 import os
 import logging
+import asyncio
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 # Create a singleton instance
 _openai_service_instance = None
+_init_lock = asyncio.Lock()
+
+# Import the OpenAIService class
+# We use a try-except to handle potential import errors
+try:
+    from ai_service.api.services.openai.service import OpenAIService as _OpenAIService
+    # Create an alias to avoid name conflicts
+    OpenAIService = _OpenAIService
+except ImportError:
+    # We'll define OpenAIService for the __all__ to avoid errors
+    # but it will be properly loaded in __getattr__ if not available here
+    OpenAIService = None
+    logger.debug("OpenAIService could not be imported at module load time. It will be imported on demand.")
 
 def get_api_key() -> str:
     """
@@ -61,40 +75,43 @@ async def get_openai_service():
     if _openai_service_instance is not None:
         return _openai_service_instance
 
-    try:
-        # Import OpenAI service class
-        from ai_service.api.services.openai.service import OpenAIService
+    # Use lock to prevent multiple initializations
+    async with _init_lock:
+        # Check again in case another task initialized while waiting
+        if _openai_service_instance is not None:
+            return _openai_service_instance
 
-        # Get API key from environment
         try:
-            api_key = get_api_key()
-        except ValueError as e:
-            logger.warning(f"OpenAI API key not available: {e}")
+            # Import OpenAI service class
+            from ai_service.api.services.openai.service import OpenAIService
+
+            # Get API key from environment
+            try:
+                api_key = get_api_key()
+            except ValueError as e:
+                logger.warning(f"OpenAI API key not available: {e}")
+                return None
+
+            # Create a new service instance
+            _openai_service_instance = OpenAIService(api_key=api_key)
+
+            # Successfully initialized
+            logger.info("OpenAI service initialized successfully")
+
+            # Register in container if available
+            try:
+                from ai_service.utils.dependency_container import get_container
+                container = get_container()
+                container.register_instance("openai_service", _openai_service_instance)
+                logger.info("OpenAI service registered in dependency container")
+            except (ImportError, Exception) as e:
+                logger.debug(f"Could not register OpenAI service in container: {e}")
+
+            return _openai_service_instance
+
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAI service: {e}")
             return None
-
-        # Create a new service instance
-        _openai_service_instance = OpenAIService(api_key=api_key)
-
-        # Ensure HTTP client is initialized
-        await _openai_service_instance._ensure_http_client()
-
-        # Successfully initialized
-        logger.info("OpenAI service initialized successfully")
-
-        # Register in container if available
-        try:
-            from ai_service.utils.dependency_container import get_container
-            container = get_container()
-            container.register_instance("openai_service", _openai_service_instance)
-            logger.info("OpenAI service registered in dependency container")
-        except (ImportError, Exception) as e:
-            logger.debug(f"Could not register OpenAI service in container: {e}")
-
-        return _openai_service_instance
-
-    except Exception as e:
-        logger.error(f"Failed to initialize OpenAI service: {e}")
-        return None
 
 def get_openai_service_sync():
     """

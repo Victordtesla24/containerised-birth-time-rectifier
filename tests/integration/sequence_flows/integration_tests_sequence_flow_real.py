@@ -61,7 +61,7 @@ from ai_service.services.chart_service import ChartService
 from ai_service.api.services.dynamic_questionnaire_service import DynamicQuestionnaireService
 from ai_service.core.rectification.chart_calculator import EnhancedChartCalculator as AstroCalculator
 from ai_service.utils.geocoding import get_coordinates
-from ai_service.core.rectification.main import comprehensive_rectification
+import ai_service.core.rectification.main as rectification_module
 from ai_service.core.validators import validate_birth_details
 from ai_service.api.services.session_service import get_session_store, SessionStore
 from ai_service.utils.timezone import get_timezone_for_coordinates
@@ -1157,7 +1157,7 @@ async def test_full_sequence_flow_real_api():
             })
 
         # Use comprehensive rectification to get the final result - NO FALLBACKS
-        rectification_result = await comprehensive_rectification(
+        rectification_result = await rectification_module.comprehensive_rectification(
             birth_dt=birth_datetime,
             latitude=latitude,
             longitude=longitude,

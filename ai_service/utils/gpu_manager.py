@@ -1,105 +1,175 @@
 """
-GPU Memory Management for PyTorch.
+GPU Memory Management Module
 
-This module provides utilities for managing GPU memory when running PyTorch.
-When torch is not available, it provides mock implementations.
+This module provides utilities for managing GPU memory allocation.
 """
 
-import os
 import logging
-from typing import Optional, Dict, Any, Union
+import os
+from typing import Dict, Union, Optional, Any
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Check if torch is available
+# Check for TensorFlow
+TF_AVAILABLE = False
 try:
-    import torch
-    TORCH_AVAILABLE = True
+    import tensorflow as tf  # type: ignore
+    TF_AVAILABLE = True
 except ImportError:
-    logger.warning("PyTorch not found. Using mock GPU manager.")
-    TORCH_AVAILABLE = False
+    # Define a placeholder for type checking when tensorflow is not available
+    class MockTensorflow:
+        """Mock class when tensorflow is not available."""
+        class config:
+            @staticmethod
+            def list_physical_devices(*args, **kwargs):
+                return []
+
+            class experimental:
+                @staticmethod
+                def set_memory_growth(*args, **kwargs):
+                    pass
+
+        class keras:
+            class backend:
+                @staticmethod
+                def clear_session():
+                    pass
+
+    # Create a placeholder for linter
+    tf = MockTensorflow()  # type: ignore
+    logger.warning("TensorFlow not available. GPU acceleration will be disabled.")
+
+# Check for psutil (for memory tracking)
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger.warning("psutil not available. Memory tracking will be limited.")
 
 class GPUMemoryManager:
     """
-    Manages GPU memory allocation for PyTorch.
-
-    This class helps control how much GPU memory is allocated to PyTorch,
-    which is useful when running on shared systems or when you want to
-    limit memory usage.
+    Manages GPU memory allocation for the application.
+    This class provides utilities to allocate and manage GPU memory for
+    machine learning models and other GPU-accelerated operations.
     """
 
-    def __init__(self, memory_fraction: float = 0.7):
+    def __init__(self, memory_fraction=0.7):
         """
         Initialize the GPU memory manager.
 
         Args:
-            memory_fraction: Fraction of GPU memory to allocate (0.0 to 1.0)
+            memory_fraction: Fraction of GPU memory to allocate (default 0.7)
         """
         self.memory_fraction = memory_fraction
-        self.is_cuda_available = TORCH_AVAILABLE and self._check_cuda_available() if TORCH_AVAILABLE else False
+        self.is_gpu_available = False
+        self.devices = []
+        self.initialized = False
 
-        if self.is_cuda_available:
-            logger.info(f"CUDA is available. Setting memory fraction to {memory_fraction}")
-            self._set_memory_fraction(memory_fraction)
+        # Initialize GPU if available
+        if TF_AVAILABLE:
+            try:
+                # Try to initialize TensorFlow with GPU support
+                gpus = tf.config.list_physical_devices('GPU')
+
+                if gpus:
+                    self.is_gpu_available = True
+                    self.devices = gpus
+
+                    # Set memory growth
+                    for gpu in gpus:
+                        tf.config.experimental.set_memory_growth(gpu, True)
+
+                    # Log GPU information
+                    logger.info(f"Found {len(gpus)} GPU devices")
+                    self.initialized = True
+                else:
+                    logger.info("No GPU devices available, running in CPU mode")
+            except Exception as e:
+                logger.error(f"Error initializing GPU: {e}")
         else:
-            logger.info("CUDA is not available or torch is not installed. GPU memory management disabled.")
+            logger.info("TensorFlow not installed, GPU acceleration disabled")
 
-    def _check_cuda_available(self) -> bool:
-        """Check if CUDA is available."""
-        if TORCH_AVAILABLE:
-            return torch.cuda.is_available()
-        return False
-
-    def _set_memory_fraction(self, memory_fraction: float) -> None:
+    def get_memory_info(self):
         """
-        Set the memory fraction for all available GPUs.
+        Get current GPU memory usage information.
 
-        Args:
-            memory_fraction: Fraction of GPU memory to allocate (0.0 to 1.0)
+        Returns:
+            Dictionary with GPU memory information
         """
-        if not self.is_cuda_available or not TORCH_AVAILABLE:
+        if not self.is_gpu_available:
+            return {"status": "gpu_not_available", "devices": 0}
+
+        if not TF_AVAILABLE:
+            return {"status": "tensorflow_not_available", "devices": 0}
+
+        try:
+            memory_info = []
+            for i, device in enumerate(self.devices):
+                try:
+                    # Get memory info for each GPU
+                    memory_info.append({
+                        "device_id": i,
+                        "device_name": device.name.decode('utf-8') if hasattr(device.name, 'decode') else device.name,
+                        "memory_limit_fraction": self.memory_fraction
+                    })
+                except Exception as e:
+                    logger.error(f"Error getting memory info for GPU {i}: {e}")
+
+            # Also get system memory info if psutil is available
+            system_memory = {}
+            if PSUTIL_AVAILABLE:
+                mem = psutil.virtual_memory()
+                system_memory = {
+                    "total": mem.total,
+                    "available": mem.available,
+                    "percent_used": mem.percent
+                }
+
+            return {
+                "status": "gpu_available",
+                "devices": len(self.devices),
+                "gpu_memory_info": memory_info,
+                "system_memory": system_memory
+            }
+        except Exception as e:
+            logger.error(f"Error getting GPU memory info: {e}")
+            return {"status": "error", "message": str(e), "devices": len(self.devices)}
+
+    def cleanup(self):
+        """
+        Release GPU resources when shutting down.
+        """
+        if not self.is_gpu_available or not TF_AVAILABLE:
             return
 
         try:
-            for device in range(torch.cuda.device_count()):
-                torch.cuda.set_per_process_memory_fraction(memory_fraction, device)
-                logger.info(f"Set memory fraction to {memory_fraction} for GPU {device}")
+            # Clear TensorFlow session
+            tf.keras.backend.clear_session()
+            logger.info("TensorFlow session cleared")
+
+            # Additional cleanup if needed
+            import gc
+            gc.collect()
+
+            logger.info("GPU resources released")
         except Exception as e:
-            logger.error(f"Error setting GPU memory fraction: {e}")
-
-    def get_gpu_info(self) -> Union[Dict[str, Dict[str, float]], Dict[str, str]]:
-        """
-        Get information about available GPUs.
-
-        Returns:
-            Dictionary with GPU info (total memory, used memory, free memory)
-            or status dictionary if GPUs are not available
-        """
-        if not self.is_cuda_available or not TORCH_AVAILABLE:
-            return {"status": "no_gpu_available"}
-
-        try:
-            info = {}
-            for device in range(torch.cuda.device_count()):
-                props = torch.cuda.get_device_properties(device)
-                total_memory = props.total_memory / 1024**3  # Convert to GB
-                memory_allocated = torch.cuda.memory_allocated(device) / 1024**3
-                memory_reserved = torch.cuda.memory_reserved(device) / 1024**3
-
-                info[f"gpu_{device}"] = {
-                    "name": props.name,
-                    "total_memory_gb": round(total_memory, 2),
-                    "allocated_memory_gb": round(memory_allocated, 2),
-                    "reserved_memory_gb": round(memory_reserved, 2),
-                    "free_memory_gb": round(total_memory - memory_reserved, 2)
-                }
-            return info
-        except Exception as e:
-            logger.error(f"Error getting GPU info: {e}")
-            return {"status": "error", "message": str(e)}
+            logger.error(f"Error cleaning up GPU resources: {e}")
 
 # Create a singleton instance
-gpu_manager = GPUMemoryManager(
-    memory_fraction=float(os.getenv("GPU_MEMORY_FRACTION", "0.7"))
-)
+_instance = None
+
+def get_gpu_manager() -> GPUMemoryManager:
+    """
+    Get the GPU memory manager singleton instance.
+
+    Returns:
+        GPUMemoryManager instance
+    """
+    global _instance
+    if _instance is None:
+        # Get memory fraction from environment or use default
+        memory_fraction = float(os.environ.get("GPU_MEMORY_FRACTION", "0.7"))
+        _instance = GPUMemoryManager(memory_fraction=memory_fraction)
+    return _instance

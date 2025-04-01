@@ -105,3 +105,4 @@ ephemeris/*
 *api_key*
 *secret_key*
 *secretkey*
+.venv/

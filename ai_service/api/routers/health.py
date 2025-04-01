@@ -103,3 +103,14 @@ async def basic_health() -> Dict[str, Any]:
         "service": "ai_service",
         "timestamp": datetime.now().isoformat()
     }
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health_endpoint() -> Dict[str, Any]:
+    """
+    Health check endpoint matching the /api/v1/health path.
+
+    Returns:
+        Health status information
+    """
+    return await health_check()

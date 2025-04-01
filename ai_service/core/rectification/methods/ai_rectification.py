@@ -1,14 +1,16 @@
 """
 AI-assisted birth time rectification module.
 """
-from datetime import datetime, timedelta, time as datetime_time
+from datetime import datetime, time as datetime_time
 import logging
 import json
 import re
-import uuid
-from typing import Any, Tuple, Dict, Optional, List
+from typing import Any, Dict, Optional, List
 import asyncio
 import traceback
+
+# Use absolute import
+from ai_service.core.rectification.chart_calculator import calculate_chart
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +20,9 @@ async def ai_assisted_rectification(
     longitude: float,
     timezone: str,
     openai_service: Any,
+    *,  # Force keyword arguments after this point
     time_indicators: Optional[List[Dict[str, Any]]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
-    swisseph_proxy: Optional[Any] = None,
     max_retries: int = 3,
     retry_delay: float = 1.0
 ) -> Dict[str, Any]:
@@ -35,7 +37,6 @@ async def ai_assisted_rectification(
         openai_service: OpenAI service instance for AI analysis
         time_indicators: Optional list of birth time indicators from questionnaire
         events: Optional list of life events
-        swisseph_proxy: Swiss Ephemeris proxy for astrological calculations
         max_retries: Maximum number of OpenAI API retries
         retry_delay: Delay between retries in seconds
 
@@ -51,11 +52,10 @@ async def ai_assisted_rectification(
         raise ValueError("OpenAI service is required for AI-assisted rectification")
 
     original_time = birth_dt.strftime("%H:%M:%S")
-    logger.info(f"Starting AI-assisted rectification for birth time {original_time}")
+    logger.info("Starting AI-assisted rectification for birth time %s", original_time)
 
     # Calculate initial chart for the original birth time
     try:
-        from ai_service.core.rectification.chart_calculator import calculate_chart
         chart_data = calculate_chart(
             birth_dt=birth_dt,
             latitude=latitude,
@@ -63,9 +63,9 @@ async def ai_assisted_rectification(
             timezone_str=timezone
         )
     except Exception as e:
-        logger.error(f"Error calculating initial chart: {e}")
+        logger.error("Error calculating initial chart: %s", e)
         logger.error(traceback.format_exc())
-        raise ValueError(f"Failed to calculate initial chart: {str(e)}")
+        raise ValueError(f"Failed to calculate initial chart: {str(e)}") from e
 
     # Extract key data from chart
     try:
@@ -104,7 +104,7 @@ async def ai_assisted_rectification(
                 "house": planet_data.get("house", 0)
             })
     except Exception as e:
-        logger.error(f"Error extracting chart elements: {e}")
+        logger.error("Error extracting chart elements: %s", e)
         chart_elements = {"error": "Failed to extract chart elements"}
 
     # Format answers for the prompt
@@ -169,13 +169,11 @@ async def ai_assisted_rectification(
 
     # Call OpenAI with retry logic
     retry_count = 0
-    last_error = None
     result = None
 
     while retry_count < max_retries:
         try:
             # Call OpenAI service
-            # pylint: disable=no-member
             ai_response = await openai_service.generate_completion(
                 prompt=prompt_str,
                 task_type="birth_time_rectification",
@@ -190,15 +188,14 @@ async def ai_assisted_rectification(
 
         except Exception as e:
             retry_count += 1
-            last_error = e
-            logger.warning(f"OpenAI API error (attempt {retry_count}/{max_retries}): {e}")
+            logger.warning("OpenAI API error (attempt %s/%s): %s", retry_count, max_retries, e)
 
             if retry_count < max_retries:
                 await asyncio.sleep(retry_delay * retry_count)  # Exponential backoff
             else:
-                logger.error(f"OpenAI API failed after {max_retries} attempts: {e}")
+                logger.error("OpenAI API failed after %s attempts: %s", max_retries, e)
                 logger.error(traceback.format_exc())
-                raise ValueError(f"Failed to get AI analysis after {max_retries} attempts: {str(e)}")
+                raise ValueError(f"Failed to get AI analysis after {max_retries} attempts: {str(e)}") from e
 
     # Process the AI response
     if not result:
@@ -215,8 +212,8 @@ async def ai_assisted_rectification(
         # Log the result
         time_diff = rectified_time - birth_dt
         minutes_diff = time_diff.total_seconds() / 60
-        logger.info(f"AI rectification suggests time adjustment of {minutes_diff:.1f} minutes")
-        logger.info(f"Rectified time: {rectified_time.strftime('%H:%M:%S')}, confidence: {confidence_score:.1f}")
+        logger.info("AI rectification suggests time adjustment of %.1f minutes", minutes_diff)
+        logger.info("Rectified time: %s, confidence: %.1f", rectified_time.strftime('%H:%M:%S'), confidence_score)
 
         return {
             "rectified_time": rectified_time.strftime("%H:%M:%S"),
@@ -225,9 +222,9 @@ async def ai_assisted_rectification(
         }
 
     except Exception as e:
-        logger.error(f"Error processing AI rectification result: {e}")
+        logger.error("Error processing AI rectification result: %s", e)
         logger.error(traceback.format_exc())
-        raise ValueError(f"Failed to process AI rectification result: {str(e)}")
+        raise ValueError(f"Failed to process AI rectification result: {str(e)}") from e
 
 async def parse_ai_response(content: str) -> Dict[str, Any]:
     """
@@ -239,8 +236,6 @@ async def parse_ai_response(content: str) -> Dict[str, Any]:
     Returns:
         Dictionary with parsed rectification data
     """
-    import json
-
     # If content is already a dictionary, return it
     if isinstance(content, dict):
         return content
@@ -248,7 +243,6 @@ async def parse_ai_response(content: str) -> Dict[str, Any]:
     # If content is a string, try to parse it as JSON
     try:
         # Extract JSON if embedded in text
-        import re
         json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
 
         if json_match:
@@ -292,8 +286,6 @@ async def parse_rectified_time(time_str: str, birth_dt: datetime) -> datetime:
     Returns:
         Datetime object with the rectified time
     """
-    import re
-
     # Clean the time string
     time_str = time_str.strip()
 

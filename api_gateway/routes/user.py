@@ -19,7 +19,7 @@ logger = logging.getLogger("api_gateway.routes.user")
 router = APIRouter()
 
 # AI Service URL - configure from environment variables
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
 
 # Define request/response models
 class UserPreferences(BaseModel):

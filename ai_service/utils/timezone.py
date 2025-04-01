@@ -9,9 +9,10 @@ instead of silently falling back to alternatives.
 import logging
 import datetime
 from typing import Dict, Optional, Any, Tuple
+from zoneinfo import ZoneInfo, available_timezones
+
 import timezonefinder
 import pytz
-from zoneinfo import ZoneInfo, available_timezones
 
 # Custom exception for timezone errors
 class TimezoneError(Exception):
@@ -62,8 +63,12 @@ def get_timezone_for_coordinates(
                 delta_degree=3  # Search within 3 degrees (~300km at equator)
             )
 
-        if not timezone_str:
+        # Ensure we have a string, not a tuple or other type
+        if timezone_str is None:
             raise TimezoneError(f"Could not determine timezone for coordinates: {latitude}, {longitude}")
+
+        # Ensure we're returning a string
+        timezone_str = str(timezone_str)
 
         # Validate that the timezone exists in the pytz database
         if timezone_str not in pytz.all_timezones:
@@ -107,8 +112,12 @@ def get_utc_offset(timezone_str: str, dt: Optional[datetime.datetime] = None) ->
         # Localize the datetime to get the correct DST information
         localized_dt = timezone.localize(dt.replace(tzinfo=None))
 
-        # Get the UTC offset in seconds
-        offset_seconds = localized_dt.utcoffset().total_seconds()
+        # Get the UTC offset in seconds - safely handle potential None value
+        utc_offset = localized_dt.utcoffset()
+        if utc_offset is None:
+            raise TimezoneError(f"Could not determine UTC offset for timezone {timezone_str}")
+
+        offset_seconds = utc_offset.total_seconds()
 
         # Convert to minutes
         offset_minutes = int(offset_seconds / 60)
@@ -149,15 +158,19 @@ def convert_to_timezone(
         source_tz = pytz.timezone(source_timezone)
         target_tz = pytz.timezone(target_timezone)
 
-        # If the datetime doesn't have a timezone, localize it to the source timezone
+        # Handle naive datetime objects properly
         if dt.tzinfo is None:
-            dt = source_tz.localize(dt)
-        elif dt.tzinfo.tzname(dt) != source_timezone:
-            # If it has a different timezone, first convert to UTC, then to source
-            dt = dt.astimezone(pytz.UTC).astimezone(source_tz)
+            # For naive datetimes, use localize to attach the timezone
+            # This properly handles DST transitions
+            localized_dt = source_tz.localize(dt)
+        else:
+            # If datetime already has timezone info
+            # First normalize to UTC then to source timezone to ensure correct handling
+            utc_dt = dt.astimezone(pytz.UTC)
+            localized_dt = utc_dt.astimezone(source_tz)
 
         # Convert to the target timezone
-        converted_dt = dt.astimezone(target_tz)
+        converted_dt = localized_dt.astimezone(target_tz)
 
         return converted_dt
 

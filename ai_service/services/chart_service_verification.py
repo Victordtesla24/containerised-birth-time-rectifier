@@ -6,96 +6,12 @@ to avoid duplication while maintaining backwards compatibility.
 """
 
 import logging
-from typing import Dict, Any, Optional, List, Union
-
-# Import directly from chart_verification
-from ai_service.services.chart_verification import get_chart_verification_service
+from typing import Dict, Any, Optional, List
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-# Re-export functions to maintain backwards compatibility
-__all__ = ['verify_chart_with_openai', 'create_verification_instructions',
-           'prepare_chart_for_verification', 'apply_corrections',
-           'validate_corrected_chart', 'get_zodiac_sign']
-
-async def verify_chart_with_openai(chart_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Verify chart data using OpenAI service and astrological standards.
-
-    Delegates to chart_verification.py for actual implementation.
-
-    Args:
-        chart_data: Chart data to verify
-        session_id: Optional session ID for WebSocket updates
-
-    Returns:
-        Dictionary with verification results
-    """
-    # Get the chart verification service
-    verification_service = get_chart_verification_service()
-
-    # Delegate to the service's implementation
-    return await verification_service.verify_chart(
-        chart_data=chart_data,
-        session_id=session_id,
-        verify_with_openai=True,
-        send_websocket_updates=session_id is not None
-    )
-
-async def create_verification_instructions(chart_data: Dict[str, Any]) -> str:
-    """
-    Create instructions for chart verification.
-
-    Args:
-        chart_data: Chart data to verify
-
-    Returns:
-        Verification instructions as a string
-    """
-    planets = chart_data.get("planets", {})
-    houses = chart_data.get("houses", {})
-
-    instructions = [
-        "Verify the astrological chart data for accuracy and completeness:",
-        "\nPlanetary Positions:",
-    ]
-
-    # Add planet data
-    for planet, details in planets.items():
-        sign = details.get("sign", "Unknown")
-        longitude = details.get("longitude", 0)
-        house = details.get("house", "Unknown")
-        instructions.append(f"- {planet}: {sign} at {longitude:.2f}° in house {house}")
-
-    # Add house data
-    instructions.append("\nHouse Cusps:")
-    for house, longitude in houses.items():
-        if isinstance(longitude, dict):
-            house_long = longitude.get("longitude", 0)
-        else:
-            house_long = float(longitude)
-        sign = get_zodiac_sign(house_long)
-        instructions.append(f"- House {house}: {sign} at {house_long % 30:.2f}°")
-
-    # Add aspects if available
-    if "aspects" in chart_data:
-        instructions.append("\nMajor Aspects:")
-        for aspect in chart_data.get("aspects", []):
-            p1 = aspect.get("planet1", "Unknown")
-            p2 = aspect.get("planet2", "Unknown")
-            aspect_type = aspect.get("type", "Unknown")
-            orb = aspect.get("orb", 0)
-            instructions.append(f"- {p1} {aspect_type} {p2} (orb: {orb:.1f}°)")
-
-    # Add verification instructions
-    instructions.append("\nVerification Tasks:")
-    instructions.append("1. Check if planets are in the correct signs")
-    instructions.append("2. Verify house placements are consistent")
-    instructions.append("3. Confirm aspects are calculated correctly")
-    instructions.append("4. Check for any missing critical elements")
-
-    return "\n".join(instructions)
-
+# Define the zodiac sign function directly to avoid circular imports
 def get_zodiac_sign(longitude: float) -> str:
     """
     Get the zodiac sign for a longitude value.
@@ -114,6 +30,39 @@ def get_zodiac_sign(longitude: float) -> str:
 
     sign_index = int(longitude / 30) % 12
     return signs[sign_index]
+
+# Re-export functions to maintain backwards compatibility
+__all__ = ['verify_chart_with_openai', 'create_verification_instructions',
+           'prepare_chart_for_verification', 'apply_corrections',
+           'validate_corrected_chart', 'get_zodiac_sign']
+
+# Forward declaration of functions to break circular imports
+async def verify_chart_with_openai(chart_data: Dict[str, Any], session_id: Optional[str] = None,
+                       verify_with_openai: bool = True) -> Dict[str, Any]:
+    """
+    Forward to chart_verification's verify_chart function.
+
+    Args:
+        chart_data: Chart data to verify
+        session_id: Optional session ID for WebSocket updates
+        verify_with_openai: Whether to use OpenAI for verification
+
+    Returns:
+        Dictionary with verification results
+    """
+    # Import here to avoid circular import
+    from ai_service.services.chart_verification import get_chart_verification_service
+
+    # Get the chart verification service
+    verification_service = get_chart_verification_service()
+
+    # Delegate to the service's implementation
+    return await verification_service.verify_chart(
+        chart_data=chart_data,
+        session_id=session_id,
+        verify_with_openai=verify_with_openai,
+        send_websocket_updates=session_id is not None
+    )
 
 def prepare_chart_for_verification(chart_data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -172,8 +121,62 @@ def prepare_chart_for_verification(chart_data: Dict[str, Any]) -> Dict[str, Any]
         return verification_data
 
     except Exception as e:
-        logger.error(f"Error preparing chart data for verification: {e}")
-        raise ValueError(f"Failed to prepare chart for verification: {str(e)}")
+        logger.error("Error preparing chart data for verification: %s", e)
+        raise ValueError(f"Failed to prepare chart for verification: {str(e)}") from e
+
+async def create_verification_instructions(chart_data: Dict[str, Any]) -> str:
+    """
+    Create instructions for chart verification.
+
+    Args:
+        chart_data: Chart data to verify
+
+    Returns:
+        Verification instructions as a string
+    """
+    planets = chart_data.get("planets", {})
+    houses = chart_data.get("houses", {})
+
+    instructions = [
+        "Verify the astrological chart data for accuracy and completeness:",
+        "\nPlanetary Positions:",
+    ]
+
+    # Add planet data
+    for planet, details in planets.items():
+        sign = details.get("sign", "Unknown")
+        longitude = details.get("longitude", 0)
+        house = details.get("house", "Unknown")
+        instructions.append(f"- {planet}: {sign} at {longitude:.2f}° in house {house}")
+
+    # Add house data
+    instructions.append("\nHouse Cusps:")
+    for house, longitude in houses.items():
+        if isinstance(longitude, dict):
+            house_long = longitude.get("longitude", 0)
+        else:
+            house_long = float(longitude)
+        sign = get_zodiac_sign(house_long)
+        instructions.append(f"- House {house}: {sign} at {house_long % 30:.2f}°")
+
+    # Add aspects if available
+    if "aspects" in chart_data:
+        instructions.append("\nMajor Aspects:")
+        for aspect in chart_data.get("aspects", []):
+            p1 = aspect.get("planet1", "Unknown")
+            p2 = aspect.get("planet2", "Unknown")
+            aspect_type = aspect.get("type", "Unknown")
+            orb = aspect.get("orb", 0)
+            instructions.append(f"- {p1} {aspect_type} {p2} (orb: {orb:.1f}°)")
+
+    # Add verification instructions
+    instructions.append("\nVerification Tasks:")
+    instructions.append("1. Check if planets are in the correct signs")
+    instructions.append("2. Verify house placements are consistent")
+    instructions.append("3. Confirm aspects are calculated correctly")
+    instructions.append("4. Check for any missing critical elements")
+
+    return "\n".join(instructions)
 
 def apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -186,9 +189,10 @@ def apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, An
     Returns:
         Corrected chart data
     """
-    try:
-        import asyncio
+    # Import here to avoid circular import
+    from ai_service.services.chart_verification import get_chart_verification_service
 
+    try:
         # Get the chart verification service
         verification_service = get_chart_verification_service()
 
@@ -200,7 +204,7 @@ def apply_corrections(chart_data: Dict[str, Any], corrections: List[Dict[str, An
     except Exception as e:
         error_msg = f"Failed to apply corrections: {str(e)}"
         logger.error(error_msg)
-        raise ValueError(error_msg)
+        raise ValueError(error_msg) from e
 
 def validate_corrected_chart(chart_data: Dict[str, Any]) -> bool:
     """

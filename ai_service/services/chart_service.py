@@ -473,69 +473,134 @@ class ChartService:
 
     async def validate_birth_details(self, birth_details: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Validate birth details for chart generation.
+        Validate birth details before chart generation.
 
         Args:
-            birth_details: Dictionary containing birth details including date, time, latitude, longitude, and timezone
+            birth_details: Dictionary containing birth date, time, latitude, longitude, and timezone
 
         Returns:
-            Dictionary with validation results
-
-        Raises:
-            ValueError: If birth details are missing required fields
+            Dictionary with validation results including valid flag, errors, and warnings
         """
+        # Initialize validation result
+        validation_result = {
+            "valid": True,
+            "errors": [],
+            "warnings": []
+        }
+
         try:
-            # Import validator
-            from ai_service.core.validators import validate_birth_details as core_validate
+            # Ensure the service is initialized
+            if not self._initialized:
+                await self.initialize()
 
-            # Extract values from birth details
-            birth_date = birth_details.get("birth_date")
-            birth_time = birth_details.get("birth_time")
+            # Required fields
+            required_fields = ["birth_date", "birth_time", "latitude", "longitude"]
+
+            # Check for missing required fields
+            for field in required_fields:
+                if field not in birth_details or birth_details[field] is None:
+                    validation_result["valid"] = False
+                    validation_result["errors"].append(f"Missing required field: {field}")
+
+            # If basic validation failed, return early
+            if not validation_result["valid"]:
+                return validation_result
+
+            # Validate birth date format (YYYY-MM-DD)
+            birth_date = birth_details.get("birth_date", "")
+            if birth_date:
+                import re
+                date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+                if not re.match(date_pattern, birth_date):
+                    validation_result["valid"] = False
+                    validation_result["errors"].append("Invalid birth date format. Expected YYYY-MM-DD.")
+                else:
+                    # Validate date exists
+                    try:
+                        from datetime import datetime
+                        year, month, day = map(int, birth_date.split('-'))
+                        datetime(year, month, day)
+                    except ValueError as e:
+                        validation_result["valid"] = False
+                        validation_result["errors"].append(f"Invalid date: {str(e)}")
+
+            # Validate birth time format (HH:MM or HH:MM:SS)
+            birth_time = birth_details.get("birth_time", "")
+            if birth_time:
+                time_pattern = r'^([01]?[0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9]))?$'
+                if not re.match(time_pattern, birth_time):
+                    validation_result["valid"] = False
+                    validation_result["errors"].append("Invalid birth time format. Expected HH:MM or HH:MM:SS.")
+
+            # Validate latitude (-90 to 90)
             latitude = birth_details.get("latitude")
+            if latitude is not None:
+                try:
+                    lat_float = float(latitude)
+                    if not -90 <= lat_float <= 90:
+                        validation_result["valid"] = False
+                        validation_result["errors"].append("Invalid latitude. Must be between -90 and 90.")
+                except (ValueError, TypeError):
+                    validation_result["valid"] = False
+                    validation_result["errors"].append("Latitude must be a number.")
+
+            # Validate longitude (-180 to 180)
             longitude = birth_details.get("longitude")
+            if longitude is not None:
+                try:
+                    long_float = float(longitude)
+                    if not -180 <= long_float <= 180:
+                        validation_result["valid"] = False
+                        validation_result["errors"].append("Invalid longitude. Must be between -180 and 180.")
+                except (ValueError, TypeError):
+                    validation_result["valid"] = False
+                    validation_result["errors"].append("Longitude must be a number.")
+
+            # Timezone validation (optional but recommended)
             timezone = birth_details.get("timezone")
+            if timezone:
+                # Check if timezone exists
+                try:
+                    import pytz
+                    if timezone not in pytz.all_timezones:
+                        validation_result["warnings"].append(f"Unknown timezone: {timezone}. Will use calculated timezone for coordinates.")
+                except ImportError:
+                    validation_result["warnings"].append("Could not validate timezone. Will use calculated timezone for coordinates.")
+            else:
+                validation_result["warnings"].append("No timezone provided. Will use calculated timezone for coordinates.")
 
-            # Check for missing values
-            missing = []
-            if not birth_date:
-                missing.append("birth_date")
-            if not birth_time:
-                missing.append("birth_time")
-            if latitude is None:
-                missing.append("latitude")
-            if longitude is None:
-                missing.append("longitude")
-            if not timezone:
-                missing.append("timezone")
+            # Advanced validation (if all basic validation passed)
+            if validation_result["valid"]:
+                # Check if date is reasonable (not too far in past or future)
+                try:
+                    from datetime import datetime
+                    birth_year = int(birth_date.split('-')[0])
+                    current_year = datetime.now().year
 
-            if missing:
-                return {
-                    "valid": False,
-                    "errors": [f"Missing required fields: {', '.join(missing)}"]
-                }
+                    if birth_year < 1000:
+                        validation_result["warnings"].append(f"Birth year {birth_year} is quite old. Please verify.")
+                    elif birth_year > current_year:
+                        validation_result["warnings"].append(f"Birth year {birth_year} is in the future. Please verify.")
+                except (ValueError, IndexError):
+                    # Already caught by basic validation
+                    pass
 
-            # Call core validator
-            return await core_validate(
-                birth_date=birth_date,
-                birth_time=birth_time,
-                latitude=latitude,
-                longitude=longitude,
-                timezone=timezone
-            )
+            return validation_result
+
         except Exception as e:
             logger.error(f"Error validating birth details: {e}")
-            return {
-                "valid": False,
-                "errors": [f"Validation error: {str(e)}"]
-            }
+            validation_result["valid"] = False
+            validation_result["errors"].append(f"Validation error: {str(e)}")
+            return validation_result
 
-    async def _verify_chart_with_openai(self, chart_data: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
+    async def _verify_chart_with_openai(self, chart_data: Dict[str, Any], session_id: Optional[str] = None, verify_with_openai: bool = True) -> Dict[str, Any]:
         """
         Verify a chart using OpenAI for accuracy according to Vedic astrological standards.
 
         Args:
             chart_data: The chart data to verify
             session_id: Optional session ID for WebSocket updates
+            verify_with_openai: Whether to use OpenAI for verification
 
         Returns:
             Verification result dictionary with corrections if needed
@@ -560,7 +625,7 @@ class ChartService:
             from ai_service.services.chart_verification import verify_chart
 
             # Log verification request
-            logger.info(f"Verifying chart {chart_data.get('chart_id', 'unknown')} with OpenAI")
+            logger.info(f"Verifying chart {chart_data.get('chart_id', 'unknown')} with OpenAI: {verify_with_openai}")
 
             # Send progress update if session provided
             if session_id:
@@ -579,7 +644,7 @@ class ChartService:
             verification_result = await verify_chart(
                 chart_data=chart_data,
                 session_id=session_id,
-                verify_with_openai=True
+                verify_with_openai=verify_with_openai
             )
 
             # Send completion event if session provided
@@ -684,6 +749,7 @@ class ChartService:
                 chart_data["session_id"] = session_id
         except Exception as e:
             logger.error(f"Chart calculation failed: {e}")
+            logger.error(traceback.format_exc())
             raise RuntimeError(f"Chart calculation failed: {str(e)}")
 
         # Verify chart with OpenAI if requested
@@ -729,7 +795,16 @@ class ChartService:
                             chart_data[key] = value
             except Exception as e:
                 logger.error(f"Chart verification failed: {e}")
-                raise RuntimeError(f"Chart verification failed: {str(e)}")
+                logger.error(traceback.format_exc())
+                # Add default verification info instead of failing
+                chart_data["verification"] = {
+                    "verified": False,
+                    "confidence_score": 0,
+                    "corrections_applied": False,
+                    "message": f"Verification failed: {str(e)}",
+                    "verified_at": datetime.now().isoformat(),
+                    "verification_method": "failed"
+                }
         else:
             # Add basic verification info
             chart_data["verification"] = {
@@ -741,19 +816,14 @@ class ChartService:
                 "verification_method": "none"
             }
 
-        # Save chart to file for backup
-        try:
-            # Ensure chart output directory exists
-            os.makedirs(self.chart_output_dir, exist_ok=True)
+        # Save chart to database first
+        db_save_success = await self._save_chart_to_database(chart_data)
 
-            # Save to file
-            chart_file = os.path.join(self.chart_output_dir, f"{chart_id}.json")
-            with open(chart_file, 'w') as f:
-                json.dump(chart_data, f, indent=2, cls=DateTimeEncoder)
+        # Always save to file as backup
+        file_save_success = await self._save_chart_to_file(chart_data)
 
-            logger.info(f"Saved chart {chart_id} to file {chart_file}")
-        except Exception as e:
-            logger.warning(f"Failed to save chart to file: {e}")
+        if not db_save_success and not file_save_success:
+            logger.warning(f"Failed to save chart {chart_id} to either database or file")
 
         return chart_data
 
@@ -947,7 +1017,7 @@ class ChartService:
 
     async def get_chart(self, chart_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get a chart by ID from the database.
+        Get a chart by ID from the database or file storage.
 
         Args:
             chart_id: The ID of the chart to retrieve
@@ -959,57 +1029,99 @@ class ChartService:
             await self.initialize()
 
         try:
-            logger.info(f"Retrieving chart {chart_id} from database")
+            logger.info(f"Retrieving chart {chart_id}")
+
+            # Try file storage first (faster in development/test environment)
+            file_chart = await self._get_chart_from_file(chart_id)
+            if file_chart:
+                logger.info(f"Retrieved chart {chart_id} from file storage")
+                return file_chart
 
             # Import database connection utilities
-            from ai_service.database.connection import get_db_pool
+            from ai_service.database.connection import get_db_pool, _using_sqlite, SQLiteConnection
 
             # Get database connection pool
-            pool = await get_db_pool()
-            if not pool:
-                logger.error("Database connection pool not available")
-                raise RuntimeError("Database connection unavailable")
+            try:
+                pool = await get_db_pool()
+                if not pool:
+                    logger.warning("Database connection pool not available, falling back to file storage")
+                    return file_chart  # Return the previously retrieved file chart or None
+            except Exception as db_error:
+                logger.error(f"Error getting database connection: {db_error}")
+                return file_chart  # Return the previously retrieved file chart or None
 
             # Query the chart from the database
-            async with pool.acquire() as conn:
-                # Select chart data from the database
-                query = """
-                    SELECT chart_data, created_at, updated_at
-                    FROM charts
-                    WHERE chart_id = $1
-                """
+            try:
+                if _using_sqlite:
+                    # For SQLite, get a connection without async context manager
+                    conn = pool.acquire()
+                    # Assert type for SQLite connection for better type checking
+                    assert isinstance(conn, SQLiteConnection)
 
-                row = await conn.fetchrow(query, chart_id)
+                    try:
+                        # Select chart data from the database
+                        query = """
+                            SELECT chart_data FROM charts WHERE chart_id = $1
+                        """
 
-                if not row:
-                    logger.warning(f"Chart {chart_id} not found in database")
-                    return None
+                        # Simple query for SQLite
+                        row = await conn.fetchrow(query, chart_id)
+                        if not row:
+                            logger.warning(f"Chart {chart_id} not found in database")
+                            return file_chart
 
-                # Extract chart data from JSON
-                try:
-                    chart_data = json.loads(row['chart_data']) if isinstance(row['chart_data'], str) else row['chart_data']
+                        # Extract chart data from JSON string (SQLite stores as TEXT)
+                        try:
+                            chart_data = json.loads(row['chart_data']) if isinstance(row['chart_data'], str) else row['chart_data']
+                            logger.info(f"Successfully retrieved chart {chart_id} from SQLite database")
+                            return chart_data
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Error parsing chart data for {chart_id}: {e}")
+                            return file_chart
+                    finally:
+                        # Close the connection manually
+                        conn.close()
+                else:
+                    # PostgreSQL uses async context manager
+                    async with pool.acquire() as conn:
+                        # PostgreSQL query
+                        query = """
+                            SELECT chart_data, created_at, updated_at
+                            FROM charts
+                            WHERE chart_id = $1
+                        """
+                        row = await conn.fetchrow(query, chart_id)
 
-                    # Add timestamps if not in the data
-                    if 'created_at' not in chart_data and row['created_at']:
-                        chart_data['created_at'] = row['created_at'].isoformat()
-                    if 'updated_at' not in chart_data and row['updated_at']:
-                        chart_data['updated_at'] = row['updated_at'].isoformat()
+                        if not row:
+                            logger.warning(f"Chart {chart_id} not found in database")
+                            return file_chart
 
-                    logger.info(f"Successfully retrieved chart {chart_id}")
-                    return chart_data
-                except json.JSONDecodeError as e:
-                    logger.error(f"Error parsing chart data for {chart_id}: {e}")
-                    raise ValueError(f"Invalid chart data format: {e}")
+                        # Extract chart data from JSON
+                        try:
+                            chart_data = json.loads(row['chart_data']) if isinstance(row['chart_data'], str) else row['chart_data']
+
+                            # Add timestamps if not in the data
+                            if 'created_at' not in chart_data and row.get('created_at'):
+                                chart_data['created_at'] = row['created_at'].isoformat()
+                            if 'updated_at' not in chart_data and row.get('updated_at'):
+                                chart_data['updated_at'] = row['updated_at'].isoformat()
+
+                            logger.info(f"Successfully retrieved chart {chart_id} from PostgreSQL database")
+                            return chart_data
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Error parsing chart data for {chart_id}: {e}")
+                            return file_chart
+
+            except Exception as e:
+                logger.error(f"Error querying database for chart {chart_id}: {e}")
+                return file_chart
 
         except Exception as e:
             logger.error(f"Error retrieving chart {chart_id}: {e}")
+            logger.error(traceback.format_exc())
 
-            # Check if this is a connection error or other database error
-            if "connection" in str(e).lower() or "pool" in str(e).lower():
-                # Fall back to file-based storage if database is unavailable
-                return await self._get_chart_from_file(chart_id)
-
-            return None
+            # Try file storage as fallback for any database-related errors
+            return await self._get_chart_from_file(chart_id)
 
     async def _get_chart_from_file(self, chart_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -1350,3 +1462,159 @@ class ChartService:
 
         sign_index = int(longitude / 30) % 12
         return signs[sign_index]
+
+    async def _save_chart_to_file(self, chart_data: Dict[str, Any]) -> bool:
+        """
+        Save chart data to a file for backup or fallback.
+
+        Args:
+            chart_data: Chart data to save
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            # Extract chart ID
+            chart_id = chart_data.get("chart_id")
+            if not chart_id:
+                logger.error("Cannot save chart to file: missing chart_id")
+                return False
+
+            # Ensure chart output directory exists
+            os.makedirs(self.chart_output_dir, exist_ok=True)
+
+            # Save to file
+            chart_file = os.path.join(self.chart_output_dir, f"{chart_id}.json")
+
+            # Convert to JSON serializable format if needed
+            if "generated_at" in chart_data and isinstance(chart_data["generated_at"], datetime):
+                chart_data["generated_at"] = chart_data["generated_at"].isoformat()
+
+            with open(chart_file, 'w') as f:
+                json.dump(chart_data, f, indent=2, cls=DateTimeEncoder)
+
+            logger.info(f"Saved chart {chart_id} to file {chart_file}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save chart to file: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+    async def _save_chart_to_database(self, chart_data: Dict[str, Any]) -> bool:
+        """
+        Save chart data to the database.
+
+        Args:
+            chart_data: Chart data to save
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            # Extract chart ID and birth details
+            chart_id = chart_data.get("chart_id")
+            birth_details = chart_data.get("birth_details", {})
+
+            if not chart_id or not birth_details:
+                logger.error("Cannot save chart to database: missing chart_id or birth_details")
+                return False
+
+            birth_date = birth_details.get("date", birth_details.get("birth_date", ""))
+            birth_time = birth_details.get("time", birth_details.get("birth_time", ""))
+            latitude = birth_details.get("latitude", 0.0)
+            longitude = birth_details.get("longitude", 0.0)
+            timezone = birth_details.get("timezone", "UTC")
+
+            # Import database connection
+            from ai_service.database.connection import get_db_pool, _using_sqlite, SQLiteConnection
+
+            # Get database connection pool
+            pool = await get_db_pool()
+            if not pool:
+                logger.warning("Database connection pool not available")
+                return False
+
+            # Prepare chart data for storage - ensure it's JSON serializable
+            chart_data_json = json.dumps(chart_data, cls=DateTimeEncoder)
+
+            # Save to database
+            if _using_sqlite:
+                # For SQLite, get a connection without async context manager
+                conn = pool.acquire()
+                # Assert type for SQLite connection for better type checking
+                assert isinstance(conn, SQLiteConnection)
+
+                try:
+                    # Check if chart already exists
+                    query = """
+                        SELECT chart_id FROM charts WHERE chart_id = $1
+                    """
+                    existing = await conn.fetchval(query, chart_id)
+
+                    if existing:
+                        # Update existing chart
+                        query = """
+                            UPDATE charts
+                            SET
+                                birth_date = $2,
+                                birth_time = $3,
+                                latitude = $4,
+                                longitude = $5,
+                                timezone = $6,
+                                chart_data = $7
+                            WHERE chart_id = $1
+                        """
+                    else:
+                        # Insert new chart
+                        query = """
+                            INSERT INTO charts (
+                                chart_id, birth_date, birth_time, latitude, longitude, timezone, chart_data
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        """
+
+                    await conn.execute(query, chart_id, birth_date, birth_time, latitude, longitude, timezone, chart_data_json)
+                    logger.info(f"Saved chart {chart_id} to SQLite database")
+                    return True
+                finally:
+                    # Close the connection manually
+                    conn.close()
+            else:
+                # PostgreSQL uses async context manager
+                async with pool.acquire() as conn:
+                    # Check if chart already exists
+                    query = """
+                        SELECT chart_id FROM charts WHERE chart_id = $1
+                    """
+                    existing = await conn.fetchval(query, chart_id)
+
+                    if existing:
+                        # Update existing chart
+                        query = """
+                            UPDATE charts
+                            SET
+                                birth_date = $2,
+                                birth_time = $3,
+                                latitude = $4,
+                                longitude = $5,
+                                timezone = $6,
+                                chart_data = $7
+                            WHERE chart_id = $1
+                        """
+                    else:
+                        # Insert new chart
+                        query = """
+                            INSERT INTO charts (
+                                chart_id, birth_date, birth_time, latitude, longitude, timezone, chart_data
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        """
+
+                    await conn.execute(query, chart_id, birth_date, birth_time, latitude, longitude, timezone, chart_data_json)
+                    logger.info(f"Saved chart {chart_id} to PostgreSQL database")
+                    return True
+
+        except Exception as e:
+            logger.error(f"Failed to save chart to database: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+        return False

@@ -290,8 +290,14 @@ def get_timezone_from_coordinates(latitude: float, longitude: float) -> str:
         IANA timezone string (e.g., 'America/New_York') or 'UTC' if not found
     """
     try:
-        # Import here to avoid circular imports
-        from timezonefinder import TimezoneFinder
+        # Validate input coordinates
+        if not (-90 <= latitude <= 90):
+            logger.warning(f"Invalid latitude {latitude}, using UTC")
+            return "UTC"
+
+        if not (-180 <= longitude <= 180):
+            logger.warning(f"Invalid longitude {longitude}, using UTC")
+            return "UTC"
 
         # Create timezone finder
         tf = TimezoneFinder()
@@ -299,12 +305,37 @@ def get_timezone_from_coordinates(latitude: float, longitude: float) -> str:
         # Get timezone at coordinates
         timezone_str = tf.timezone_at(lat=latitude, lng=longitude)
 
-        # Return timezone or UTC if not found
-        if timezone_str:
+        # If exact match not found, try closest timezone
+        if not timezone_str:
+            # Get closest timezone - this could return None or various data types
+            closest_timezone = tf.closest_timezone_at(
+                lat=latitude,
+                lng=longitude,
+                delta_degree=3  # Search within 3 degrees (~300km at equator)
+            )
+
+            # Convert result to string or use fallback
+            if closest_timezone is None:
+                logger.warning(f"No timezone found within search radius for coordinates {latitude}, {longitude}. Using UTC.")
+                return "UTC"
+            elif isinstance(closest_timezone, str):
+                timezone_str = closest_timezone
+            else:
+                # Handle unexpected return types by converting to string
+                try:
+                    timezone_str = str(closest_timezone)
+                    logger.warning(f"Converted non-string timezone result to: {timezone_str}")
+                except:
+                    logger.error(f"Unable to convert timezone result to string. Using UTC.")
+                    return "UTC"
+
+        # Validate that the timezone exists in the pytz database
+        if timezone_str and timezone_str in pytz.all_timezones:
+            logger.info(f"Found timezone {timezone_str} for coordinates {latitude}, {longitude}")
             return timezone_str
         else:
             # Log the warning but return a valid string
-            logger.warning(f"No timezone found for coordinates {latitude}, {longitude}. Using UTC.")
+            logger.warning(f"No valid timezone found for coordinates {latitude}, {longitude}. Using UTC.")
             return "UTC"
     except ImportError:
         logger.error("TimezoneFinder module not available. Using UTC.")
@@ -398,35 +429,42 @@ def calculate_chart(
         birth_dt: Birth date and time
         latitude: Birth latitude
         longitude: Birth longitude
-        timezone_str: Timezone string
-        house_system: House system to use
+        timezone_str: Timezone string (IANA format, e.g., 'America/New_York')
+        house_system: House system to use (default: 'P' for Placidus)
 
     Returns:
-        Chart data dictionary
+        Dictionary with chart data
     """
+    logger.info(f"Calculating chart for {birth_dt} at {latitude}, {longitude} in timezone {timezone_str}")
+
     try:
-        # Get UTC offset from timezone
-        if PYTZ_AVAILABLE:
-            try:
-                tz = pytz.timezone(timezone_str)
-                utc_offset = tz.utcoffset(birth_dt)
-                utc_offset_hours = utc_offset.total_seconds() / 3600
-            except (UnknownTimeZoneError, AttributeError):
-                logger.warning(f"Unknown timezone: {timezone_str}, using UTC")
-                utc_offset_hours = 0
+        # Validate timezone
+        if not timezone_str:
+            timezone_str = "UTC"
+            logger.warning("No timezone provided, using UTC")
+
+        try:
+            timezone = pytz.timezone(timezone_str)
+        except pytz.exceptions.UnknownTimeZoneError:
+            logger.warning(f"Unknown timezone: {timezone_str}, falling back to UTC")
+            timezone_str = "UTC"
+            timezone = pytz.timezone("UTC")
+
+        # Ensure birth_dt has the correct timezone info
+        if birth_dt.tzinfo is None:
+            # For naive datetime, localize to the specified timezone
+            birth_dt = timezone.localize(birth_dt)
         else:
-            # Simple parsing for common timezone formats like UTC+5:30
-            match = re.match(r'UTC([+-])(\d+):?(\d*)', timezone_str)
-            if match:
-                sign, hours, minutes = match.groups()
-                utc_offset_hours = int(hours)
-                if minutes:
-                    utc_offset_hours += int(minutes) / 60
-                if sign == '-':
-                    utc_offset_hours = -utc_offset_hours
-            else:
-                logger.warning(f"Could not parse timezone: {timezone_str}, using UTC")
-                utc_offset_hours = 0
+            # For timezone-aware datetime, convert to the specified timezone
+            birth_dt = birth_dt.astimezone(timezone)
+
+        # Calculate the UTC offset in hours
+        utc_offset = birth_dt.utcoffset()
+        if utc_offset is None:
+            logger.warning("No UTC offset found, using +0")
+            utc_offset_hours = 0.0
+        else:
+            utc_offset_hours = utc_offset.total_seconds() / 3600.0
 
         # Create flatlib datetime with proper type conversion
         flat_datetime = _create_flatlib_datetime(birth_dt, utc_offset_hours)
@@ -668,7 +706,7 @@ def calculate_chart(
     except Exception as e:
         logger.error(f"Error calculating chart: {e}")
         logger.error(traceback.format_exc())
-        raise ValueError(f"Chart calculation failed: {str(e)}")
+        raise e
 
 def _determine_house(houses: list, longitude: float) -> int:
     """
@@ -1401,7 +1439,7 @@ async def verify_ephemeris_files():
         logger.error(error_msg)
         raise EphemerisError(error_msg)
 
-def process_ephemeris_result(return_data: Union[Tuple[Any, ...], str, Any]) -> Dict[str, Any]:
+def process_ephemeris_result(return_data: Union[Tuple[Any, NDArray[Any], list[Any]], str, Any]) -> Dict[str, Any]:
     """
     Process the result from Swiss Ephemeris calculations.
 

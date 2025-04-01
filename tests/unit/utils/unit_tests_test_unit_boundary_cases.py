@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Import required components for real implementation
 from ai_service.api.services.openai.service import OpenAIService
-from ai_service.core.rectification.main import comprehensive_rectification
+import ai_service.core.rectification.main as rectification_module
 from ai_service.core.rectification.chart_calculator import EnhancedChartCalculator
 from ai_service.services.chart_service import ChartService
 from ai_service.database.repositories import ChartRepository
@@ -159,7 +159,7 @@ async def test_boundary_rectification_cases(openai_service, chart_service, case)
     )
 
     # Use comprehensive rectification with real AI analysis
-    rectification_result = await comprehensive_rectification(
+    rectification_result = await rectification_module.comprehensive_rectification(
         birth_dt=birth_datetime,
         latitude=case["latitude"],
         longitude=case["longitude"],

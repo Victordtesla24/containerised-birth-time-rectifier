@@ -1,33 +1,33 @@
 """
 Birth Time Rectifier API Gateway
 --------------------------------
-Main application file for the API Gateway service.
-Acts as a central point for routing requests to appropriate microservices.
-Implements the Unified API Gateway Architecture with path rewriting.
+This module serves as the API gateway for the Birth Time Rectifier application,
+routing requests to the appropriate microservices and handling common functionality.
 """
 
-from fastapi import FastAPI, Request, HTTPException, status, APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-import logging
-import time
+# Standard library imports
 import os
 import sys
-import httpx
+import time
 import uuid
-import traceback
-from typing import Dict, Any, Optional
-import asyncio
-from datetime import datetime
 import json
+import asyncio
+import logging
+import traceback
+import re
+from datetime import datetime
+from typing import Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
+# Third party imports
+from fastapi import FastAPI, HTTPException, status, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
+import httpx
 import redis.asyncio as redis
 import jwt
 from starlette.middleware.base import BaseHTTPMiddleware
-import re
-import threading
-from concurrent.futures import ThreadPoolExecutor
 
-# Import WebSocket proxy
+# Local imports
 from api_gateway.websocket_proxy import proxy as websocket_proxy
 
 # Configure logging
@@ -54,6 +54,44 @@ app = FastAPI(
     redoc_url="/redoc" if os.getenv("ENVIRONMENT", "development") != "production" else None,
 )
 
+# Try to import route modules - with fallback for missing modules
+try:
+    from api_gateway.routes import questionnaire
+    app.include_router(questionnaire.router)
+    logger.info("Included questionnaire routes")
+except ImportError as e:
+    logger.warning(f"Failed to import questionnaire routes: {e}")
+
+try:
+    from api_gateway.routes import chart
+    app.include_router(chart.router)
+    logger.info("Included chart routes")
+except ImportError as e:
+    logger.warning(f"Failed to import chart routes: {e}")
+
+try:
+    from api_gateway.routes import session
+    app.include_router(session.router)
+    logger.info("Included session routes")
+except ImportError as e:
+    logger.warning(f"Failed to import session routes: {e}")
+
+try:
+    from api_gateway.routes import geocode
+    app.include_router(geocode.router)
+    logger.info("Included geocode routes")
+except ImportError as e:
+    logger.warning(f"Failed to import geocode routes: {e}")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Initialize Redis client
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 try:
@@ -61,7 +99,7 @@ try:
     redis_client = redis.Redis(connection_pool=redis_pool)
     logger.info("Redis client initialized successfully")
 except Exception as e:
-    logger.error(f"Failed to initialize Redis client: {e}")
+    logger.error("Failed to initialize Redis client: %s", e)
     redis_client = None
 
 # JWT configuration
@@ -69,19 +107,41 @@ JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key")  # Should be properly co
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION = 3600  # 1 hour
 
-# AI Service URLs
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8000")
-AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://localhost:8000/ws")
-# Should be properly configured in production
+# Determine AI service URLs
+AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://ai_service:8001")
+logger.info("AI service URL: %s", AI_SERVICE_URL)
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, this should be restricted
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Normalize URL (handle trailing slash)
+if AI_SERVICE_URL and AI_SERVICE_URL.endswith("/"):
+    AI_SERVICE_URL = AI_SERVICE_URL[:-1]
+logger.info("Final AI_SERVICE_URL: %s", AI_SERVICE_URL)
+
+# Configure WebSocket URL
+AI_SERVICE_WS_URL = os.environ.get("AI_SERVICE_WS_URL", "ws://ai_service:8001/ws")
+logger.info("AI service WebSocket URL: %s", AI_SERVICE_WS_URL)
+
+# Route conflict prevention middleware
+@app.middleware("http")
+async def handle_route_conflicts(request: Request, call_next):
+    """
+    Middleware to handle potential route conflicts, especially for the root path.
+    This middleware runs before the PathRewriterMiddleware.
+    """
+    path = request.url.path
+
+    # Add dedicated handling for paths that might cause conflicts
+    if path == "/":
+        logger.debug("Route conflict prevention: Root path detected")
+        # Let the dedicated root handler take care of it
+        return await call_next(request)
+
+    if path in ("/health", "/api/health", "/api/basic-health"):
+        logger.debug("Route conflict prevention: Health path detected - %s", path)
+        # Direct health check handled by dedicated endpoint
+        return await call_next(request)
+
+    # For all other paths, continue normal processing
+    return await call_next(request)
 
 # Add security headers middleware
 @app.middleware("http")
@@ -112,9 +172,13 @@ async def run_redis_operation(operation_func):
 
     loop = asyncio.get_event_loop()
     try:
-        return await loop.run_in_executor(redis_executor, operation_func)
+        start_time = time.time()
+        result = await loop.run_in_executor(redis_executor, operation_func)
+        time_diff = time.time() - start_time
+        logger.info("Redis operation completed in %.2f seconds", time_diff)
+        return result
     except Exception as e:
-        logger.error(f"Redis operation error: {e}")
+        logger.error("Redis operation error: %s", e)
         return None
 
 # Session validation middleware
@@ -122,69 +186,103 @@ async def run_redis_operation(operation_func):
 async def validate_session(request: Request, call_next):
     session_token = request.headers.get("X-Session-Token")
 
+    # Paths that don't require session validation
+    exempt_path_prefixes = [
+        "/api/geocode", "/api/v1/geocode",
+        "/api/chart/validate", "/api/v1/chart/validate",
+        "/api/chart/generate", "/api/v1/chart/generate",
+        "/api/chart/", "/api/v1/chart/",
+        "/api/questionnaire/initialize", "/api/v1/questionnaire/initialize"
+    ]
+
     # Skip session validation for certain paths
-    if request.url.path in ["/health", "/api/v1/health", "/api/v1/session/init", "/api/session/init"] or \
-       request.url.path.startswith("/api/geocode") or request.url.path.startswith("/api/v1/geocode") or \
-       request.url.path.startswith("/api/chart/validate") or request.url.path.startswith("/api/v1/chart/validate") or \
-       request.url.path.startswith("/api/chart/generate") or request.url.path.startswith("/api/v1/chart/generate") or \
-       request.url.path.startswith("/api/chart/") or request.url.path.startswith("/api/v1/chart/"):
+    if request.url.path == "/" or request.url.path in ["/health", "/api/v1/health", "/api/v1/session/init", "/api/session/init"] or \
+       any(request.url.path.startswith(prefix) for prefix in exempt_path_prefixes):
         return await call_next(request)
 
-    if not session_token:
+    # For questionnaire endpoints, we should be more lenient with session validation
+    is_questionnaire_path = "/questionnaire/" in request.url.path
+
+    # If no session token and not a questionnaire path, require authentication
+    if not session_token and not is_questionnaire_path:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session token is required"
         )
 
-    try:
-        # Verify JWT token
-        payload = jwt.decode(session_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        session_id = payload.get("session_id")
-
-        # Check if session exists in Redis
+    # If we have a token, try to validate it
+    if session_token:
         try:
-            if redis_client:
-                # Check if session exists
-                def check_session_exists():
-                    if redis_client:
-                        return redis_client.exists(f"session:{session_id}")
-                    return None
+            # Verify JWT token
+            payload = jwt.decode(session_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            session_id = payload.get("session_id")
 
-                session_exists = await run_redis_operation(check_session_exists)
-                if session_exists is not None and not bool(session_exists):
-                    logger.warning(f"Session {session_id} not found in Redis")
-                    # Continue with JWT validation only
+            # Check if session exists in Redis
+            try:
+                if redis_client:
+                    # Check if session exists
+                    def check_session_exists():
+                        if redis_client:
+                            return redis_client.exists(f"session:{session_id}")
+                        return None
 
-                # Update session last activity
-                def update_session_activity():
-                    if redis_client:
-                        return redis_client.hset(
-                            f"session:{session_id}",
-                            mapping={"last_activity": datetime.now().isoformat()}
-                        )
-                    return None
+                    session_exists = await run_redis_operation(check_session_exists)
+                    if session_exists is not None and not bool(session_exists):
+                        logger.warning("Session %s not found in Redis", session_id)
+                        # Continue with JWT validation only
 
-                update_result = await run_redis_operation(update_session_activity)
-                if update_result is not None:
-                    logger.debug(f"Redis hset result: {update_result}")
+                    # Update session last activity
+                    def update_session_activity():
+                        if redis_client:
+                            return redis_client.hset(
+                                f"session:{session_id}",
+                                mapping={"last_activity": datetime.now().isoformat()}
+                            )
+                        return None
 
-            # Add session info to request state
-            request.state.session_id = session_id
-        except Exception as redis_error:
-            logger.error(f"Redis error: {redis_error}")
-            # Continue with JWT validation only
-            request.state.session_id = session_id
+                    update_result = await run_redis_operation(update_session_activity)
+                    if update_result is not None:
+                        logger.debug("Redis hset result: %s", update_result)
 
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session has expired"
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid session token"
-        )
+                # Add session info to request state
+                request.state.session_id = session_id
+            except Exception as redis_error:
+                logger.error("Redis error: %s", redis_error)
+                # Continue with JWT validation only
+                request.state.session_id = session_id
+
+        except jwt.ExpiredSignatureError as exc:
+            logger.warning("Session %s has expired", session_token)
+
+            # For questionnaire endpoints, generate a new session instead of failing
+            if is_questionnaire_path:
+                logger.warning("Expired token for questionnaire endpoint - generating new session")
+                request.state.session_id = str(uuid.uuid4())
+                return await call_next(request)
+
+            # For other endpoints, require authentication
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has expired"
+            ) from exc
+        except jwt.InvalidTokenError as exc:
+            logger.error("Invalid JWT token: %s", exc)
+
+            # Special handling for questionnaire endpoints - generate new session instead of failing
+            if is_questionnaire_path:
+                logger.warning("Invalid token for questionnaire endpoint - generating new session")
+                request.state.session_id = str(uuid.uuid4())
+                return await call_next(request)
+
+            # For other endpoints, require valid authentication
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid session token"
+            ) from exc
+    # If no token but it's a questionnaire path, generate a new session ID
+    elif is_questionnaire_path:
+        request.state.session_id = str(uuid.uuid4())
+        logger.info("Generated new session ID for questionnaire endpoint: %s", request.state.session_id)
 
     return await call_next(request)
 
@@ -200,8 +298,12 @@ async def log_requests(request: Request, call_next):
         client_ip = forwarded_for.split(",")[0].strip()
 
     logger.info(
-        f"{client_ip} - {request.method} {request.url.path} "
-        f"- {response.status_code} - {time.time() - start_time:.4f}s"
+        "%s - %s %s - %s - %.4fs",
+        client_ip,
+        request.method,
+        request.url.path,
+        response.status_code,
+        time.time() - start_time
     )
 
     return response
@@ -227,56 +329,45 @@ async def v1_health_check():
         "version": "v1"
     }
 
+# Direct API health endpoint with additional debugging
+@app.route("/api/health", methods=["GET"])
+async def direct_api_health(_request):
+    """Direct handler for /api/health to bypass middleware and routing issues"""
+    logger.info("Direct API health endpoint accessed")
+    try:
+        # Return a simple response with no dependencies
+        return JSONResponse(
+            content={
+                "status": "healthy",
+                "timestamp": datetime.now().isoformat(),
+                "service": "api_gateway",
+                "version": "compatibility",
+                "direct_handler": True
+            },
+            status_code=200
+        )
+    except Exception as e:
+        logger.error("Error in direct health handler: %s", e)
+        logger.error(traceback.format_exc())
+        # Most basic response possible
+        return JSONResponse(
+            content={"status": "error", "message": str(e)},
+            status_code=500
+        )
+
 # Session initialization endpoint
 @app.get("/api/v1/session/init")
-async def initialize_session():
-    """Initialize a new session and return a session token"""
-    session_id = str(uuid.uuid4())
-
-    # Create session in Redis
-    session_data = {
-        "created_at": datetime.now().isoformat(),
-        "last_activity": datetime.now().isoformat(),
-        "client_ip": "unknown"  # Should be set from request in production
-    }
-
+async def initialize_session(request: Request):
+    """Initialize a new session and return a session token by proxying to AI service"""
     try:
-        if redis_client:
-            # Use mapping parameter for hset
-            def set_session_data():
-                if redis_client:
-                    return redis_client.hset(f"session:{session_id}", mapping=session_data)
-                return None
-
-            result = await run_redis_operation(set_session_data)
-            if result is not None:
-                logger.debug(f"Redis hset result: {result}")
-
-            # Set expiration
-            def set_expiration():
-                if redis_client:
-                    return redis_client.expire(f"session:{session_id}", JWT_EXPIRATION)
-                return None
-
-            expire_result = await run_redis_operation(set_expiration)
-            if expire_result is not None:
-                logger.debug(f"Redis expire result: {expire_result}")
-    except Exception as redis_err:
-        logger.error(f"Failed to create session in Redis: {redis_err}")
-        # Continue without Redis - we can still create the JWT token
-
-    # Generate JWT token
-    token_data = {
-        "session_id": session_id,
-        "exp": datetime.now().timestamp() + JWT_EXPIRATION
-    }
-    token = jwt.encode(token_data, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-    return {
-        "session_id": session_id,
-        "token": token,
-        "expires_in": JWT_EXPIRATION
-    }
+        # Forward request to AI service
+        return await proxy_to_ai_service(request)
+    except Exception as e:
+        logger.error("Session initialization error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initialize session"
+        ) from e
 
 # API Gateway Configuration
 API_PATHS = {
@@ -291,20 +382,11 @@ API_PATHS = {
 # Legacy path mappings
 LEGACY_PATHS = {
     # Root level paths
-    "/chart": "/api/v1/chart",
-    "/questionnaire": "/api/v1/questionnaire",
-    "/session": "/api/v1/session",
-    "/geocode": "/api/v1/geocode",
-    "/ai": "/api/v1/ai",
-    "/user": "/api/v1/user",
-
-    # API paths without version
-    "/api/chart": "/api/v1/chart",
-    "/api/questionnaire": "/api/v1/questionnaire",
-    "/api/session": "/api/v1/session",
-    "/api/geocode": "/api/v1/geocode",
-    "/api/ai": "/api/v1/ai",
-    "/api/user": "/api/v1/user"
+    "/chart": "/api/chart",
+    "/questionnaire": "/api/questionnaire",
+    "/session": "/api/session",
+    "/geocode": "/api/geocode",
+    "/health": "/api/health"
 }
 
 # Standardized response structure
@@ -326,175 +408,172 @@ def create_response(data: Any = None, error: Optional[Dict[str, Any]] = None, me
 
     return response
 
-# Proxy function for forwarding requests to the AI service
-async def proxy_to_ai_service(request: Request, path: str, target_url: str) -> Any:
-    """Proxy a request to the AI service with standardized response handling"""
-    request_id = request.headers.get('X-Request-ID', str(uuid.uuid4().hex[:8]))
-    session_id = request.headers.get('X-Session-ID', 'no-session')
+# Store HTTP connections to avoid reconnecting for each request
+http_client = httpx.AsyncClient(
+    timeout=60.0,  # Default 60 second timeout
+    verify=True,  # Enable SSL verification for security
+)
 
-    logger.info(f"[{request_id}] Proxying {request.method} request to {target_url}/{path}")
+async def proxy_to_ai_service(request: Request):
+    """
+    Proxy requests to the AI service.
 
-    # Extract request body and query parameters
+    This endpoint forwards requests from the API gateway to the AI service,
+    handling errors and providing fallbacks when necessary.
+    """
+    # Extract the path from the request
+    path = request.url.path
+
+    # Remove leading '/api/v1/' if present to avoid double api prefixes
+    if path.startswith('/api/v1/'):
+        path = path[8:]  # Remove '/api/v1/'
+    # Also remove '/api/' prefix if present
+    elif path.startswith('/api/'):
+        path = path[5:]  # Remove '/api/' prefix
+
+    # Normalize path - remove leading slash to avoid double slashes
+    path = path.lstrip('/')
+
+    # Get the AI service URL from environment
+    ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai_service:8001")
+
+    # Remove trailing slash from AI service URL if present
+    ai_service_url = ai_service_url.rstrip('/')
+
+    # Construct target URL with normalized path
+    target_url = f"{ai_service_url}/api/v1/{path}"
+
+    # Log the full target URL for debugging
+    logger.info("Proxying request to: %s", target_url)
+
     try:
-        body = await request.body()
-        params = dict(request.query_params)
+        # Get request body for POST/PUT methods
+        request_body = None
+        if request.method in ["POST", "PUT", "PATCH"]:
+            request_body = await request.body()
 
-        # Extract request headers, forwarding essential ones
-        headers = {}
-        for key, value in request.headers.items():
-            if key.lower() in (
-                'authorization',
-                'content-type',
-                'user-agent',
-                'x-session-id',
-                'x-request-id'
-            ):
-                headers[key] = value
+            # For debugging: log the request body if it's a questionnaire request
+            if "questionnaire" in path and request_body:
+                try:
+                    request_data = json.loads(request_body)
+                    logger.debug("Request data: %s", request_data)
+                except Exception:
+                    logger.debug("Could not parse request body as JSON")
 
-        # Set timeout based on the operation
-        timeout = httpx.Timeout(
-            connect=5.0,                    # Connection timeout
-            read=30.0,                     # Read timeout
-            write=5.0,                     # Write timeout
-            pool=5.0                       # Connection pool timeout
-        )
+        # Make the request to the AI service with explicit SSL verification
+        async with httpx.AsyncClient(
+            timeout=60.0,
+            verify=True  # Explicitly enable SSL verification
+        ) as client:
+            headers = {k: v for k, v in request.headers.items()
+                      if k.lower() not in ["host", "content-length"]}
 
-        # Some operations need extended timeouts
-        if 'rectify' in path or 'generate' in path:
-            timeout = httpx.Timeout(
-                connect=5.0,                # Connection timeout
-                read=120.0,                 # Extended read timeout
-                write=5.0,                  # Write timeout
-                pool=5.0                    # Connection pool timeout
-            )
-
-        # Make the request to the AI service
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            # Construct the final URL correctly
-            url = f"{target_url}/{path}"
-            logger.debug(f"Proxying to URL: {url}")
-
-            response = await client.request(
-                method=request.method,
-                url=url,
-                params=params,
-                headers=headers,
-                content=body
-            )
-
-            # Parse response
-            try:
-                response_data = response.json()
-            except json.JSONDecodeError:
-                response_data = response.text
-
-            # Return standardized response
-            if response.is_success:
-                return create_response(
-                    data=response_data,
-                    meta={"request_id": request_id}
-                )
+            # Send the request to the AI service
+            if request.method == "GET":
+                response = await client.get(target_url, params=dict(request.query_params), headers=headers)
+            elif request.method == "POST":
+                response = await client.post(target_url, content=request_body, headers=headers)
+            elif request.method == "PUT":
+                response = await client.put(target_url, content=request_body, headers=headers)
+            elif request.method == "DELETE":
+                response = await client.delete(target_url, headers=headers)
             else:
-                return create_response(
-                    error={
-                        "code": f"AI_SERVICE_ERROR_{response.status_code}",
-                        "message": str(response_data),
-                        "status_code": response.status_code
-                    },
-                    meta={"request_id": request_id}
+                return JSONResponse(
+                    status_code=405,
+                    content={"error": "Method not allowed", "detail": f"Method {request.method} is not supported"}
                 )
 
-    except httpx.TimeoutException:
-        logger.error(f"[{request_id}] Request to AI service timed out for {path}")
-        return create_response(
-            error={
-                "code": "TIMEOUT",
-                "message": "Request to AI service timed out",
-                "status_code": 504
-            },
-            meta={"request_id": request_id}
+        # Log the response status
+        logger.info("\n%s %s - %s %s\n%s\n",
+                   request.method, path, response.status_code, response.reason_phrase,
+                   "-" * 80)
+
+        # Return the response from the AI service
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            headers=dict(response.headers),
         )
+
     except Exception as e:
-        logger.error(f"[{request_id}] Error proxying request: {e}")
-        logger.error(traceback.format_exc())
-        return create_response(
-            error={
-                "code": "INTERNAL_SERVER_ERROR",
-                "message": f"An unexpected error occurred: {str(e)}",
-                "status_code": 500
-            },
-            meta={"request_id": request_id}
+        logger.error("Error proxying API request: %s", e)
+
+        # Handle the error with a friendly message
+        error_detail = str(e)
+        if "Connection refused" in error_detail:
+            error_message = "AI service is currently unavailable. Please try again later."
+        elif "Read timed out" in error_detail:
+            error_message = "Request to AI service timed out. Please try again."
+        else:
+            error_message = f"Error connecting to AI service: {error_detail}"
+
+        # Return a JSON error response
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "message": error_message,
+                    "type": "ServiceUnavailableError",
+                    "request_id": str(uuid.uuid4())
+                }
+            }
         )
-
-# Path rewriting middleware implementation
-class PathRewriterMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, add_deprecation_warnings: bool = True):
-        super().__init__(app)
-        self.add_deprecation_warnings = add_deprecation_warnings
-
-        # Define path mapping rules - from legacy paths to standardized v1 paths
-        self.path_mappings = [
-            # Root level legacy routes
-            (r"^/health$", "/api/v1/health"),
-            (r"^/geocode$", "/api/v1/geocode"),
-            (r"^/chart/(.*)$", r"/api/v1/chart/\1"),
-            (r"^/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
-            (r"^/export/(.*)$", r"/api/v1/export/\1"),
-
-            # Unversioned /api/ routes
-            (r"^/api/health$", "/api/v1/health"),
-            (r"^/api/geocode$", "/api/v1/geocode"),
-            (r"^/api/chart/(.*)$", r"/api/v1/chart/\1"),
-            (r"^/api/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
-            (r"^/api/export/(.*)$", r"/api/v1/export/\1"),
-            (r"^/api/session/init$", "/api/v1/session/init"),
-            (r"^/api/session/(.*)$", r"/api/v1/session/\1"),
-        ]
-
-    async def dispatch(self, request: Request, call_next):
-        path = request.url.path
-        rewritten = False
-
-        # Check if path needs rewriting
-        for pattern, replacement in self.path_mappings:
-            if re.match(pattern, path):
-                rewritten_path = re.sub(pattern, replacement, path)
-                # Create modified scope with new path
-                new_scope = dict(request.scope)
-                new_scope["path"] = rewritten_path
-                new_scope["raw_path"] = rewritten_path.encode()
-
-                # Create new request with modified scope
-                request = Request(scope=new_scope, receive=request.receive)
-                rewritten = True
-                break
-
-        # Process the request
-        response = await call_next(request)
-
-        # Add deprecation headers if path was rewritten
-        if rewritten and self.add_deprecation_warnings:
-            response.headers["Deprecation"] = "true"
-            response.headers["Sunset"] = "Wed, 1 Jan 2025 00:00:00 GMT"
-            response.headers["Link"] = f"<{rewritten_path}>; rel=\"successor-version\""
-
-        return response
 
 # API v1 routes - Proxy all requests to the AI service
 @app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
 async def api_proxy_v1(request: Request, path: str):
     """Proxy requests to the v1 API endpoints"""
-    return await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}/api/v1")
+    logger.debug("Proxying request to v1 API path: %s", path)
+    return await proxy_to_ai_service(request)
+
+# Add root endpoint handler
+@app.get("/", include_in_schema=True, response_class=JSONResponse)
+async def root_endpoint(request: Request):
+    """
+    Root endpoint handler with enhanced error handling and safety checks.
+    Provides a direct response instead of proxying to the AI service.
+    """
+    # Safety check - ensure we only handle the exact root path
+    if request.url.path != "/":
+        logger.warning("Root handler received non-root path: %s", request.url.path)
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": {
+                    "code": "PATH_MISMATCH",
+                    "message": "This handler is for root path only",
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+        )
+
+    logger.info("Root endpoint accessed - providing direct response")
+
+    # Return a direct response instead of proxying to AI Service
+    return JSONResponse(
+        content=create_response(
+            data={
+                "message": "Birth Time Rectifier API Gateway",
+                "status": "available",
+                "timestamp": datetime.now().isoformat(),
+                "service": "api_gateway",
+                "version": "1.0.0",
+                "documentation": "/swagger",
+            },
+            meta={"request_id": str(uuid.uuid4().hex[:8])}
+        ),
+        status_code=200
+    )
 
 # Legacy API routes - Proxy with path rewriting
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None, include_in_schema=True)
 async def api_proxy(request: Request, path: str):
     """Proxy requests with legacy path rewriting"""
-    # Skip proxying health check (handled directly above)
-    if request.url.path == "/health":
+    # Skip specific endpoints that have dedicated handlers
+    if path == "" or request.url.path == "/" or request.url.path == "/health" or request.url.path == "/api/health" or request.url.path == "/api/basic-health":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Not found"
+            detail="Not found - handled by dedicated endpoint"
         )
 
     # Add deprecation header for legacy paths
@@ -513,8 +592,15 @@ async def api_proxy(request: Request, path: str):
             rewritten = True
             break
 
-    # Forward the request to the appropriate backend endpoint
-    response_data = await proxy_to_ai_service(request, path, f"{AI_SERVICE_URL}")
+    # If this is a legacy path, update path to match expected API path
+    if rewritten:
+        # Remove the /api prefix from the path since proxy_to_ai_service will add it
+        if target_path.startswith("/api/"):
+            path = target_path[5:]  # Remove /api/ prefix
+        else:
+            path = target_path
+
+    response_data = await proxy_to_ai_service(request)
 
     # Add deprecation header if path was rewritten
     if rewritten:
@@ -539,9 +625,9 @@ async def websocket_endpoint_with_id(websocket: WebSocket, session_id: str):
         # Connect to the WebSocket proxy
         await websocket_proxy.connect(websocket, session_id)
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for session {session_id}")
+        logger.info("WebSocket disconnected for session %s", session_id)
     except Exception as e:
-        logger.error(f"WebSocket error for session {session_id}: {e}")
+        logger.error("WebSocket error for session %s: %s", session_id, e)
 
 @app.websocket("/ws")
 @app.websocket("/api/ws")
@@ -559,7 +645,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         # Accept the connection
         await websocket.accept()
-        logger.info(f"WebSocket connection established for client {client_id}")
+        logger.info("WebSocket connection established: %s", session_id)
 
         # Send initial welcome message
         await websocket.send_json({
@@ -576,53 +662,45 @@ async def websocket_endpoint(websocket: WebSocket):
             init_message_task = asyncio.create_task(websocket.receive_json())
             init_message = await asyncio.wait_for(init_message_task, timeout=10.0)
 
-            # Get session ID from initialization message or use the default
-            provided_session_id = init_message.get("session_id")
-            if provided_session_id:
-                session_id = provided_session_id
+            # Process initialization message
+            if "session_id" in init_message:
+                session_id = init_message["session_id"]
+                logger.info("Updated session ID to %s for client %s", session_id, client_id)
 
-            token = init_message.get("token")
+            # Connect to AI service
+            await websocket_proxy.connect(websocket, session_id)
 
-            # Send acknowledgment
-            await websocket.send_json({
-                "type": "initialize_ack",
-                "session_id": session_id,
-                "client_id": client_id,
-                "timestamp": datetime.now().isoformat()
-            })
-
-            # Start WebSocket proxy
-            await websocket_proxy.handle_websocket(
-                websocket=websocket,
-                session_id=session_id,
-                upstream_url=f"{AI_SERVICE_WS_URL}/{session_id}",
-                client_id=client_id,
-                token=token or "",
-                ping_interval=int(os.getenv("WS_PING_INTERVAL", "30"))
-            )
         except asyncio.TimeoutError:
-            logger.warning(f"No initialization message received from client {client_id} within timeout")
+            logger.warning("No initialization message received within timeout for client %s", client_id)
             await websocket.send_json({
                 "type": "error",
-                "error": "initialization_timeout",
-                "message": "No initialization message received within timeout period",
-                "timestamp": datetime.now().isoformat()
+                "code": "TIMEOUT",
+                "message": "No initialization message received within timeout"
             })
-            await websocket.close(code=1013)  # Try to close with "Try Again Later" code
+            await websocket.close()
+        except WebSocketDisconnect:
+            logger.info("WebSocket disconnected during initialization for client %s", client_id)
+        except Exception as e:
+            logger.error("Error during WebSocket initialization for client %s: %s", client_id, e)
+            logger.error(traceback.format_exc())
+            await websocket.send_json({
+                "type": "error",
+                "code": "INITIALIZATION_ERROR",
+                "message": f"Failed to initialize WebSocket connection: {str(e)}"
+            })
+            await websocket.close()
+
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for client {client_id}")
+        logger.info("WebSocket disconnected for client %s", client_id)
     except Exception as e:
-        logger.error(f"WebSocket error for client {client_id}: {e}")
-        try:
-            await websocket.close(code=1011)  # Internal Error
-        except:
-            pass
+        logger.error("WebSocket error for client %s: %s", client_id, e)
+        logger.error(traceback.format_exc())
 
 # Global exception handler
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(_request: Request, exc: Exception):
     """Handle all uncaught exceptions across the application."""
-    logger.error(f"Unhandled exception: {exc}")
+    logger.error("Unhandled exception: %s", exc)
     logger.error(traceback.format_exc())
 
     # Return a standardized error response
@@ -639,7 +717,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Not found exception handler
 @app.exception_handler(404)
-async def not_found_exception_handler(request: Request, exc: Exception):
+async def not_found_exception_handler(request: Request, _exc: Exception):
     """Handle 404 Not Found exceptions."""
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -651,6 +729,37 @@ async def not_found_exception_handler(request: Request, exc: Exception):
             }
         }
     )
+
+# Basic health check endpoint (fallback for compatibility)
+@app.get("/api/basic-health")
+def basic_api_health():
+    """Extremely simple health check endpoint with minimal dependencies"""
+    return {"status": "ok"}
+
+# Create a dedicated health check app with no middleware
+health_app = FastAPI(
+    title="Health Check API",
+    description="Health check endpoints with no middleware",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    middleware=[]  # Completely empty middleware stack
+)
+
+@health_app.get("/")
+async def direct_health_check():
+    """Health check endpoint with no middleware to ensure it's always available."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "api_gateway",
+        "middleware_free": True
+    }
+
+# Mount the health app before any middleware is added
+app.mount("/health", health_app)
+app.mount("/api/health", health_app)
+app.mount("/api/basic-health", health_app)
 
 # Main entry point
 if __name__ == "__main__":

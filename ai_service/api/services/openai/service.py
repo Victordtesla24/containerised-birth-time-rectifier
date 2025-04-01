@@ -60,7 +60,7 @@ class OpenAIService:
         presence_penalty: float = 0.0,
         stop: Optional[Union[str, List[str]]] = None,
         stream: bool = False
-    ) -> Dict[str, Any]:
+    ) -> Union[Dict[str, Any], aiohttp.ClientResponse]:
         """
         Send a chat completion request to the OpenAI API.
 
@@ -76,13 +76,13 @@ class OpenAIService:
             stream: Whether to stream the response
 
         Returns:
-            API response as a dictionary
+            API response as a dictionary or aiohttp.ClientResponse for streaming
 
         Raises:
             RuntimeError: If API call fails after retries
         """
         # Ensure HTTP client is available
-        if not await self._ensure_http_client():
+        if not await self._ensure_http_client() or self._http_client is None:
             raise RuntimeError("HTTP client not available for OpenAI API calls")
 
         # Use specified model or default
@@ -115,8 +115,8 @@ class OpenAIService:
                 async with self._http_client.post(url, json=request_data) as response:
                     if response.status == 200:
                         if stream:
-                            # For streaming responses, return an async generator
-                            return response
+                            # For streaming responses, wrap in a dictionary structure
+                            return {"type": "stream", "response": response}
                         else:
                             # For regular responses, parse the JSON
                             return await response.json()
@@ -161,7 +161,7 @@ class OpenAIService:
         frequency_penalty: float = 0.0,
         presence_penalty: float = 0.0,
         stop: Optional[Union[str, List[str]]] = None
-    ) -> Dict[str, Any]:
+    ) -> Union[Dict[str, Any], aiohttp.ClientResponse]:
         """
         Send a text completion request to the OpenAI API.
 
@@ -178,7 +178,7 @@ class OpenAIService:
             stop: Sequences where the API will stop generating
 
         Returns:
-            API response as a dictionary
+            API response as a dictionary or client response for streaming
         """
         # Convert text prompt to chat format
         messages = [{"role": "user", "content": prompt}]
@@ -356,7 +356,13 @@ VERIFICATION_RESULT: [detailed analysis]
             )
 
             # Extract and parse the response content
-            response_content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            response_content = ""
+            # Check if response is a dict (standard response) or if it's a streaming response
+            if isinstance(response, dict):
+                if "choices" in response and len(response["choices"]) > 0:
+                    if "message" in response["choices"][0] and "content" in response["choices"][0]["message"]:
+                        response_content = response["choices"][0]["message"]["content"]
+            # No need to handle streaming response here since we don't use stream=True for this function
 
             if not response_content:
                 raise ValueError("Empty response from OpenAI API")

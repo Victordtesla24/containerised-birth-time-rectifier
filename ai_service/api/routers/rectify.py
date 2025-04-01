@@ -15,7 +15,8 @@ import asyncio
 import uuid
 import os
 
-from ai_service.core.rectification.main import comprehensive_rectification
+# Fix circular import by importing the module instead of the specific function
+import ai_service.core.rectification.main as rectification_module
 from ai_service.models import RectificationRequest, RectificationResponse
 from ai_service.services import get_chart_service
 from ai_service.utils.websocket_manager import get_websocket_manager
@@ -84,8 +85,8 @@ async def rectify_birth_time(
         # Get questionnaire answers
         answers = request.answers or []
 
-        # Perform rectification
-        rectification_result = await comprehensive_rectification(
+        # Perform rectification using the imported module instead of the direct function
+        rectification_result = await rectification_module.comprehensive_rectification(
             birth_dt=birth_dt,
             latitude=latitude,
             longitude=longitude,

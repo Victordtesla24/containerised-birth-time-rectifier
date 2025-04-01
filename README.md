@@ -653,3 +653,64 @@ As part of ongoing code quality improvements, we've addressed and resolved sever
 6. **Data Validation**: Implemented shared validation models for consistent data validation across the application.
 
 These improvements have significantly enhanced code maintainability by following DRY (Don't Repeat Yourself) principles and ensuring consistent behavior across all components of the application.
+
+# Birth Time Rectifier - Modular Implementation
+
+A modular implementation of the Birth Time Rectifier following the sequence diagram from the architecture documentation.
+
+## Overview
+
+This application provides astrological birth time rectification through a series of steps:
+
+1. **Session Initialization** - Establishes a session with the API
+2. **Geocoding & Location** - Searches for and validates birth locations
+3. **Chart Generation** - Validates birth details and generates an astrological chart
+4. **Questionnaire** - Collects relevant life events and patterns for analysis
+5. **Birth Time Rectification** - Uses AI to determine a rectified birth time
+6. **Chart Comparison & Interpretation** - Compares original and rectified charts with detailed interpretation
+
+## Modules
+
+The implementation is divided into the following modules:
+
+- `session.sh` - Session initialization (GET /api/session/init)
+- `geocode.sh` - Geocoding and location search (GET /api/geocode)
+- `chart.sh` - Chart validation and generation (POST /api/chart/validate, POST /api/chart/generate, GET /api/chart/{id})
+- `questionnaire.sh` - Questionnaire functionality (POST /api/questionnaire/initialize, POST /api/questionnaire/{id}/answer, POST /api/questionnaire/complete)
+- `rectify.sh` - Birth time rectification (POST /api/chart/rectify)
+- `comparison.sh` - Chart comparison and interpretation (GET /api/chart/compare)
+- `modular_birth_time_rectifier.sh` - Orchestration script that runs all modules in the correct sequence
+
+## Usage
+
+To run the complete birth time rectification process:
+
+```bash
+bash modular_birth_time_rectifier.sh --run-full
+```
+
+To run a specific module:
+
+```bash
+bash modular_birth_time_rectifier.sh
+# Then select option 2 and choose the desired module
+```
+
+## Sequence Flow
+
+The application follows the sequence detailed in the "Original Sequence Diagram - Full Implementation" section of the architecture documentation.
+
+## Reports
+
+After running the full process, the following reports are generated:
+
+1. `birth_time_rectifier_report.md` - A technical report showing API responses and sequence flow
+2. `chart_interpretation_report.txt` - A user-friendly report with chart comparison interpretation
+
+## Features
+
+- Interactive questionnaire for collecting life events
+- AI-powered birth time rectification
+- Detailed chart comparison showing differences between original and rectified charts
+- Interpretation of chart differences with significance analysis
+- Clean, modular implementation for easy maintenance and extension

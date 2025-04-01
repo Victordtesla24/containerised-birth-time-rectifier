@@ -1,75 +1,31 @@
 """
-API Routers Package for Birth Time Rectifier
+Package for API routers.
 
-This package consolidates all routers for the API, following the
-Unified API Gateway Architecture.
+This module contains FastAPI router modules for the API endpoints.
 """
 
-import logging
 from fastapi import APIRouter
+from . import geocoding
+from . import geocode
+from . import chart
+from . import validate
+from . import rectify
+from . import export
+from . import health
+from . import questionnaire
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Initialize the main router
+router = APIRouter(prefix="/api")
 
-# Create a master router
-router = APIRouter()
-
-# Import and include all router components
-try:
-    # Health router
-    from ai_service.api.routers.health import router as health_router
-    router.include_router(health_router, tags=["Health"])
-    logger.info("Health router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing health router: {e}")
-
-try:
-    # Session router
-    from ai_service.api.routers.session import router as session_router
-    router.include_router(session_router, prefix="/session", tags=["Session"])
-    logger.info("Session router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing session router: {e}")
-
-try:
-    # Geocode router
-    from ai_service.api.routers.geocode import router as geocode_router
-    router.include_router(geocode_router, prefix="/geocode", tags=["Geocoding"])
-    logger.info("Geocode router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing geocode router: {e}")
-
-try:
-    # Chart router (consolidated)
-    from ai_service.api.routers.consolidated_chart import router as consolidated_chart_router
-    router.include_router(consolidated_chart_router, prefix="/chart", tags=["Chart"])
-    logger.info("Consolidated chart router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing consolidated chart router: {e}")
-
-try:
-    # Questionnaire router
-    from ai_service.api.routers.questionnaire import router as questionnaire_router
-    router.include_router(questionnaire_router, prefix="/questionnaire", tags=["Questionnaire"])
-    logger.info("Questionnaire router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing questionnaire router: {e}")
-
-try:
-    # AI Status router
-    from ai_service.api.routers.ai_status import router as ai_status_router
-    router.include_router(ai_status_router, prefix="/ai", tags=["AI Status"])
-    logger.info("AI Status router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing AI status router: {e}")
-
-try:
-    # WebSocket router
-    from ai_service.api.routers.websocket import router as websocket_router
-    router.include_router(websocket_router, prefix="/ws", tags=["WebSocket"])
-    logger.info("WebSocket router loaded successfully")
-except Exception as e:
-    logger.error(f"Error importing WebSocket router: {e}")
+# Include all sub-routers
+router.include_router(geocoding.router)
+router.include_router(geocode.router, prefix="/v1/geocode", tags=["Geocoding"])
+router.include_router(chart.router, prefix="/v1/chart", tags=["Chart"])
+router.include_router(validate.router, prefix="/v1/chart/validate", tags=["Validation"])
+router.include_router(rectify.router, prefix="/v1/chart/rectify", tags=["Rectification"])
+router.include_router(export.router, prefix="/v1/chart/export", tags=["Export"])
+router.include_router(health.router, prefix="/v1/health", tags=["Health"])
+router.include_router(questionnaire.router, prefix="/v1/questionnaire", tags=["Questionnaire"])
 
 # Export the combined router
 __all__ = ["router"]

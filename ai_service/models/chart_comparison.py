@@ -78,7 +78,7 @@ class ChartComparisonResponse(BaseModel):
     overall_impact: Optional[float] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "comparison_id": "comp_123456789",
                 "chart1_id": "chrt_987654321",
