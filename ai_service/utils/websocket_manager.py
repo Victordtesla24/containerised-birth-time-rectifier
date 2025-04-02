@@ -6,7 +6,7 @@ across the entire application. This is the canonical implementation that should
 be used by all services requiring WebSocket functionality.
 """
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from typing import Dict, List, Any, Optional, Set
 import logging
 import json
@@ -14,6 +14,8 @@ import uuid
 import time
 from datetime import datetime
 from starlette.websockets import WebSocketState
+import asyncio
+import traceback
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -36,81 +38,110 @@ class WebSocketManager:
         self.message_queues: Dict[str, List[Dict[str, Any]]] = {}
         # Store channel subscriptions
         self.channel_subscribers: Dict[str, Set[str]] = {}
+        # Dictionary mapping session ID to subscribed channels
+        self.subscriptions: Dict[str, Set[str]] = {}
+        # Lock for thread-safe operations
+        self._lock = asyncio.Lock()
+        # Connection tracking with timestamps
+        self.connection_states: Dict[str, Dict[str, Any]] = {}
+        # Automatic cleanup task
+        self.cleanup_task = None
+        # Pre-authorized sessions
+        self.authorized_sessions = set()
+
+    def register_session(self, session_id: str) -> None:
+        """
+        Pre-register a session as authorized to connect.
+        This allows the AI service to accept connections for sessions that were
+        authenticated by the API Gateway.
+
+        Args:
+            session_id: The session ID to authorize
+        """
+        self.authorized_sessions.add(session_id)
+        logger.info(f"Pre-registered session for WebSocket connection: {session_id}")
 
     async def connect(self, websocket: WebSocket, session_id: str) -> bool:
         """
-        Accept a WebSocket connection and store it.
+        Register a new WebSocket connection.
 
         Args:
-            websocket: The WebSocket connection
-            session_id: The session ID to associate with this connection
+            websocket: The WebSocket connection to register
+            session_id: The session ID for this connection
 
         Returns:
-            bool: True if connection was successful
+            bool: True if connection was successful, False otherwise
         """
         try:
-            # Accept the connection
-            await websocket.accept()
+            async with self._lock:
+                # Check if this session already has a connection
+                if session_id in self.active_connections:
+                    # Handle reconnection - close old connection if possible
+                    old_websocket = self.active_connections[session_id]
+                    if old_websocket != websocket:
+                        logger.warning(f"Session {session_id} already has an active connection. Replacing.")
+                        try:
+                            await old_websocket.close(code=1000)
+                        except Exception as e:
+                            logger.warning(f"Error closing existing connection for {session_id}: {e}")
 
-            # Store connection
-            self.active_connections[session_id] = websocket
+                # Store the new connection
+                self.active_connections[session_id] = websocket
 
-            # Initialize client metadata
-            self.client_metadata[session_id] = {
-                "connected_at": datetime.now().isoformat(),
-                "last_activity": datetime.now().isoformat(),
-                "client_info": {}
-            }
+                # Initialize or update connection state
+                self.connection_states[session_id] = {
+                    "connected_at": datetime.now().isoformat(),
+                    "last_activity": time.time(),
+                    "messages_sent": 0,
+                    "messages_received": 0,
+                    "subscriptions": list(self.subscriptions.get(session_id, set()))
+                }
 
-            logger.info(f"WebSocket connection established for session {session_id}")
+                # Start cleanup task if not running
+                if self.cleanup_task is None or self.cleanup_task.done():
+                    self.cleanup_task = asyncio.create_task(self._periodic_cleanup())
 
-            # Send initial connection confirmation
-            await websocket.send_json({
-                "type": "connection_status",
-                "status": "connected",
-                "session_id": session_id,
-                "message": "WebSocket connection established",
-                "timestamp": time.time()
-            })
+                # If this session was pre-registered, remove it from authorized_sessions
+                # since it's now an active connection
+                if session_id in self.authorized_sessions:
+                    self.authorized_sessions.remove(session_id)
 
-            # Send any queued messages upon connection
-            if session_id in self.message_queues and self.message_queues[session_id]:
-                queued_messages = self.message_queues[session_id].copy()
-                self.message_queues[session_id] = []
+                logger.info(f"WebSocket connection established for session {session_id}")
+                return True
 
-                for message in queued_messages:
-                    try:
-                        await websocket.send_json(message)
-                        logger.info(f"Sent queued message to connected client {session_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send queued message: {e}")
-                        # Re-queue the message
-                        if session_id not in self.message_queues:
-                            self.message_queues[session_id] = []
-                        self.message_queues[session_id].append(message)
-
-            return True
         except Exception as e:
             logger.error(f"Error connecting WebSocket for session {session_id}: {e}")
+            logger.error(traceback.format_exc())
             return False
 
     def disconnect(self, session_id: str) -> None:
         """
-        Remove a WebSocket connection.
+        Unregister a WebSocket connection.
 
         Args:
-            session_id: The session ID of the connection to remove
+            session_id: The session ID to unregister
         """
-        if session_id in self.active_connections:
-            # Update metadata before removing
-            if session_id in self.client_metadata:
-                self.client_metadata[session_id]["disconnected_at"] = datetime.now().isoformat()
+        try:
+            # Fast path without lock for non-existent sessions
+            if session_id not in self.active_connections:
+                return
 
-            # Remove connection
-            del self.active_connections[session_id]
-            logger.info(f"WebSocket connection closed for session {session_id}")
+            # Properly remove the connection with lock
+            asyncio.create_task(self._disconnect_with_lock(session_id))
+        except Exception as e:
+            logger.error(f"Error in disconnect for session {session_id}: {e}")
 
-            # Don't remove from channel subscribers to allow reconnection
+    async def _disconnect_with_lock(self, session_id: str) -> None:
+        """Helper method to disconnect with proper locking."""
+        async with self._lock:
+            if session_id in self.active_connections:
+                # Update disconnection time in state tracking
+                if session_id in self.connection_states:
+                    self.connection_states[session_id]["disconnected_at"] = datetime.now().isoformat()
+
+                # Remove connection
+                self.active_connections.pop(session_id, None)
+                logger.info(f"WebSocket connection closed for session {session_id}")
 
     def get_websocket(self, session_id: str) -> Optional[WebSocket]:
         """
@@ -150,8 +181,9 @@ class WebSocketManager:
                     await websocket.send_json(data)
 
                     # Update activity timestamp
-                    if session_id in self.client_metadata:
-                        self.client_metadata[session_id]["last_activity"] = datetime.now().isoformat()
+                    if session_id in self.connection_states:
+                        self.connection_states[session_id]["last_activity"] = time.time()
+                        self.connection_states[session_id]["messages_sent"] += 1
 
                     logger.info(f"Update sent to session {session_id}")
                     return True
@@ -213,8 +245,9 @@ class WebSocketManager:
                     success_map[session_id] = True
 
                     # Update activity timestamp
-                    if session_id in self.client_metadata:
-                        self.client_metadata[session_id]["last_activity"] = datetime.now().isoformat()
+                    if session_id in self.connection_states:
+                        self.connection_states[session_id]["last_activity"] = time.time()
+                        self.connection_states[session_id]["messages_sent"] += 1
                 else:
                     disconnected_sessions.append(session_id)
                     success_map[session_id] = False
@@ -311,11 +344,80 @@ class WebSocketManager:
 
     def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get information about a specific session."""
-        return self.client_metadata.get(session_id)
+        return self.connection_states.get(session_id)
 
-# Create a global instance
-manager = WebSocketManager()
+    async def _periodic_cleanup(self, max_idle_minutes: int = 30) -> None:
+        """
+        Periodically clean up stale connections.
+
+        Args:
+            max_idle_minutes: Maximum idle time in minutes before removing a connection
+        """
+        try:
+            while True:
+                # Wait for cleanup interval
+                await asyncio.sleep(60 * 5)  # 5 minutes
+
+                try:
+                    await self._cleanup_stale_connections(max_idle_minutes)
+                except Exception as e:
+                    logger.error(f"Error in periodic cleanup: {e}")
+        except asyncio.CancelledError:
+            logger.info("WebSocket cleanup task cancelled")
+        except Exception as e:
+            logger.error(f"Error in periodic cleanup task: {e}")
+
+    async def _cleanup_stale_connections(self, max_idle_minutes: int) -> None:
+        """Helper method to clean up stale connections."""
+        now = time.time()
+        max_idle_seconds = max_idle_minutes * 60
+        stale_sessions = []
+
+        # Identify stale sessions
+        async with self._lock:
+            for session_id, state in list(self.connection_states.items()):
+                last_activity = state.get("last_activity", 0)
+                idle_time = now - last_activity
+
+                if idle_time > max_idle_seconds:
+                    stale_sessions.append(session_id)
+
+        # Clean up each stale session
+        for session_id in stale_sessions:
+            logger.info(f"Cleaning up stale connection for session {session_id}")
+
+            # Get the websocket before locking to prevent deadlock
+            websocket = self.active_connections.get(session_id)
+
+            # Try to close the websocket connection
+            if websocket:
+                try:
+                    await websocket.close(code=1000, reason="Connection timed out due to inactivity")
+                except Exception as e:
+                    logger.warning(f"Error closing stale connection for {session_id}: {e}")
+
+            # Remove from tracking
+            async with self._lock:
+                self.active_connections.pop(session_id, None)
+                self.subscriptions.pop(session_id, None)
+                self.connection_states.pop(session_id, None)
+
+        if stale_sessions:
+            logger.info(f"Cleaned up {len(stale_sessions)} stale connections")
+
+# Global WebSocketManager instance
+_websocket_manager = None
 
 def get_websocket_manager() -> WebSocketManager:
-    """Get the global WebSocket manager instance."""
-    return manager
+    """
+    Get the WebSocketManager singleton instance.
+
+    Returns:
+        WebSocketManager: The singleton WebSocketManager instance
+    """
+    global _websocket_manager
+
+    if _websocket_manager is None:
+        _websocket_manager = WebSocketManager()
+
+    return _websocket_manager

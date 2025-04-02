@@ -151,76 +151,77 @@ class QuestionnaireEngine:
             if not openai_service:
                 raise Exception("OpenAI service is not available - cannot generate personalized questions")
 
-                try:
-                    logger.info("Using OpenAI to generate personalized first question")
+            try:
+                logger.info("Using OpenAI to generate personalized first question")
 
-                    # Create a Vedic-focused prompt
-                    vedic_prompt = {
-                        "task": "generate_initial_vedic_question",
-                        "birth_details": birth_details or {},
-                        "chart_data": chart_data or {},
-                        "instructions": """
-                        Create the first question for a Vedic astrological birth time rectification questionnaire.
-                        This initial question should establish a baseline for assessing the person's birth time knowledge and confidence.
+                # Create a Vedic-focused prompt
+                vedic_prompt = {
+                    "task": "generate_initial_vedic_question",
+                    "birth_details": birth_details or {},
+                    "chart_data": chart_data or {},
+                    "instructions": """
+                    Create the first question for a Vedic astrological birth time rectification questionnaire.
+                    This initial question should establish a baseline for assessing the person's birth time knowledge and confidence.
 
-                        REQUIREMENTS:
-                        1. Focus specifically on determining birth time precision and reliability
-                        2. Use clear Vedic terminology (like Lagna/Rising sign) but ensure it's accessible to beginners
-                        3. Format as multiple-choice with 4 distinct options covering different levels of birth time certainty
-                        4. Be conversational but precise, avoiding technical jargon that might confuse non-astrologers
-                        5. DO NOT ask about personality traits or life events in this first question
+                    REQUIREMENTS:
+                    1. Focus specifically on determining birth time precision and reliability
+                    2. Use clear Vedic terminology (like Lagna/Rising sign) but ensure it's accessible to beginners
+                    3. Format as multiple-choice with 4 distinct options covering different levels of birth time certainty
+                    4. Be conversational but precise, avoiding technical jargon that might confuse non-astrologers
+                    5. DO NOT ask about personality traits or life events in this first question
 
-                        FORMAT REQUIREMENTS:
-                        Respond with a JSON object containing:
-                        {
-                          "id": "q_vedic_initial_[unique_id]",
-                          "text": "The question text (make it detailed and specific)",
-                          "type": "multiple_choice",
-                          "options": [
-                            {"id": "opt_exact", "text": "I have an exact birth time"},
-                            {"id": "opt_approximate", "text": "I have an approximate time"},
-                            {"id": "opt_window", "text": "I know a general timeframe (morning, afternoon, etc.)"},
-                            {"id": "opt_unknown", "text": "I don't know my birth time at all"}
-                          ],
-                          "category": "vedic_birth_time"
-                        }
-
-                        RETURN ONLY THE JSON OBJECT. Do not include additional text, explanations, or markdown formatting.
-                        """
+                    FORMAT REQUIREMENTS:
+                    Respond with a JSON object containing:
+                    {
+                      "id": "q_vedic_initial_[unique_id]",
+                      "text": "The question text (make it detailed and specific)",
+                      "type": "multiple_choice",
+                      "options": [
+                        {"id": "opt_exact", "text": "I have an exact birth time"},
+                        {"id": "opt_approximate", "text": "I have an approximate time"},
+                        {"id": "opt_window", "text": "I know a general timeframe (morning, afternoon, etc.)"},
+                        {"id": "opt_unknown", "text": "I don't know my birth time at all"}
+                      ],
+                      "category": "vedic_birth_time"
                     }
 
-                    # Call OpenAI for the initial question
-                        question_response = await openai_service.chat_completion(
-                            messages=[
-                                {"role": "system", "content": "You are an expert Vedic astrologer specializing in birth time rectification."},
-                                {"role": "user", "content": json.dumps(vedic_prompt)}
-                            ],
-                            model="gpt-4o-mini",
-                            temperature=0.3,
-                            max_tokens=600
-                        )
+                    RETURN ONLY THE JSON OBJECT. Do not include additional text, explanations, or markdown formatting.
+                    """
+                }
 
-                        # Process the response
-                        if question_response and isinstance(question_response, dict) and "choices" in question_response:
-                            content = question_response["choices"][0]["message"]["content"]
+                # Call OpenAI for the initial question
+                question_response = await openai_service.chat_completion(
+                    messages=[
+                        {"role": "system", "content": "You are an expert Vedic astrologer specializing in birth time rectification."},
+                        {"role": "user", "content": json.dumps(vedic_prompt)}
+                    ],
+                    model="gpt-4o-mini",
+                    temperature=0.3,
+                    max_tokens=600
+                )
 
-                            # Parse the JSON response
-                            try:
-                                parsed_question = json.loads(content)
-                                if isinstance(parsed_question, dict) and "text" in parsed_question:
-                                    logger.info(f"Successfully parsed personalized question: {parsed_question['text']}")
-                                    return parsed_question
-                                else:
-                                    raise Exception("Invalid question format returned from AI model")
-                            except json.JSONDecodeError:
-                                logger.warning("Failed to parse OpenAI response as JSON")
-                                raise Exception("Failed to parse AI response as valid JSON")
+                # Process the response
+                if question_response and isinstance(question_response, dict) and "choices" in question_response:
+                    content = question_response["choices"][0]["message"]["content"]
+
+                    # Parse the JSON response
+                    try:
+                        parsed_question = json.loads(content)
+                        if isinstance(parsed_question, dict) and "text" in parsed_question:
+                            logger.info(f"Successfully parsed personalized question: {parsed_question['text']}")
+                            return parsed_question
                         else:
-                            raise Exception("Invalid response format from AI model")
-                except Exception as e:
-                    logger.error("Error generating first question with OpenAI: %s", str(e))
-                    logger.error(traceback.format_exc())
-                    raise Exception(f"Failed to generate first question: {str(e)}")
+                            raise Exception("Invalid question format returned from AI model")
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse OpenAI response as JSON")
+                        raise Exception("Failed to parse AI response as valid JSON")
+                else:
+                    raise Exception("Invalid response format from AI model")
+            except Exception as e:
+                logger.error("Error generating first question with OpenAI: %s", str(e))
+                logger.error(traceback.format_exc())
+                raise Exception(f"Failed to generate first question: {str(e)}")
+
         except Exception as e:
             # Log the error and rethrow it to the caller
             logger.error("Failed to generate question: %s", str(e))
@@ -234,11 +235,14 @@ class QuestionnaireEngine:
         # Initialize OpenAI service if needed
         if not self.openai_service:
             try:
-                self.openai_service = await get_openai_service()
-                logger.info("OpenAI service initialized successfully")
+                if self._openai_service_getter:
+                    self.openai_service = await self._openai_service_getter()
+                    logger.info("OpenAI service initialized successfully")
+                else:
+                    logger.warning("OpenAI service getter not available, using fallback questions")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI service: {e}")
-                raise Exception(f"OpenAI service unavailable - cannot generate real-time questions: {e}")
+                logger.warning("Will use fallback questions instead")
 
         # Get the previously asked question categories and IDs to avoid repetition
         asked_categories = []
@@ -250,9 +254,17 @@ class QuestionnaireEngine:
 
         for answer in answers:
             question = answer.get("question", {})
-            category = question.get("category")
-            question_id = question.get("id")
-            question_text = question.get("text", "")
+            if isinstance(question, str):
+                question = {"text": question}
+
+            category = answer.get("category") or question.get("category")
+            question_id = answer.get("question_id") or question.get("id")
+            question_text = ""
+
+            if isinstance(question, dict):
+                question_text = question.get("text", "")
+            elif isinstance(question, str):
+                question_text = question
 
             if category:
                 asked_categories.append(category)
@@ -267,85 +279,21 @@ class QuestionnaireEngine:
         # Create a context for generating a new question
         chart_summary = self._summarize_chart_data(chart_data)
 
-        # We MUST use OpenAI for all question generation - no fallbacks to templates
-        if not self.openai_service:
-            raise Exception("OpenAI service is unavailable - cannot generate real-time personalized questions")
-
-        try:
-            # Create a detailed prompt for OpenAI
-            prompt = self._create_openai_prompt(
-                asked_categories=asked_categories,
-                asked_questions_content=asked_questions_content,
-                answers=answers,
-                chart_data=chart_data,
-                chart_summary=chart_summary
-            )
-
-            # Get response from OpenAI using chat_completion
-            openai_response = await self.openai_service.chat_completion(
-                messages=[
-                    {"role": "system", "content": prompt["system"]},
-                    {"role": "user", "content": prompt["user"]}
-                ],
-                model="gpt-4o",
-                temperature=0.7,
-                max_tokens=500
-            )
-
-            # Check response format and handle different types
-            if (isinstance(openai_response, dict) and
-                "choices" in openai_response and
-                isinstance(openai_response["choices"], list) and
-                len(openai_response["choices"]) > 0):
-                try:
-                    # Extract the question from the response
-                    question_data = self._extract_question_from_openai(openai_response)
-
-                    if question_data is None:
-                        logger.warning("Failed to extract question data from OpenAI response")
-                        raise ValueError("Invalid question data from OpenAI")
-
-                    # Ensure the question has a unique ID
-                    if "id" not in question_data or not question_data["id"]:
-                        question_data["id"] = f"q_vedic_{str(uuid.uuid4())[:8]}"
-
-                    # Ensure the question has a category
-                    if "category" not in question_data or not question_data["category"]:
-                        # Assign a category that hasn't been asked much
-                        question_data["category"] = self._get_least_used_category(asked_categories)
-
-                    # Validate that this question is not a repeat
-                    if (question_data.get("text") and
-                        not any(self._is_similar_question(question_data["text"], prev_question)
-                               for prev_question in asked_questions_content)):
-                        question_text = question_data.get("text", "")
-                        log_text = question_text[:100] + "..." if len(question_text) > 100 else question_text
-                        logger.info(f"Generated unique question via OpenAI: {log_text}")
-                        return question_data
-                else:
-                        logger.warning("OpenAI generated a similar question to one already asked, retrying...")
-                except Exception as e:
-                    logger.error(f"Error extracting question from OpenAI response: {e}")
-                    raise Exception(f"Failed to extract valid question from OpenAI response: {e}")
-            else:
-                logger.warning(f"Invalid OpenAI response format: {str(openai_response)[:100]}")
-                raise Exception("Invalid response format from OpenAI")
-
-            # Try again with a stronger instruction to avoid repeats
+        # Try to use OpenAI for question generation
+        if self.openai_service:
             try:
-                # Create a more specific prompt emphasizing uniqueness
+                # Create a detailed prompt for OpenAI
                 prompt = self._create_openai_prompt(
                     asked_categories=asked_categories,
                     asked_questions_content=asked_questions_content,
                     answers=answers,
                     chart_data=chart_data,
-                    chart_summary=chart_summary,
-                    emphasize_uniqueness=True
+                    chart_summary=chart_summary
                 )
 
-                # Get response from OpenAI again using chat_completion
-                    openai_response = await self.openai_service.chat_completion(
-                        messages=[
+                # Get response from OpenAI using chat_completion
+                openai_response = await self.openai_service.chat_completion(
+                    messages=[
                         {"role": "system", "content": prompt["system"]},
                         {"role": "user", "content": prompt["user"]}
                     ],
@@ -354,39 +302,74 @@ class QuestionnaireEngine:
                     max_tokens=500
                 )
 
-                # Check response format and handle different types
-                    if (isinstance(openai_response, dict) and
-                        "choices" in openai_response and
-                        isinstance(openai_response["choices"], list) and
-                        len(openai_response["choices"]) > 0):
-
-                    question_data = self._extract_question_from_openai(openai_response)
-
-                    if question_data is None:
-                        logger.warning("Failed to extract question data from second OpenAI attempt")
-                        raise ValueError("Failed to generate valid question after multiple attempts")
-
-                    # Ensure the question has a unique ID
-                    if "id" not in question_data or not question_data["id"]:
-                        question_data["id"] = f"q_vedic_{str(uuid.uuid4())[:8]}"
-
-                    # Ensure the question has a category
-                    if "category" not in question_data or not question_data["category"]:
-                        question_data["category"] = self._get_least_used_category(asked_categories)
-
-                    question_text = question_data.get("text", "")
-                    log_text = question_text[:100] + "..." if len(question_text) > 100 else question_text
-                    logger.info(f"Generated question on second attempt via OpenAI: {log_text}")
-                    return question_data
-                            else:
-                    logger.warning(f"Invalid OpenAI response format on retry: {str(openai_response)[:100]}")
-                    raise Exception("Failed to generate valid question after multiple attempts")
+                # Process OpenAI response to extract a question
+                parsed_question = self._parse_openai_response(openai_response)
+                if parsed_question:
+                    logger.info(f"Successfully generated question via OpenAI: {parsed_question.get('text', '')[:100]}")
+                    return parsed_question
             except Exception as e:
-                logger.error(f"Error on second attempt with OpenAI: {e}")
-                raise Exception(f"Failed to generate question after multiple attempts: {e}")
-        except Exception as e:
-            logger.error(f"Error generating question with OpenAI: {e}")
-            raise Exception(f"Failed to generate personalized question: {e}")
+                logger.error(f"Error using OpenAI for question generation: {e}")
+                logger.error(traceback.format_exc())
+
+        # FALLBACK: Use pre-defined questions if OpenAI fails or is unavailable
+        logger.warning("Using fallback question generation")
+        return self._get_fallback_question(asked_question_ids, asked_categories)
+
+    def _get_fallback_question(self, asked_question_ids: List[str], asked_categories: List[str]) -> Dict:
+        """Get a fallback question avoiding previously asked ones."""
+        # Filter out questions that have already been asked
+        available_questions = [q for q in self.fallback_questions if q.get("id") not in asked_question_ids]
+
+        if not available_questions:
+            # If all questions have been asked, create a dynamic one
+            question_id = f"q_fallback_{uuid.uuid4().hex[:8]}"
+
+            # Determine what categories haven't been covered yet
+            all_categories = {"life_events", "personality", "physical_traits", "career",
+                              "relationships", "health", "birth_circumstances", "timing"}
+            covered_categories = set(asked_categories)
+            uncovered_categories = all_categories - covered_categories
+
+            # Select a category
+            if uncovered_categories:
+                category = random.choice(list(uncovered_categories))
+            else:
+                # Use a random category if all have been covered
+                category = random.choice(list(all_categories))
+
+            # Create a question based on the category
+            if category == "life_events":
+                return {
+                    "id": question_id,
+                    "text": "Can you describe any significant life changes or major events that happened in your late 20s?",
+                    "type": "text",
+                    "category": category
+                }
+            elif category == "birth_circumstances":
+                return {
+                    "id": question_id,
+                    "text": "Do you know any specific details about your birth such as complications, labor duration, or unusual circumstances?",
+                    "type": "text",
+                    "category": category
+                }
+            elif category == "physical_traits":
+                return {
+                    "id": question_id,
+                    "text": "How would you describe your physical appearance and body type? Has it changed significantly over time?",
+                    "type": "text",
+                    "category": category
+                }
+            else:
+                # Generic fallback
+                return {
+                    "id": question_id,
+                    "text": f"Tell me about any patterns or significant experiences related to your {category.replace('_', ' ')}.",
+                    "type": "text",
+                    "category": category
+                }
+
+        # Return a random question from available ones
+        return random.choice(available_questions)
 
     def _is_similar_question(self, new_question: str, previous_question: str) -> bool:
         """Check if a new question is semantically similar to a previously asked question."""
@@ -455,6 +438,35 @@ Guidelines:
    Choose a category that hasn't been frequently covered yet.
 """
 
+        # Format previous answers for the prompt, handling different types safely
+        formatted_answers = []
+        for answer in answers:
+            try:
+                # Safe extraction of question and answer text
+                question_text = ""
+                answer_text = ""
+
+                # Extract question text safely
+                question = answer.get("question", "")
+                if isinstance(question, str):
+                    question_text = question
+                elif isinstance(question, dict) and "text" in question:
+                    question_text = question.get("text", "")
+                elif "question_id" in answer:
+                    question_text = f"Question ID: {answer['question_id']}"
+
+                # Extract answer text safely
+                answer_text = answer.get("answer", "")
+                if not isinstance(answer_text, str):
+                    answer_text = str(answer_text)
+
+                # Only add non-empty entries
+                if question_text or answer_text:
+                    formatted_answers.append([question_text, answer_text])
+            except Exception as e:
+                logger.warning(f"Error formatting answer for prompt: {e}")
+                continue
+
         # User prompt with context
         user_prompt = f"""
 Chart Data Summary: {chart_summary}
@@ -466,7 +478,7 @@ Previous Response Categories:
 {json.dumps(asked_categories, indent=2)}
 
 Previous Answers:
-{json.dumps([(a.get('question', {}).get('text', ''), a.get('answer', '')) for a in answers], indent=2)}
+{json.dumps(formatted_answers, indent=2)}
 
 I need a SINGLE, UNIQUE Vedic astrological question for birth time rectification that:
 1. Is specific to this chart
@@ -479,15 +491,15 @@ Return ONLY a JSON object with the question details.
 
         return {"system": system_prompt, "user": user_prompt}
 
-    def _extract_question_from_openai(self, response: Union[Dict[str, Any], Any]) -> Optional[Dict[str, Any]]:
+    def _parse_openai_response(self, response: Union[Dict[str, Any], Any]) -> Optional[Dict[str, Any]]:
         """
-        Extract and validate the question from OpenAI's response.
+        Parse the response from OpenAI and extract a question.
 
         Args:
-            response: The response from OpenAI, which could be a dict, string, or other type
+            response: The response from OpenAI
 
         Returns:
-            Dict with question data or None if extraction failed
+            Extracted question data or None if extraction failed
         """
         try:
             # Check if the response is already in JSON format with question text
@@ -497,17 +509,39 @@ Return ONLY a JSON object with the question details.
 
                 # Handle OpenAI API response format
                 if "choices" in response and isinstance(response["choices"], list) and response["choices"]:
-                    if "message" in response["choices"][0] and isinstance(response["choices"][0]["message"], dict):
-                        content = response["choices"][0]["message"].get("content", "")
-                        if content:
-                            # Try to extract JSON from the content
-                            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                            if json_match:
-                                json_str = json_match.group(0)
+                    choice = response["choices"][0]
+
+                    # Handle response.choices[0].message format
+                    if isinstance(choice, dict) and "message" in choice:
+                        message = choice["message"]
+
+                        # Handle message content
+                        if isinstance(message, dict) and "content" in message:
+                            content = message["content"]
+
+                            if content and isinstance(content, str):
+                                # Try to extract JSON from the content
+                                json_match = re.search(r'```(?:json)?(.*?)```', content, re.DOTALL)
+                                if json_match:
+                                    content = json_match.group(1).strip()
+
+                                # Or extract JSON if it's in the content directly
+                                json_obj_match = re.search(r'(\{.*\})', content, re.DOTALL)
+                                if json_obj_match:
+                                    content = json_obj_match.group(1).strip()
+
                                 try:
-                                    question_data = json.loads(json_str)
-                                    if isinstance(question_data, dict) and "text" in question_data:
-                                        return question_data
+                                    question_data = json.loads(content)
+
+                                    # Ensure the question has an ID
+                                    if "id" not in question_data:
+                                        question_data["id"] = f"q_openai_{uuid.uuid4().hex[:8]}"
+
+                                    # Ensure the question has a type
+                                    if "type" not in question_data:
+                                        question_data["type"] = "text"
+
+                                    return question_data
                                 except json.JSONDecodeError:
                                     logger.warning("Failed to parse JSON from OpenAI response content")
 
@@ -520,26 +554,32 @@ Return ONLY a JSON object with the question details.
                     try:
                         question_data = json.loads(json_str)
                         if isinstance(question_data, dict) and "text" in question_data:
+                            # Ensure the question has an ID
+                            if "id" not in question_data:
+                                question_data["id"] = f"q_openai_{uuid.uuid4().hex[:8]}"
+
+                            # Ensure the question has a type
+                            if "type" not in question_data:
+                                question_data["type"] = "text"
+
                             return question_data
                     except json.JSONDecodeError:
                         logger.warning("Failed to parse JSON from string response")
 
-            # If we couldn't parse JSON, create a basic question
-            logger.warning("Could not extract JSON from OpenAI response, creating basic question")
-            return {
-                "id": str(uuid.uuid4()),
-                "text": str(response)[:200] if response is not None else "Please describe any significant life events.",
-                "category": "general",
-                "type": "text"
-            }
+                # If we couldn't extract JSON, create a simple question from the string
+                question_id = f"q_openai_{uuid.uuid4().hex[:8]}"
+                return {
+                    "id": question_id,
+                    "text": response.strip(),
+                    "type": "text",
+                    "category": "personality"  # Default category
+                }
+
+            return None
         except Exception as e:
-            logger.error(f"Error extracting question from OpenAI response: {e}")
-            return {
-                "id": str(uuid.uuid4()),
-                "text": "Please describe any significant life events that might correlate with your birth time.",
-                "category": "life_events",
-                "type": "text"
-            }
+            logger.error(f"Error parsing OpenAI response: {e}")
+            logger.error(traceback.format_exc())
+            return None
 
     def _summarize_chart_data(self, chart_data: Dict) -> str:
         """Summarize chart data for inclusion in the OpenAI prompt."""
@@ -586,159 +626,105 @@ Return ONLY a JSON object with the question details.
 
     async def calculate_confidence(self, answers: Dict[str, Any], chart_data: Optional[Dict[str, Any]] = None) -> float:
         """
-        Calculate confidence score based on answers using Vedic astrological principles.
+        Calculate confidence score for birth time rectification based on answers.
+
+        This method analyzes the answers from the questionnaire and determines
+        a confidence level for birth time rectification.
 
         Args:
-            answers: Dictionary with answer data
-            chart_data: Optional chart data (used to adjust confidence based on chart quality)
+            answers: Dictionary containing responses from the questionnaire
+            chart_data: Optional chart data for context
 
         Returns:
             Confidence score (0-100)
         """
-        # Extract responses
-        responses = answers.get("responses", [])
-        if not responses:
-            return 40.0  # Base confidence for questionnaires with no answers
+        logger.info("Calculating birth time rectification confidence score")
 
-        # Count the number of responses - this is a key factor
-        num_answers = len(responses)
+        try:
+            # Extract responses list
+            responses = answers.get("responses", [])
+            if not responses:
+                return 0.0
 
-        # Track Vedic astrological indicators with expanded categories
-        vedic_indicators = {
-            "birth_time_precision": 0.0,     # 0-10 scale - highest priority
-            "life_events_correlation": 0.0,  # 0-10 scale - high priority
-            "dasha_alignment": 0.0,          # 0-10 scale - high priority
-            "personality_house_alignment": 0.0, # 0-10 scale
-            "timing_preferences_alignment": 0.0, # 0-10 scale
-            "physical_traits_correlation": 0.0, # 0-10 scale
-            "nakshatra_alignment": 0.0,      # 0-10 scale
-            "relationship_patterns": 0.0,    # 0-10 scale
-            "career_developments": 0.0,      # 0-10 scale
-            "spiritual_inclinations": 0.0    # 0-10 scale
-        }
+            # Set base confidence - starts at 10% and grows with quality answers
+            confidence = 10.0
 
-        # More gradual base confidence scaling - requires more questions to reach higher levels
-        # Set a lower cap to ensure we don't reach high confidence too easily
-        base_confidence = min(40.0 + (num_answers * 3.5), 70.0)  # 40-70 range, requires 8+ questions
+            # Count the number of responses that are sufficiently detailed
+            detailed_responses = 0
 
-        # Answer quality bonus - more conservative and requires true quality
-        answer_quality_bonus = 0.0
-        for response in responses:
-            answer = str(response.get("answer", ""))
-            # Only give bonuses for truly detailed answers
-            if len(answer) > 150:  # Very detailed answer
-                answer_quality_bonus += 2.5  # Reduced bonus
-            elif len(answer) > 80:  # Detailed answer
-                answer_quality_bonus += 1.5  # Reduced bonus
-            elif len(answer) > 40:  # Moderately detailed
-                answer_quality_bonus += 1.0  # Reduced bonus
+            # Track categories that provide stronger indicators for birth time
+            strong_indicator_categories = {
+                "life_events": 0,
+                "birth_circumstances": 0,
+                "physical_traits": 0,
+                "timing": 0,
+                "health": 0
+            }
 
-        # Cap answer quality bonus at a more reasonable level
-        answer_quality_bonus = min(answer_quality_bonus, 15.0)  # Lower cap
+            # Process each response and adjust confidence
+            for response in responses:
+                # Skip invalid responses
+                if not isinstance(response, dict):
+                    continue
 
-        # Parse responses for Vedic indicators - more balanced scoring
-        for response in responses:
-            question_id = response.get("question_id", "")
-            question_text = str(response.get("question", "")).lower()
-            answer_text = str(response.get("answer", "")).lower()
+                answer = response.get("answer", "")
+                question = response.get("question", "")
+                category = response.get("category", "")
 
-            # Birth time precision indicators - critical for rectification
-            if "birth time" in question_text or "birth_time" in question_id or "lagna" in question_text or "rising sign" in question_text:
-                if "exact" in answer_text or "precise" in answer_text:
-                    vedic_indicators["birth_time_precision"] += 6.0  # Reduced from higher values
-                elif "approximate" in answer_text:
-                    vedic_indicators["birth_time_precision"] += 4.0  # Reduced from higher values
-                elif "window" in answer_text or "morning" in answer_text or "afternoon" in answer_text:
-                    vedic_indicators["birth_time_precision"] += 3.0  # Reduced from higher values
-                elif "earlier" in answer_text or "later" in answer_text:
-                    vedic_indicators["birth_time_precision"] += 5.0  # Reduced from higher values
+                # Skip empty answers
+                if not answer or not isinstance(answer, str):
+                    continue
 
-            # Life events correlation - critical for accurate birth time
-            if ("life events" in question_text or "major" in question_text or
-                "significant" in question_text or "changes" in question_text):
+                # Simple length check - longer answers generally provide more details
+                if len(answer) > 30:
+                    confidence += 3.0
+                    detailed_responses += 1
+                elif len(answer) > 10:
+                    confidence += 1.5
 
-                # More realistic scoring based on actual content
-                import re
+                # Check if the answer contains time-related keywords
+                time_keywords = ["morning", "afternoon", "evening", "night", "am", "pm",
+                                "birth", "time", "hour", "minute", "early", "late", "dawn", "dusk"]
+                if any(keyword in answer.lower() for keyword in time_keywords):
+                    confidence += 5.0
 
-                # Basic scoring based on length
-                detail_level = min(len(answer_text) / 40, 4.0)  # Reduced multiplier
+                # Adjust based on category
+                if category in strong_indicator_categories:
+                    strong_indicator_categories[category] += 1
 
-                # Count specific dates and years
-                specific_years = len(re.findall(r'\b(19|20)\d{2}\b', answer_text)) * 1.5  # Reduced multiplier
-                months = len(re.findall(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b', answer_text, re.I)) * 0.5
+                    # Multiple answers in key categories are very valuable
+                    if strong_indicator_categories[category] > 1:
+                        confidence += 7.0
+                    else:
+                        confidence += 5.0
 
-                # Life transitions keywords
-                transitions = len(re.findall(r'\b(graduate|marriage|divorce|birth|death|move|career|job|relationship|breakup|promotion|started|ended|change)\b', answer_text, re.I)) * 0.7
+            # Adjust confidence based on how many questions were answered
+            if len(responses) >= 8:
+                confidence += 15.0
+            elif len(responses) >= 5:
+                confidence += 10.0
+            elif len(responses) >= 3:
+                confidence += 5.0
 
-                vedic_indicators["life_events_correlation"] += min(detail_level + specific_years + months * 0.4 + transitions, 8.0)  # Cap at 8.0
+            # Adjust confidence based on detailed responses
+            if detailed_responses >= 5:
+                confidence += 15.0
+            elif detailed_responses >= 3:
+                confidence += 10.0
+            elif detailed_responses >= 1:
+                confidence += 5.0
 
-            # Other Vedic indicators - more conservative scoring
-            # Only analyze other indicators if we have substantial content
-            if len(answer_text) > 30:
-                # Personality traits
-                if "personality" in question_text or "traits" in question_text:
-                    # Calculate score based on traits mentioned, more conservative
-                    traits_score = 0.0
-                    if any(trait in answer_text for trait in ["confident", "leader", "authoritative", "strong", "proud"]):
-                        traits_score += 1.0
-                    if any(trait in answer_text for trait in ["emotional", "intuitive", "nurturing", "caring", "sensitive"]):
-                        traits_score += 1.0
-                    if any(trait in answer_text for trait in ["analytical", "precise", "communicative", "logical", "intelligent"]):
-                        traits_score += 1.0
+            # Cap confidence at 95% - always leave room for uncertainty
+            confidence = min(95.0, confidence)
 
-                    vedic_indicators["personality_house_alignment"] += min(traits_score, 6.0)
+            logger.info(f"Calculated confidence score: {confidence:.2f}%")
+            return confidence
 
-                # Time of day preferences - important for birth time
-                if "rhythm" in question_text or "energy" in question_text or "time of day" in question_text:
-                    # More conservative scoring based on specificity
-                    time_score = 0.0
-                    if any(word in answer_text for word in ["morning", "sunrise", "dawn", "evening", "sunset", "night", "midnight"]):
-                        time_score += 3.0
-                    if any(word in answer_text for word in ["specific", "exactly", "always", "consistent"]):
-                        time_score += 2.0
-
-                    vedic_indicators["timing_preferences_alignment"] += min(time_score, 5.0)
-
-        # Calculate Vedic score as sum of indicators, weighted appropriately
-        # Higher weight for birth time precision and life events correlation
-        vedic_score = (
-            vedic_indicators["birth_time_precision"] * 1.2 +  # Weight: 1.2
-            vedic_indicators["life_events_correlation"] * 1.1 +  # Weight: 1.1
-            vedic_indicators["dasha_alignment"] * 0.8 +  # Weight: 0.8
-            vedic_indicators["personality_house_alignment"] * 0.7 +  # Weight: 0.7
-            vedic_indicators["timing_preferences_alignment"] * 0.9 +  # Weight: 0.9
-            vedic_indicators["physical_traits_correlation"] * 0.6 +  # Weight: 0.6
-            vedic_indicators["nakshatra_alignment"] * 0.5 +  # Weight: 0.5
-            vedic_indicators["relationship_patterns"] * 0.6 +  # Weight: 0.6
-            vedic_indicators["career_developments"] * 0.7 +  # Weight: 0.7
-            vedic_indicators["spiritual_inclinations"] * 0.4  # Weight: 0.4
-        )
-
-        # Calculate Vedic confidence as percentage of maximum possible score (100)
-        # More conservative scaling that doesn't inflate scores
-        vedic_confidence = min(vedic_score * 0.75, 70.0)  # Reduced multiplier, cap at 70
-
-        # Combine base confidence and Vedic confidence with answer quality
-        total_confidence = base_confidence + answer_quality_bonus + vedic_confidence
-
-        # Cap total confidence
-        # - Requires ≤5 questions: max 70%
-        # - Requires 6-9 questions: max 85%
-        # - Requires 10+ questions: max 95%
-        if num_answers <= 5:
-            total_confidence = min(total_confidence, 70.0)
-        elif num_answers <= 9:
-            total_confidence = min(total_confidence, 85.0)
-        else:
-            total_confidence = min(total_confidence, 95.0)
-
-        # Log all components for debugging
-        logger.info(f"Base confidence: {base_confidence}, Answer quality bonus: {answer_quality_bonus}")
-        logger.info(f"Vedic indicators: {vedic_indicators}")
-        logger.info(f"Vedic score: {vedic_score}, Vedic confidence: {vedic_confidence}")
-        logger.info(f"Total confidence: {total_confidence}")
-
-        return total_confidence
+        except Exception as e:
+            logger.error(f"Error calculating confidence: {e}")
+            logger.error(traceback.format_exc())
+            # Return a safe default value
+            return 35.0
 
     def _format_chart_for_prompt(self, chart_data: Dict[str, Any]) -> str:
         """
@@ -1100,6 +1086,6 @@ Return ONLY a JSON object with the question details.
         }
 
     def _get_template_questions(self) -> List[Dict[str, Any]]:
-        """Raise an exception to prevent falling back to static template questions."""
-        logger.error("Attempted to use template questions, which is not allowed")
-        raise Exception("Real-time question generation is required - no template questions permitted")
+        """Return fallback template questions for when AI generation fails."""
+        logger.warning("Using template questions as fallback")
+        return self.fallback_questions

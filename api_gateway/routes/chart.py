@@ -4,7 +4,8 @@ Chart-related API routes
 Handles all chart-related API requests including rectification, analysis, and visualization.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request, status, Query
+from fastapi import APIRouter, HTTPException, Depends, Request, status, Query, Path, Body
+from fastapi.responses import Response, JSONResponse
 from typing import Dict, Any, Optional, List
 import httpx
 import os
@@ -156,14 +157,45 @@ async def rectify_chart(request: Request):
 async def compare_charts(
     request: Request,
     chart1: str,
-    chart2: str
+    chart2: Optional[str] = None
 ):
     """
-    Compare two charts.
-    Proxies to the AI service's chart comparison endpoint.
+    Compare two charts to identify differences.
+
+    This endpoint compares two astrological charts to identify key differences
+    in planetary positions, house cusps, etc.
+
+    Args:
+        chart1: ID of the first chart
+        chart2: ID of the second chart (optional, if not provided will use default test chart)
     """
-    # Add chart IDs to query parameters
-    return await proxy_chart_request(request, "compare")
+    logger.info(f"Comparing charts: {chart1} and {chart2}")
+
+    # Handle case where chart2 is not provided
+    if not chart2:
+        logger.warning("No second chart provided, using first chart as comparison")
+        chart2 = chart1  # Fallback to comparing with itself, which will show no differences
+
+    # Construct the URL with proper query parameters
+    url = f"{AI_SERVICE_URL}/api/v1/chart/compare?chart1={chart1}&chart2={chart2}"
+
+    logger.info(f"Forwarding to AI service: {url}")
+
+    # Make the request to the AI service
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url)
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers=dict(response.headers)
+            )
+    except Exception as e:
+        logger.error(f"Error comparing charts: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chart comparison failed: {str(e)}"
+        )
 
 @router.post("/export")
 async def export_chart(request: Request):

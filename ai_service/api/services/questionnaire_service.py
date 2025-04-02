@@ -9,16 +9,15 @@ import logging
 import json
 import uuid
 import re
+import random
 from datetime import datetime
 from typing import Dict, List, Any, Optional, cast
-import random
 import traceback
 
 # Import service dependencies
 from ai_service.api.services.openai import get_openai_service
 from ai_service.api.services.session_service import get_session_store, SessionStore
 from ai_service.utils.dependency_container import get_container
-from .questionnaire_engine import QuestionnaireEngine
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -115,7 +114,7 @@ class QuestionnaireService:
             logger.error("Error getting initial questions: %s", e)
             logger.error(traceback.format_exc())
             # Do not provide fallback questions - real-time generation is required
-            raise RuntimeError(f"Failed to generate real-time personalized question: {str(e)}")
+            raise RuntimeError(f"Failed to generate real-time personalized question: {str(e)}") from e
 
     async def generate_next_question(
         self,
@@ -151,27 +150,62 @@ class QuestionnaireService:
         # Use session_id if available, otherwise generate a temporary one
         session_id = birth_details.get("session_id", f"temp_{uuid.uuid4().hex[:8]}")
 
-        # Use the QuestionnaireEngine to generate real-time personalized questions
-        engine = QuestionnaireEngine()
-
         try:
-        if not previous_answers:
-                # For the first question, use the standard birth time question
-                question = await engine.get_first_question(chart_data, birth_details)
+            if not previous_answers:
+                # For the first question, use a standard birth time question
+                return {
+                    "id": f"q_first_{uuid.uuid4().hex[:8]}",
+                    "text": "Do you know your approximate birth time?",
+                    "type": "multiple_choice",
+                    "options": [
+                        {"id": "opt_exact", "text": "Yes, I have an exact time"},
+                        {"id": "opt_approximate", "text": "I have an approximate time"},
+                        {"id": "opt_window", "text": "I know a time window (e.g., morning, afternoon)"},
+                        {"id": "opt_unknown", "text": "I don't know my birth time"}
+                    ],
+                    "category": "birth_time"
+                }
             else:
-                # For subsequent questions, generate a personalized question based on chart data
-                question = await engine.get_next_question(
-                    session_id=session_id,
-                    chart_data=chart_data,
-                    previous_answers=previous_answers
-                )
+                # For subsequent questions, generate a question based on the API integration
+                # Try to get the OpenAI service for AI-driven question generation
+                try:
+                    openai_service = await get_openai_service()
+                    if openai_service:
+                        # Generate a question with OpenAI
+                        return await self._generate_astrologically_relevant_question(birth_details, previous_answers)
+                except Exception as e:
+                    logger.error(f"Error with OpenAI service: {e}")
 
-            logger.info(f"Generated question in category: {question.get('category', 'unknown')}")
-            return question
+                # Fallback questions if OpenAI fails
+                fallback_questions = [
+                    {
+                        "id": f"q_fallback_{uuid.uuid4().hex[:8]}",
+                        "text": "Please describe any major life events that occurred during your childhood.",
+                        "type": "text",
+                        "category": "life_events"
+                    },
+                    {
+                        "id": f"q_fallback_{uuid.uuid4().hex[:8]}",
+                        "text": "What time of day do you feel most energetic?",
+                        "type": "multiple_choice",
+                        "options": [
+                            {"id": "opt_morning", "text": "Morning"},
+                            {"id": "opt_afternoon", "text": "Afternoon"},
+                            {"id": "opt_evening", "text": "Evening"},
+                            {"id": "opt_night", "text": "Night"}
+                        ],
+                        "category": "timing_preferences"
+                    }
+                ]
+
+                # Return a random fallback question
+                question = random.choice(fallback_questions)
+                logger.info(f"Using fallback question: {question['text']}")
+                return question
 
         except Exception as e:
             logger.error(f"Error generating next question: {str(e)}")
-            raise RuntimeError(f"Failed to generate personalized question: {str(e)}")
+            raise RuntimeError(f"Failed to generate personalized question: {str(e)}") from e
 
     async def submit_answer(
         self,
@@ -383,7 +417,7 @@ class QuestionnaireService:
             except Exception as e:
                 logger.error(f"Error retrieving chart data: {str(e)}")
                 # Cannot proceed without chart data
-                raise ValueError(f"Chart not found: {chart_id}")
+                raise ValueError(f"Chart not found: {chart_id}") from e
 
         try:
             # Create a prompt for OpenAI
@@ -447,7 +481,7 @@ class QuestionnaireService:
             logger.error(traceback.format_exc())
 
             # No fallback questions - raise an exception to ensure real-time generation
-            raise RuntimeError(f"Failed to generate real-time personalized question: {str(e)}")
+            raise RuntimeError(f"Failed to generate real-time personalized question: {str(e)}") from e
 
     def _create_question_generation_prompt(
         self,
@@ -766,28 +800,28 @@ Your response should be in this JSON format:
 
             # Try direct JSON parsing first
             try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            # Try to extract JSON using regex patterns
-            patterns = [
-                r'```json\s*([\s\S]*?)\s*```',  # JSON in code block
-                r'```\s*([\s\S]*?)\s*```',      # Any code block
-                r'(\{[\s\S]*\})'                # Any JSON-like structure
-            ]
+                return json.loads(content)
+            except json.JSONDecodeError:
+                # Try to extract JSON using regex patterns
+                patterns = [
+                    r'```json\s*([\s\S]*?)\s*```',  # JSON in code block
+                    r'```\s*([\s\S]*?)\s*```',      # Any code block
+                    r'(\{[\s\S]*\})'                # Any JSON-like structure
+                ]
 
-            for pattern in patterns:
-                match = re.search(pattern, content)
-                if match:
-                    json_str = match.group(1)
-                    try:
-                        return json.loads(json_str)
-                    except json.JSONDecodeError:
-                        # Continue trying other patterns
-                        continue
+                for pattern in patterns:
+                    match = re.search(pattern, content)
+                    if match:
+                        json_str = match.group(1)
+                        try:
+                            return json.loads(json_str)
+                        except json.JSONDecodeError:
+                            # Continue trying other patterns
+                            continue
 
             # No successful JSON extraction, return empty dict
             logger.warning("Could not extract JSON from OpenAI response")
-                return {}
+            return {}
 
         except Exception as e:
             logger.error(f"Error extracting JSON from content: {str(e)}")

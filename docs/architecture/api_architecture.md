@@ -31,49 +31,32 @@
 +------------------------------------------------------+
 |                  UNIFIED API CLIENT                  |
 |                                                      |
-|  +------------------+       +-------------------+    |
-|  | Request Pipeline |       | Response Pipeline |    |
-|  |                  |       |                   |    |
-|  | • Auth Injection |       | • Error Handling  |    |
-|  | • Serialization  |       | • Deserialization |    |
-|  | • Retry Logic    |       | • Caching         |    |
-|  | • Timeout Mgmt   |       | • Data Transform  |    |
-|  +------------------+       +-------------------+    |
+|  • Request Pipeline: Auth, Serialization, Retry      |
+|  • Response Pipeline: Error handling, Caching        |
 +------------------------------------------------------+
                           |
                           v
 +------------------------------------------------------+
 |                NEXT.JS API GATEWAY                   |
 |                                                      |
-|  +------------------+       +-------------------+    |
-|  | Primary Routes   |       | Legacy Routes     |    |
-|  | /api/...         |       | /...              |    |
-|  +------------------+       +-------------------+    |
-|                                                      |
-|  +------------------+       +-------------------+    |
-|  | Session Manager  |       | Error Formatter   |    |
-|  +------------------+       +-------------------+    |
+|  • Primary Routes: /api/v1/...                       |
+|  • Session Manager                                   |
+|  • Error Formatter                                   |
 +------------------------------------------------------+
                           |
                           v
 +------------------------------------------------------+
 |                PYTHON FASTAPI BACKEND                |
 |                                                      |
-|  +------------+  +----------+  +----------------+    |
-|  | Services   |  | Routers  |  | Middleware     |    |
-|  +------------+  +----------+  +----------------+    |
-|                                                      |
-|  +------------+  +----------+  +----------------+    |
-|  | Models     |  | Utils    |  | External APIs  |    |
-|  +------------+  +----------+  +----------------+    |
+|  • Services, Routers, Middleware                     |
+|  • Models, Utils, External APIs                      |
 +------------------------------------------------------+
                           |
                           v
 +------------------------------------------------------+
 |                   DATA STORAGE                       |
-|  +------------+  +----------+  +----------------+    |
-|  | Redis      |  | DB       |  | File Storage   |    |
-|  +------------+  +----------+  +----------------+    |
+|                                                      |
+|  • Redis, DB, File Storage                           |
 +------------------------------------------------------+
 ```
 
@@ -166,27 +149,16 @@
 +-------------------------------------------------------------+
 |                                                             |
 |   +---------------------+         +---------------------+   |
-|   |                     |         |                     |   |
 |   |   NEXT.JS ROUTES    |         |   PYTHON ROUTES     |   |
 |   |                     |         |                     |   |
-|   |  +--------------+   |         |  +--------------+   |   |
-|   |  |  /api/*      |   |         |  | Dual-        |   |   |
-|   |  |  GATEWAY     |<-------------->| Registration |   |   |
-|   |  +--------------+   |         |  +--------------+   |   |
-|   |                     |         |                     |   |
-|   |  +--------------+   |         |  +--------------+   |   |
-|   |  | Session Mgmt |   |         |  | Routers      |   |   |
-|   |  +--------------+   |         |  +--------------+   |   |
-|   |                     |         |                     |   |
-|   |  +--------------+   |         |  +--------------+   |   |
-|   |  | Error Format |   |         |  | Controllers  |   |   |
-|   |  +--------------+   |         |  +--------------+   |   |
-|   |                     |         |                     |   |
+|   |  • /api/v1/* Gateway|<------->|  • Versioned       |   |
+|   |  • Session Mgmt     |         |    Endpoints       |   |
+|   |  • Error Formatting |         |  • Routers         |   |
+|   |                     |         |  • Controllers     |   |
 |   +---------------------+         +---------------------+   |
 |                |                             |              |
 |                v                             v              |
 |   +---------------------+         +---------------------+   |
-|   |                     |         |                     |   |
 |   |  SERVICES ACCESSED  |         |  IMPLEMENTATION     |   |
 |   |                     |         |                     |   |
 |   |  • Geocoding        |         |  • Chart Service    |   |
@@ -194,7 +166,6 @@
 |   |  • Questionnaire    |         |  • Rectification    |   |
 |   |  • Rectification    |         |  • OpenAI Service   |   |
 |   |  • Export           |         |  • Export Service   |   |
-|   |                     |         |                     |   |
 |   +---------------------+         +---------------------+   |
 |                                                             |
 +-------------------------------------------------------------+
@@ -338,7 +309,7 @@ The OpenAI verification process follows these steps:
 
 ## Overview
 
-This document details the API endpoint architecture for the Astrological Chart Application. The application uses a dual-registration pattern for endpoints, providing both consistency and backward compatibility.
+This document details the API endpoint architecture for the Astrological Chart Application. The application uses a single registration pattern with versioned API endpoints for consistency and maintainability.
 
 ## Centralized API Gateway Architecture
 
@@ -400,20 +371,19 @@ The application implements a centralized API Gateway that handles cross-cutting 
 
 ## API Endpoint Registration Pattern
 
-### Consolidated Single-Registration Architecture with Path Rewriting
+### Consolidated Single-Registration Architecture
 
-The application implements a single-registration architecture with path rewriting middleware:
+The application implements a single-registration architecture with versioned API endpoints:
 
 1. **Primary Endpoints** - Registered with `/api/v1/` prefix:
    - Chart-related endpoints follow the pattern: `/api/v1/chart/...`
    - Other services follow the pattern: `/api/v1/geocode`, `/api/v1/health`, etc.
 
-2. **Legacy Support** - Through path rewriting middleware:
-   - Requests to legacy endpoints (e.g., `/chart/...`, `/geocode`, etc.) are automatically rewritten to the standardized endpoints
-   - Backward compatibility is maintained without code duplication
-   - Deprecation warnings are included in response headers
+2. **Non-v1 API Paths** - Return 404 responses:
+   - Requests to non-v1 API paths (e.g., `/chart/...`, `/geocode`, `/api/chart/...`) return 404 Not Found responses
+   - Clear error messages direct users to use the appropriate `/api/v1/` endpoints
 
-This architecture follows modern API design principles with proper versioning while maintaining backward compatibility through middleware rather than duplicate registrations.
+This architecture follows modern API design principles with proper versioning for better maintainability and future extensibility.
 
 ## Implementation Details
 
@@ -436,38 +406,42 @@ v1_router.include_router(ai_status_router, prefix="/ai", tags=["AI Status"])
 
 # Include the v1 router in the app
 app.include_router(v1_router)
-
-# Add path rewriter middleware for legacy route support
-app.add_middleware(PathRewriterMiddleware)
 ```
 
-The `PathRewriterMiddleware` handles backward compatibility by transparently rewriting legacy paths:
+The API Gateway includes middleware that enforces the use of v1 API paths and returns appropriate 404 responses for non-v1 paths:
 
 ```python
-class PathRewriterMiddleware(BaseHTTPMiddleware):
+@app.middleware("http")
+async def enforce_v1_api_paths(request: Request, call_next):
     """
-    Middleware to rewrite legacy API paths to standardized v1 API paths.
-    This allows backward compatibility without duplicate router registration.
+    Middleware to enforce v1 API paths.
+    This ensures only standardized /api/v1/ endpoints are accessible.
     """
+    path = request.url.path
 
-    def __init__(self, app, add_deprecation_warnings: bool = True):
-        super().__init__(app)
-        self.add_deprecation_warnings = add_deprecation_warnings
+    # Skip v1 API paths, they should be handled normally
+    if path.startswith("/api/v1/"):
+        return await call_next(request)
 
-        # Define path mapping rules - from legacy paths to standardized v1 paths
-        self.path_mappings = [
-            # Root level legacy routes
-            (r"^/health$", "/api/v1/health"),
-            (r"^/geocode$", "/api/v1/geocode"),
-            (r"^/chart/(.*)$", r"/api/v1/chart/\1"),
-            (r"^/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
+    # Skip root, websocket and documentation paths
+    if path == "/" or path == "/health" or path.startswith("/ws") or path in ["/docs", "/redoc", "/openapi.json", "/swagger"]:
+        return await call_next(request)
 
-            # Unversioned /api/ routes
-            (r"^/api/health$", "/api/v1/health"),
-            (r"^/api/geocode$", "/api/v1/geocode"),
-            (r"^/api/chart/(.*)$", r"/api/v1/chart/\1"),
-            (r"^/api/questionnaire/(.*)$", r"/api/v1/questionnaire/\1"),
-        ]
+    # Return 404 for any other API path that starts with /api/
+    if path.startswith("/api/"):
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": {
+                    "code": "ENDPOINT_NOT_FOUND",
+                    "message": "Endpoint not found. All API paths must use the /api/v1/ prefix.",
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+        )
+
+    # For all other paths, continue normal processing
+    return await call_next(request)
 ```
 
 ### Router Organization
@@ -499,8 +473,7 @@ async def generate_charts(...):
 ```
 
 When registered, this becomes:
-- Primary: `/api/chart/generate`
-- Alternative: `/chart/generate`
+- `/api/v1/chart/generate`
 
 ## OpenAI Service Integration
 
@@ -568,16 +541,16 @@ except Exception as e:
 
 ## Standard Endpoint Mapping
 
-| Frontend Component | Primary API Endpoint | Alternative Endpoint | Backend Service | Verification |
-|--------------------|---------------------|----------------------|-----------------|--------------|
-| Birth Details Form | `/api/chart/validate` | `/chart/validate` | Validation Service | N/A |
-| Birth Details Form | `/api/geocode` | `/geocode` | Geocoding Service | N/A |
-| Initial Chart Gen | `/api/chart/generate` | `/chart/generate` | Chart Calculation Service | OpenAI Vedic Verification |
-| Chart Visualization | `/api/chart/{id}` | `/chart/{id}` | Chart Retrieval Service | N/A |
-| Questionnaire | `/api/questionnaire` | `/questionnaire` | Dynamic Questionnaire Service | N/A |
-| Results | `/api/chart/rectify` | `/chart/rectify` | Birth Time Rectification Service | OpenAI Analysis |
-| Export/Share | `/api/chart/export` | `/chart/export` | Export Service | N/A |
-| Health Check | `/api/health` | `/health` | Health Monitoring | N/A |
+| Frontend Component | API Endpoint | Backend Service | Verification |
+|--------------------|--------------|--------------------|--------------|
+| Birth Details Form | `/api/v1/chart/validate` | Validation Service | N/A |
+| Birth Details Form | `/api/v1/geocode` | Geocoding Service | N/A |
+| Initial Chart Gen | `/api/v1/chart/generate` | Chart Calculation Service | OpenAI Vedic Verification |
+| Chart Visualization | `/api/v1/chart/{id}` | Chart Retrieval Service | N/A |
+| Questionnaire | `/api/v1/questionnaire` | Dynamic Questionnaire Service | N/A |
+| Results | `/api/v1/chart/rectify` | Birth Time Rectification Service | OpenAI Analysis |
+| Export/Share | `/api/v1/chart/export` | Export Service | N/A |
+| Health Check | `/api/v1/health` | Health Monitoring | N/A |
 
 ## Standardized Response Structure
 
@@ -608,57 +581,44 @@ The frontend uses constants to manage these endpoints, as defined in `tests/e2e/
 
 ```javascript
 export const API_ENDPOINTS = {
-    // Primary endpoints (with /api/ prefix)
-    validate: '/api/chart/validate',
-    geocode: '/api/geocode',
-    chartGenerate: '/api/chart/generate',
-    chartGet: '/api/chart/',
-    questionnaire: '/api/questionnaire',
-    rectify: '/api/chart/rectify',
-    export: '/api/chart/export',
-    health: '/api/health',
-
-    // Alternative endpoints without /api/ prefix (for backward compatibility)
-    validateAlt: '/chart/validate',
-    geocodeAlt: '/geocode',
-    chartGenerateAlt: '/chart/generate',
-    chartGetAlt: '/chart/',
-    questionnaireAlt: '/questionnaire',
-    rectifyAlt: '/chart/rectify',
-    exportAlt: '/chart/export',
-    healthAlt: '/health'
+    // API endpoints with /api/v1/ prefix
+    validate: '/api/v1/chart/validate',
+    geocode: '/api/v1/geocode',
+    chartGenerate: '/api/v1/chart/generate',
+    chartGet: '/api/v1/chart/',
+    questionnaire: '/api/v1/questionnaire',
+    rectify: '/api/v1/chart/rectify',
+    export: '/api/v1/chart/export',
+    health: '/api/v1/health'
 }
 ```
 
-## Benefits of Single Registration with Path Rewriting
+## Benefits of Single Registration Architecture
 
 1. **Reduced Code Duplication**: Each endpoint is registered only once
 2. **Simplified Maintenance**: Changes made in one place apply consistently
-3. **Backward Compatibility**: Legacy endpoints continue to work through path rewriting
-4. **Consistent Error Handling**: Standardized error format across all endpoints
-5. **Better Developer Experience**: Clear versioning strategy and organization
-6. **Deprecation Notices**: Legacy routes include proper deprecation warnings
+3. **Consistent Error Handling**: Standardized error format across all endpoints
+4. **Better Developer Experience**: Clear versioning strategy and organization
+5. **Future Extensibility**: Easy to add new API versions when needed
 
 ## Recommendations for Development
 
-1. **Use Versioned Endpoints**: Always use the `/api/v1/...` endpoints in new code
+1. **Use Versioned Endpoints**: Always use the `/api/v1/...` endpoints in code
 2. **Plan for Future Versioning**: Design endpoints with future versions in mind
-3. **Follow Path Rewriting Patterns**: When adding new endpoints, update the path rewriting middleware
-4. **Include Consistent Error Handling**: Follow standardized error format for all new endpoints
-5. **Document Thoroughly**: Include full endpoint documentation with examples
-6. **Monitor Deprecation**: Track usage of legacy endpoints via deprecation headers
+3. **Include Consistent Error Handling**: Follow standardized error format for all endpoints
+4. **Document Thoroughly**: Include full endpoint documentation with examples
+5. **Enforce API Versioning**: Return appropriate error responses for non-v1 API paths
 
 ## Testing Considerations
 
-The test suite in `consolidated-app-flow-test.sh` is configured to check and validate both the new versioned endpoints and legacy endpoints, ensuring that the path rewriting middleware functions correctly.
+The test suite in `api-test.sh` is configured to validate the versioned endpoints.
 
-The test suite uses the centralized endpoint definitions from `tests/e2e/constants.js` to ensure consistency across all tests. With the new single-registration architecture, errors and responses are consistent regardless of which endpoint pattern is used.
+The test suite uses the centralized endpoint definitions from `tests/e2e/constants.js` to ensure consistency across all tests.
 
 ### Recommended Test Strategy
 
-1. **Test Primary Versioned Endpoints**: Focus main tests on the primary `/api/v1/` endpoints
-2. **Verify Legacy Endpoints**: Include regression tests for legacy paths to ensure the middleware works correctly
+1. **Test Primary Versioned Endpoints**: Focus tests on the primary `/api/v1/` endpoints
+2. **Verify Error Responses**: Ensure non-v1 paths return appropriate 404 responses
 3. **Check Error Formats**: Ensure all endpoints return standardized error responses
-4. **Validate Deprecation Headers**: Verify that legacy routes return proper deprecation warnings
-5. **Test Path Parameters**: Ensure path parameters are correctly passed through the middleware
-6. **Test Middleware Order**: Ensure the path rewriting middleware is applied before other middleware
+4. **Test Path Parameters**: Ensure path parameters are correctly handled
+5. **Test Middleware Order**: Ensure the API path validation middleware is applied in the correct order

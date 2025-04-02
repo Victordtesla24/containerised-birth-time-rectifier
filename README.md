@@ -714,3 +714,63 @@ After running the full process, the following reports are generated:
 - Detailed chart comparison showing differences between original and rectified charts
 - Interpretation of chart differences with significance analysis
 - Clean, modular implementation for easy maintenance and extension
+
+## WebSocket Implementation
+
+The application uses WebSockets for real-time communication between the client and server. This allows for instant updates during the birth time rectification process.
+
+## Components
+
+1. **AI Service WebSocket Endpoint**
+   - Provides direct WebSocket access at `ws://localhost:8001/ws/{session_id}`
+   - Handles session validation and message processing
+   - Supports real-time events during chart analysis
+
+2. **API Gateway WebSocket Proxy**
+   - Provides WebSocket access through a proxy at `ws://localhost:3000/ws/{session_id}`
+   - Handles authentication, connection management, and message forwarding
+   - Adds reliability features like heartbeats and reconnection
+
+## Testing WebSockets
+
+Two test scripts are provided to verify WebSocket functionality:
+
+1. `simple_test_websocket.py` - Tests direct connection to the AI service
+2. `simple_test_gateway.py` - Tests connection through the API Gateway
+
+To test the WebSocket implementation:
+
+```bash
+# Start the AI service
+python -m ai_service.main &
+
+# Start the API Gateway
+python -m api_gateway.main &
+
+# Test direct connection
+python simple_test_websocket.py
+
+# Test connection through API Gateway
+python simple_test_gateway.py
+```
+
+## Implementation Details
+
+The WebSocket implementation includes several features for reliability:
+
+1. **Bidirectional Heartbeats** - Regular ping/pong messages maintain connection health
+2. **Session Authentication** - Ensures only valid sessions can connect
+3. **Error Handling** - Proper error messages and recovery from failures
+4. **Reconnection Logic** - Automatic reconnection with exponential backoff
+5. **Concurrent Message Processing** - Efficient handling of bidirectional communication
+
+## Application Architecture
+
+The application follows a layered architecture:
+
+1. **Frontend** - NextJS React Application
+2. **API Gateway** - NextJS API Routes acting as a unified gateway
+3. **AI Service** - Python FastAPI backend
+4. **Storage** - Redis and file-based storage
+
+See architecture documentation for more details.

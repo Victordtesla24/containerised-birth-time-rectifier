@@ -2,6 +2,7 @@
  * API Gateway Configuration
  *
  * This file defines all API endpoints and metadata for the Birth Time Rectifier application.
+ * All endpoints use the standardized /api/v1/ prefix.
  * It is used by both the frontend Unified API Client and the API Gateway Handler.
  */
 
@@ -38,40 +39,18 @@ const ENDPOINTS = {
   AI_STATUS: `${API_PREFIX}/ai/status`
 };
 
-// Legacy endpoints for backward compatibility
-const LEGACY_ENDPOINTS = {
-  // Chart related endpoints without /api prefix
-  CHART_GENERATE_LEGACY: `/chart/generate`,
-  CHART_GET_LEGACY: `/chart/:id`,
-  CHART_VALIDATE_LEGACY: `/chart/validate`,
-  CHART_COMPARE_LEGACY: `/chart/compare`,
-  CHART_RECTIFY_LEGACY: `/chart/rectify`,
-  CHART_EXPORT_LEGACY: `/chart/export`,
-
-  // Other endpoints without /api prefix
-  GEOCODE_LEGACY: `/geocode`,
-  QUESTIONNAIRE_INIT_LEGACY: `/questionnaire/initialize`,
-  SESSION_INIT_LEGACY: `/session/init`,
-  HEALTH_LEGACY: `/health`,
-
-  // API endpoints without version
-  CHART_GENERATE_V0: `/api/chart/generate`,
-  CHART_GET_V0: `/api/chart/:id`,
-  GEOCODE_V0: `/api/geocode`,
-};
-
-// Endpoint metadata for client generation and documentation
+// Endpoint metadata for documentation and client usage
 const ENDPOINT_METADATA = {
   CHART_GENERATE: {
-    description: "Generate an astrological chart based on birth details",
+    description: "Generate a new birth chart",
     method: "POST",
-    requiredParams: ["birth_date", "birth_time", "latitude", "longitude"],
-    optionalParams: ["location", "timezone", "verify_with_openai", "house_system", "zodiac_type"],
+    requiredParams: ["birth_details"],
+    optionalParams: ["chart_type", "verify_with_openai"],
     permissions: [],
     rateLimited: true
   },
   CHART_GET: {
-    description: "Retrieve an existing chart by ID",
+    description: "Get a specific birth chart by ID",
     method: "GET",
     requiredParams: ["id"],
     optionalParams: [],
@@ -79,44 +58,76 @@ const ENDPOINT_METADATA = {
     rateLimited: false
   },
   CHART_VALIDATE: {
-    description: "Validate birth details before generating a chart",
+    description: "Validate birth details for chart generation",
     method: "POST",
-    requiredParams: ["birth_date", "birth_time", "latitude", "longitude"],
-    optionalParams: ["timezone"],
+    requiredParams: ["birth_details"],
+    optionalParams: [],
     permissions: [],
     rateLimited: true
   },
   CHART_COMPARE: {
-    description: "Compare two charts and highlight differences",
-    method: "POST",
-    requiredParams: ["chart1_id", "chart2_id"],
-    optionalParams: ["comparison_type", "include_significance"],
+    description: "Compare two birth charts",
+    method: "GET",
+    requiredParams: ["chart1", "chart2"],
+    optionalParams: ["comparison_type"],
     permissions: [],
-    rateLimited: false
+    rateLimited: true
   },
   CHART_RECTIFY: {
-    description: "Rectify birth time based on questionnaire answers",
+    description: "Rectify a birth chart based on questionnaire answers",
     method: "POST",
-    requiredParams: ["chart_id", "questionnaire_responses"],
-    optionalParams: ["include_details"],
+    requiredParams: ["chart_id", "session_id"],
+    optionalParams: ["questionnaire_id"],
     permissions: [],
     rateLimited: true
   },
   CHART_EXPORT: {
-    description: "Export a chart in various formats",
+    description: "Export a birth chart to a specified format",
     method: "POST",
     requiredParams: ["chart_id", "format"],
-    optionalParams: ["include_verification", "include_aspects"],
+    optionalParams: ["include_aspects", "include_interpretations"],
     permissions: [],
-    rateLimited: false
+    rateLimited: true
   },
   GEOCODE: {
-    description: "Geocode a location to get coordinates and timezone",
-    method: "POST",
+    description: "Geocode a location string to coordinates and timezone",
+    method: "GET",
     requiredParams: ["query"],
     optionalParams: ["limit", "include_timezone"],
     permissions: [],
     rateLimited: true
+  },
+  QUESTIONNAIRE_INIT: {
+    description: "Initialize a new questionnaire session",
+    method: "GET",
+    requiredParams: ["chart_id"],
+    optionalParams: ["questionnaire_type"],
+    permissions: [],
+    rateLimited: false
+  },
+  QUESTIONNAIRE_NEXT: {
+    description: "Get the next question in a questionnaire",
+    method: "GET",
+    requiredParams: ["session_id"],
+    optionalParams: [],
+    permissions: [],
+    rateLimited: false
+  },
+  QUESTIONNAIRE_ANSWER: {
+    description: "Submit an answer to a questionnaire question",
+    method: "POST",
+    requiredParams: ["session_id", "answer"],
+    optionalParams: ["confidence"],
+    permissions: [],
+    rateLimited: false
+  },
+  QUESTIONNAIRE_COMPLETE: {
+    description: "Mark a questionnaire as complete",
+    method: "POST",
+    requiredParams: ["session_id"],
+    optionalParams: [],
+    permissions: [],
+    rateLimited: false
   },
   SESSION_INIT: {
     description: "Initialize a new session",
@@ -140,6 +151,5 @@ module.exports = {
   API_VERSION,
   API_PREFIX,
   ENDPOINTS,
-  LEGACY_ENDPOINTS,
   ENDPOINT_METADATA
 };

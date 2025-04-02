@@ -1,0 +1,202 @@
+{
+  "session_id": "2b709b0d-2875-4270-8ed0-0335551735e9",
+  "created_at": 1743592504.3007228,
+  "data": {
+    "expires_at": 1743678904,
+    "status": "active",
+    "created_at": 1743592504
+  },
+  "status": "completed",
+  "updated_at": "2025-04-02T23:08:33.629119",
+  "completed_at": "2025-04-02T23:08:33.629484",
+  "chart_id": "chart_1c963cfe",
+  "responses": [
+    {
+      "question_id": "q_vedic_initial_1",
+      "question": "",
+      "answer": "NOT CERTAIN",
+      "timestamp": "2025-04-02T22:30:42.639519"
+    },
+    {
+      "question_id": "q_daily_rhythm",
+      "question": "",
+      "answer": "AVERAGE, OR MORE THAN AVERAGELY ENERGETIC",
+      "timestamp": "2025-04-02T22:31:13.957871"
+    },
+    {
+      "question_id": "q_significant_relationships",
+      "question": "",
+      "answer": "GOT MARRIED AT THE AGE OF 24 BUT IN REALLY UNHAPPY MARRIED LIFE",
+      "timestamp": "2025-04-02T22:31:44.025043"
+    },
+    {
+      "question_id": "q_birth_time_general",
+      "question": "Do you know your approximate birth time?",
+      "answer": "YES",
+      "timestamp": "2025-04-02T22:31:56.434055"
+    },
+    {
+      "question_id": "q_personality_traits",
+      "question": "",
+      "answer": "DASHING, INTROVERT, CONFIDENT, STRONG HEADED, EGOISTIC, CHARMING, AMIABLE, EXTREMELY GOOD LOOKING WITH CHISLED FEATURES LIKE A PERSIAN PRINCE, MUSCLED BODY, DEEP EYES, FAIR SKIN, DARK FEATURED, AMBITIOUS, LOYAL AND EMPATHETIC",
+      "timestamp": "2025-04-02T22:33:56.762497"
+    },
+    {
+      "question_id": "q_vedic_initial_1",
+      "question": "",
+      "answer": "NOT CONFIDENT",
+      "timestamp": "2025-04-02T22:37:34.057628"
+    },
+    {
+      "question_id": "q_major_life_events",
+      "question": "Please list any major life events with their dates",
+      "answer": "GRADUATED AT THE AGE OF 21, GOT MARRIED AT THE AGE OF 24, RELOCATED TO USA AT THE AGE OF 25",
+      "timestamp": "2025-04-02T22:38:22.445287"
+    },
+    {
+      "question_id": "q_fallback_5c650697",
+      "question": "",
+      "answer": "FELL IN LOVE AT THE AGE OF 14 WITH MY DISTANT COUSIN, MET MY BEST PARTNER (GAY GUY) FROM AUSTRALIA, FELL IN LOVE BUT NEVER MATERIALISED, GOT MARRIED TO A GIRL AND NOW IN A VERY UNHAPPY MARRIAGE WHERE NEITHER OF US ARE HAPPY",
+      "timestamp": "2025-04-02T22:40:08.622655"
+    },
+    {
+      "question_id": "q_fallback_a8ccec45",
+      "question": "",
+      "answer": "EXTREMELY GOOD LOOKING WITH CHISELED FEATURES LIKE A PERSIAN PRINCE, MUSCLED BODY, DEEP EYES, FAIR SKIN, DARK FEATURED",
+      "timestamp": "2025-04-02T22:40:48.176861"
+    },
+    {
+      "question_id": "q_fallback_a7d40900",
+      "question": "",
+      "answer": "MARRIED TO THE WRONG PERSON TO GET USA CITIZENSHIP",
+      "timestamp": "2025-04-02T22:41:19.136844"
+    },
+    {
+      "question_id": "q_vedic_initial_001",
+      "question": "",
+      "answer": "NOT CERTAIN",
+      "timestamp": "2025-04-02T22:41:58.806387"
+    },
+    {
+      "question_id": "q_fallback_be537d00",
+      "question": "",
+      "answer": "VERY GOOD HEALTH, MUSCULAR BODY, 175CMS TALL, NO SIGNIFICANT HEALTH ISSUES",
+      "timestamp": "2025-04-02T22:42:49.798335"
+    },
+    {
+      "question_id": "q_fallback_58281a59",
+      "question": "",
+      "answer": "GOT MARRIED AT THE AGE OF 24 BUT IN REALLY UNHAPPY MARRIED LIFE",
+      "timestamp": "2025-04-02T22:43:10.686221"
+    },
+    {
+      "question_id": "q_fallback_b76d2d0c",
+      "question": "",
+      "answer": "NOT SURE",
+      "timestamp": "2025-04-02T22:43:22.458678"
+    },
+    {
+      "question_id": "q_fallback_c1d112ca",
+      "question": "",
+      "answer": "ALWAYS WANTED TO BE SUCCESSFUL QUICKLY, RESULTING IN ME MAKING WRONG LIFE DECISIONS, NEVER ACCEPTED MY FAULTS AND SHORTCOMINGS, EGOISTIC, ALWAYS THINK I AM RIGHT",
+      "timestamp": "2025-04-02T22:44:53.130946"
+    },
+    {
+      "question_id": "q_vedic_initial_1",
+      "question": "",
+      "answer": "NOT CERTAIN",
+      "timestamp": "2025-04-02T22:45:52.686528"
+    },
+    {
+      "question_id": "q_fallback_20cf569a",
+      "question": "",
+      "answer": "GOT MARRIED AT THE AGE OF 24 BUT IN REALLY UNHAPPY MARRIED LIFE",
+      "timestamp": "2025-04-02T22:46:06.454369"
+    },
+    {
+      "question_id": "q_fallback_ddf6f0e0",
+      "question": "",
+      "answer": "MARRIED TO THE WRONG PERSON JUST TO GET USA CITIZENSHIP",
+      "timestamp": "2025-04-02T22:47:38.553360"
+    },
+    {
+      "question_id": "q_fallback_8f577886",
+      "question": "",
+      "answer": "ADAMANT, ALWAYS WANTED TO BE SUCCESSFUL QUICKLY, RESULTING IN ME MAKING WRONG LIFE DECISIONS, NEVER ACCEPTED MY FAULTS AND SHORTCOMINGS, EGOISTIC, ALWAYS THINK I AM RIGHT",
+      "timestamp": "2025-04-02T22:48:07.999222"
+    },
+    {
+      "question_id": "q_fallback_689199ab",
+      "question": "",
+      "answer": "GOT MARRIED AT THE AGE OF 24 AND RELOCATED TO USA AT THE AGE OF 25",
+      "timestamp": "2025-04-02T22:48:40.005605"
+    },
+    {
+      "question_id": "q_vedic_initial_001",
+      "question": "",
+      "answer": "NOT CERTAIN",
+      "timestamp": "2025-04-02T22:49:33.872616"
+    },
+    {
+      "question_id": "q_fallback_849485c5",
+      "question": "",
+      "answer": "GOT MARRIED AT THE AGE OF 24 WITH THE WRONG PERSON RESULTING IN REALLY UNHAPPY MARRIED LIFE",
+      "timestamp": "2025-04-02T22:50:10.472716"
+    },
+    {
+      "question_id": "q_fallback_b3e51b09",
+      "question": "",
+      "answer": "SKIP",
+      "timestamp": "2025-04-02T22:50:23.942416"
+    },
+    {
+      "question_id": "q_fallback_8a8b8371",
+      "question": "",
+      "answer": "GOT MARRIED AT THE AGE OF 24 WITH THE WRONG PERSON JUST TO GET USA CITIZENSHIP RESULTING IN REALLY UNHAPPY MARRIED LIFE",
+      "timestamp": "2025-04-02T22:50:53.152076"
+    },
+    {
+      "question_id": "q_fallback_8fa81de2",
+      "question": "",
+      "answer": "NO SIGNIFICANT EXPERIENCES",
+      "timestamp": "2025-04-02T22:51:10.091221"
+    },
+    {
+      "question_id": "q_vedic_initial_1",
+      "question": "",
+      "answer": "I DONT KNOW MY BIRTH TIME AT ALL",
+      "timestamp": "2025-04-02T23:04:30.990746"
+    },
+    {
+      "question_id": "q_fallback_a0f60e44",
+      "question": "",
+      "answer": "NO PATTERNS OR SIGNIFICANT EXPERICES RELATED TO MY CAREER",
+      "timestamp": "2025-04-02T23:07:31.760024"
+    },
+    {
+      "question_id": "q_fallback_9a7a7ddb",
+      "question": "",
+      "answer": "MOVE ON",
+      "timestamp": "2025-04-02T23:07:40.513374"
+    },
+    {
+      "question_id": "q_fallback_63d12099",
+      "question": "",
+      "answer": "experiences related to your career.",
+      "timestamp": "2025-04-02T23:07:55.304443"
+    },
+    {
+      "question_id": "q_fallback_e8075a4e",
+      "question": "",
+      "answer": "ADAMANT, UNYIELDING, ALWAYS WANTED TO BE SUCCESSFUL QUICKLY, RESULTING IN ME MAKING WRONG LIFE DECISIONS, NEVER ACCEPTED MY FAULTS AND SHORTCOMINGS, EGOISTIC, ALWAYS THINK I AM RIGHT",
+      "timestamp": "2025-04-02T23:08:32.530650"
+    }
+  ],
+  "current_question": {
+    "id": "q_fallback_8f90ee2a",
+    "text": "Tell me about any patterns or significant experiences related to your personality.",
+    "type": "text",
+    "category": "personality"
+  },
+  "confidence": 70.0
+}

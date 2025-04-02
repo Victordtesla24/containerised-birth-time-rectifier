@@ -13,10 +13,16 @@ import random
 import os
 import string
 from typing import Dict, Any, Optional, Callable, Awaitable
+from datetime import datetime, timedelta
+import secrets
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
+from fastapi import FastAPI, Response, Request
+
+from ai_service.core.config import settings
 
 # Try to import Redis
 try:
@@ -51,6 +57,12 @@ EXCLUDED_PATHS = [
     "/openapi.json",
     "/redoc",
     "/api/health/basic",  # Skip session for basic health check
+    "/health",  # Skip all root health endpoints
+    "/api/v1/health",  # Skip all v1 health endpoints
+    "/api/v1/health/",  # Skip all v1 health sub-endpoints
+    "/api/v1/health/ping",  # Skip ping endpoint
+    "/api/v1/health/basic",  # Skip basic endpoint
+    "/debug/routes",  # Skip debug endpoints
 ]
 
 # Session cookie settings
@@ -296,315 +308,593 @@ def persist_session(session_id: str, data: Dict, ttl: int = SESSION_TTL) -> bool
         logger.error(f"Error saving session to file: {e}")
         return False
 
-class SimpleSessionMiddleware(BaseHTTPMiddleware):
-    """Middleware for handling sessions in FastAPI."""
+class SessionStorage:
+    """Abstract base class for session storage implementations."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        """
-        Main middleware function to process requests.
+    async def get_session(self, session_id: str) -> Dict[str, Any]:
+        """Get a session by ID."""
+        raise NotImplementedError("Subclasses must implement get_session")
 
-        Args:
-            request: The FastAPI request
-            call_next: The next middleware/handler in the chain
+    async def set_session(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Set session data for a session ID."""
+        raise NotImplementedError("Subclasses must implement set_session")
 
-        Returns:
-            FastAPI response
-        """
-        # Skip session handling for excluded paths
-        path = request.url.path
-        for excluded_path in EXCLUDED_PATHS:
-            if path.startswith(excluded_path):
-                return await call_next(request)
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session by ID."""
+        raise NotImplementedError("Subclasses must implement delete_session")
 
-        # Get or create session ID
-        session_id = _get_session_id_from_cookie(request) or _generate_session_id()
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions."""
+        raise NotImplementedError("Subclasses must implement cleanup_expired_sessions")
 
-        # Initialize empty session
-        session = {"session_id": session_id}
+class RedisSessionStorage(SessionStorage):
+    """Redis-based session storage implementation."""
 
-        # Try to load session data (from Redis or file)
+    def __init__(self):
+        """Initialize Redis connection using application settings."""
+        self.initialized = False
+        self.redis_client = None
+        self.prefix = getattr(settings.redis, "prefix", "birth_time_rectifier:") if hasattr(settings, "redis") else "birth_time_rectifier:"
+        self.is_connected = False
+
+        # Initialize Redis with retry logic
+        self._initialize_redis()
+
+    def _initialize_redis(self) -> None:
+        """Initialize Redis with retry logic."""
+        if not hasattr(settings, "redis") or not getattr(settings.redis, "use_redis", False):
+            logger.info("Redis usage is disabled in settings")
+            return
+
         try:
-            session_data = await load_session(session_id)
-            if session_data:
-                session = session_data
-        except Exception as e:
-            logger.warning(f"Failed to load session {session_id}: {e}")
-            # Continue with empty session
+            # Import redis module
+            import redis
 
-        # Add session to request state
-        request.state.session = session
+            # Create Redis client with connection pool
+            self.redis_client = redis.Redis(
+                host=getattr(settings.redis, "host", "localhost"),
+                port=getattr(settings.redis, "port", 6379),
+                db=getattr(settings.redis, "db", 0),
+                password=getattr(settings.redis, "password", None),
+                socket_timeout=getattr(settings.redis, "connection_timeout", 5),
+                socket_connect_timeout=getattr(settings.redis, "connection_timeout", 5),
+                health_check_interval=30,
+                retry_on_timeout=True
+            )
+
+            # Test connection
+            self.redis_client.ping()
+
+            # Connection successful
+            self.is_connected = True
+            self.initialized = True
+            logger.info(f"Successfully connected to Redis at {getattr(settings.redis, 'host', 'localhost')}:{getattr(settings.redis, 'port', 6379)}")
+        except Exception as e:
+            logger.warning(f"Failed to connect to Redis: {str(e)}")
+            self.redis_client = None
+            self.is_connected = False
+            logger.warning("Redis connection failed. Will fall back to file-based storage.")
+
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session data from Redis."""
+        if not self.is_connected or not self.redis_client:
+            return None
+
+        try:
+            key = f"{self.prefix}session:{session_id}"
+            data = self.redis_client.get(key)
+
+            if data:
+                try:
+                    # Convert bytes to string if needed
+                    if isinstance(data, bytes):
+                        data = data.decode('utf-8')
+
+                    # Parse JSON data
+                    session_data = json.loads(data)
+
+                    # Check expiration if stored in session
+                    if "expires_at" in session_data:
+                        expires_at = datetime.fromisoformat(session_data["expires_at"])
+                        if expires_at < datetime.now():
+                            logger.debug(f"Session {session_id} has expired")
+                            if self.redis_client:
+                                self.redis_client.delete(key)
+                            return None
+
+                    logger.debug(f"Retrieved session {session_id} from Redis")
+                    return session_data
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON in Redis for session {session_id}")
+                    return None
+            else:
+                logger.debug(f"No session found in Redis for {session_id}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error retrieving session from Redis: {e}")
+            return None
+
+    async def set_session(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Set session data in Redis."""
+        if not self.is_connected or not self.redis_client:
+            return False
+
+        try:
+            key = f"{self.prefix}session:{session_id}"
+
+            # Add expiration timestamp if not present
+            if "expires_at" not in data:
+                expiry_days = 30  # Default to 30 days
+                expires_at = datetime.now() + timedelta(days=expiry_days)
+                data["expires_at"] = expires_at.isoformat()
+
+            # Calculate seconds until expiration
+            expires_at = datetime.fromisoformat(data["expires_at"])
+            ttl = int((expires_at - datetime.now()).total_seconds())
+
+            # Ensure ttl is positive
+            if ttl < 0:
+                ttl = 3600  # Default to 1 hour if expiration is in the past
+
+            # Store in Redis with expiration
+            if self.redis_client:
+                self.redis_client.setex(
+                    key,
+                    ttl,
+                    json.dumps(data)
+                )
+
+            logger.debug(f"Saved session {session_id} to Redis with TTL {ttl} seconds")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving session to Redis: {e}")
+            return False
+
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete session from Redis."""
+        if not self.is_connected:
+            return False
+
+        try:
+            key = f"{self.prefix}session:{session_id}"
+            self.redis_client.delete(key)
+            logger.debug(f"Deleted session {session_id} from Redis")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error deleting session from Redis: {e}")
+            return False
+
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions from Redis."""
+        # Redis automatically expires keys based on TTL, so this is a no-op
+        return 0
+
+class FileSessionStorage(SessionStorage):
+    """File-based session storage implementation."""
+
+    def __init__(self):
+        """Initialize file-based session storage."""
+        self.session_dir = settings.session.session_dir
+
+        # Ensure session directory exists
+        os.makedirs(self.session_dir, exist_ok=True)
+        logger.info(f"Using file-based session storage in {self.session_dir}")
+
+    async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session data from file."""
+        try:
+            file_path = os.path.join(self.session_dir, f"{session_id}.json")
+
+            if not os.path.exists(file_path):
+                logger.debug(f"No session file found for {session_id}")
+                return None
+
+            with open(file_path, 'r') as f:
+                session_data = json.load(f)
+
+            # Check expiration
+            if "expires_at" in session_data:
+                expires_at = datetime.fromisoformat(session_data["expires_at"])
+                if expires_at < datetime.now():
+                    logger.debug(f"Session {session_id} has expired")
+                    os.unlink(file_path)
+                    return None
+
+            logger.debug(f"Retrieved session {session_id} from file")
+            return session_data
+
+        except Exception as e:
+            logger.error(f"Error retrieving session from file: {e}")
+            return None
+
+    async def set_session(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Set session data in file."""
+        try:
+            file_path = os.path.join(self.session_dir, f"{session_id}.json")
+
+            # Add expiration timestamp if not present
+            if "expires_at" not in data:
+                expiry_days = 30  # Default to 30 days
+                expires_at = datetime.now() + timedelta(days=expiry_days)
+                data["expires_at"] = expires_at.isoformat()
+
+            with open(file_path, 'w') as f:
+                json.dump(data, f)
+
+            logger.info(f"Saved session {session_id} to file")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving session to file: {e}")
+            return False
+
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete session file."""
+        try:
+            file_path = os.path.join(self.session_dir, f"{session_id}.json")
+
+            if os.path.exists(file_path):
+                os.unlink(file_path)
+                logger.debug(f"Deleted session {session_id} file")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error deleting session file: {e}")
+            return False
+
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired session files."""
+        try:
+            count = 0
+            for filename in os.listdir(self.session_dir):
+                if not filename.endswith('.json'):
+                    continue
+
+                file_path = os.path.join(self.session_dir, filename)
+
+                try:
+                    with open(file_path, 'r') as f:
+                        session_data = json.load(f)
+
+                    if "expires_at" in session_data:
+                        expires_at = datetime.fromisoformat(session_data["expires_at"])
+                        if expires_at < datetime.now():
+                            os.unlink(file_path)
+                            count += 1
+
+                except (json.JSONDecodeError, IOError):
+                    # Remove invalid session files
+                    os.unlink(file_path)
+                    count += 1
+
+            logger.info(f"Cleaned up {count} expired session files")
+            return count
+
+        except Exception as e:
+            logger.error(f"Error cleaning up expired sessions: {e}")
+            return 0
+
+class SimpleSessionMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware for session management with dual Redis/file-based storage.
+
+    This middleware provides session management functionality with Redis as the primary
+    storage and file-based storage as a fallback, ensuring the application remains
+    functional even if Redis is unavailable.
+    """
+
+    def __init__(self, app: ASGIApp):
+        """Initialize the session middleware."""
+        super().__init__(app)
+
+        # Try to initialize Redis storage first
+        self.redis_storage = RedisSessionStorage()
+
+        # Always initialize file storage as fallback
+        self.file_storage = FileSessionStorage()
+
+        # Session cookie settings
+        self.cookie_name = settings.session.cookie_name
+        self.cookie_secure = settings.session.cookie_secure
+        self.cookie_httponly = settings.session.cookie_httponly
+        self.cookie_samesite = settings.session.cookie_samesite
+        self.cookie_max_age = settings.session.cookie_max_age
+
+        # Start background cleanup task
+        self.cleanup_task = None
+        self.start_cleanup_task()
+
+    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """Process the request, adding session handling."""
+        # Get or create session ID from cookie
+        session_id = request.cookies.get(self.cookie_name)
+
+        # If no session ID, create one
+        if not session_id:
+            session_id = self._generate_session_id()
+
+        # Store session ID in request state
         request.state.session_id = session_id
 
-        # Call next middleware/handler to get response
+        # Create session data accessor for request
+        request.state.session_data = {}
+
+        # Load session data - try Redis first, then file storage
+        if self.redis_storage and self.redis_storage.is_connected:
+            session_data = await self.redis_storage.get_session(session_id)
+            if session_data:
+                request.state.session_data = session_data
+            else:
+                # Try file storage as fallback
+                session_data = await self.file_storage.get_session(session_id)
+                if session_data:
+                    request.state.session_data = session_data
+        else:
+            # Redis not available, use file storage directly
+            session_data = await self.file_storage.get_session(session_id)
+            if session_data:
+                request.state.session_data = session_data
+
+        # Register session management methods in request
+        request.state.get_session = self.get_session
+        request.state.save_session = self.save_session
+        request.state.clear_session = self.clear_session
+
+        # Process the request
         response = await call_next(request)
 
-        # Save session to storage (redis or file)
-        try:
-            await save_session(request, response, session)
-        except Exception as e:
-            logger.warning(f"Failed to save session {session_id}: {e}")
-            # Continue without saving session
+        # Set session cookie if it's not already set
+        if session_id and self.cookie_name not in response.headers.get("set-cookie", ""):
+            # Convert string to literal for samesite
+            samesite_value = None
+            if self.cookie_samesite.lower() == "lax":
+                samesite_value = "lax"
+            elif self.cookie_samesite.lower() == "strict":
+                samesite_value = "strict"
+            elif self.cookie_samesite.lower() == "none":
+                samesite_value = "none"
+
+            response.set_cookie(
+                key=self.cookie_name,
+                value=session_id,
+                max_age=self.cookie_max_age,
+                secure=self.cookie_secure,
+                httponly=self.cookie_httponly,
+                samesite=samesite_value
+            )
+
+        # Save session data
+        await self.save_session(request, request.state.session_data)
 
         return response
 
-# Utility functions for session management
-def get_session_id(request: Request) -> Optional[str]:
-    """Get session ID from request state or headers."""
-    # Check if session ID is in request state
-    if hasattr(request.state, "session_id"):
-        return request.state.session_id
+    def _generate_session_id(self) -> str:
+        """Generate a new unique session ID."""
+        timestamp = int(time.time())
+        random_part = secrets.token_hex(16)
+        return f"{timestamp}_{random_part}"
 
-    # Check if session ID is in headers
-    return request.headers.get("X-Session-ID")
+    async def get_session(self, request: Request) -> Dict[str, Any]:
+        """Get the current session data."""
+        return request.state.session_data
 
-def persist_session_data(session_id: str, session_data: Dict) -> bool:
-    """
-    Save session data for a given session ID.
+    async def save_session(self, request: Request, data: Dict[str, Any]) -> bool:
+        """Save the session data."""
+        session_id = request.state.session_id
 
-    Args:
-        session_id: The session ID to save
-        session_data: The session data to save
+        # Try Redis first if available
+        if self.redis_storage.is_connected:
+            success = await self.redis_storage.set_session(session_id, data)
+            if success:
+                return True
 
-    Returns:
-        True if successful, False otherwise
+        # Fall back to file storage
+        return await self.file_storage.set_session(session_id, data)
 
-    Raises:
-        RuntimeError: If Redis is not available in production
-    """
-    try:
-        # Store session data and delegate to the full implementation
-        return persist_session(session_id, session_data)
-    except Exception as e:
-        logger.error(f"Error saving session {session_id}: {e}")
-        if not IS_TESTING:
-            raise RuntimeError(f"Error saving session: {e}")
-        return False
+    async def clear_session(self, request: Request) -> bool:
+        """Clear the current session."""
+        session_id = request.state.session_id
+        request.state.session_data = {}
 
-async def create_session(session_id: Optional[str] = None) -> str:
-    """
-    Create a new session.
+        # Try to delete from both storage mechanisms
+        redis_success = True
+        if self.redis_storage.is_connected:
+            redis_success = await self.redis_storage.delete_session(session_id)
 
-    Args:
-        session_id: Optional session ID to use
+        file_success = await self.file_storage.delete_session(session_id)
 
-    Returns:
-        The session ID
+        return redis_success and file_success
 
-    Raises:
-        RuntimeError: If Redis is not available in production
-    """
-    # Generate a new session ID if none provided
-    if not session_id:
-        session_id = str(uuid.uuid4())
-
-    # Create session data
-    session_data = {
-        "created_at": time.time(),
-        "expires_at": time.time() + SESSION_TTL,
-        "status": "active"
-    }
-
-    # Save session
-    persist_session_data(session_id, session_data)
-
-    return session_id
-
-# Export the middleware class directly
-session_middleware = SimpleSessionMiddleware
-
-async def get_session(request: Request) -> Dict[str, Any]:
-    """
-    Get the session data for the request.
-
-    Args:
-        request: The FastAPI request
-
-    Returns:
-        Session data dictionary
-
-    Raises:
-        SessionError: If session cannot be retrieved
-    """
-    # Import in function to avoid circular imports
-    from ai_service.core.config import settings
-
-    # Try to get session ID from cookie, header, or query param
-    session_id = request.cookies.get("session_id")
-    if not session_id:
-        session_id = request.headers.get("X-Session-ID")
-    if not session_id:
-        query_params = request.query_params
-        session_id = query_params.get("session_id")
-
-    # If no session ID found, create a new session
-    if not session_id:
-        # Generate a new session ID if not present
-        session_id = str(uuid.uuid4())
-        request.state.new_session = True
-        request.state.session_id = session_id
-        return {}
-
-    # Store session ID in request state
-    request.state.session_id = session_id
-    request.state.new_session = False
-
-    # Try to load the session
-    try:
-        session_data = await load_session(session_id)
-        return session_data or {}
-    except Exception as e:
-        logger.error(f"Error loading session {session_id}: {e}")
-        # Return empty session but don't raise error to allow app to continue
-        return {}
-
-async def save_session(request: Request, response: Response, session_data: Dict[str, Any]) -> None:
-    """Save session data to storage (Redis or file)."""
-    try:
-        # Try to get Redis client
-        redis_client = None
+    def start_cleanup_task(self) -> None:
+        """Start background task to clean up expired sessions."""
         try:
-            redis_client = getattr(request.app.state, "redis", None) or get_current_redis_client()
-        except Exception as redis_error:
-            logger.warning(f"Could not use Redis for session: {str(redis_error)}")
-            redis_client = None
-
-        # If Redis client is available and properly configured, use it
-        if redis_client and hasattr(redis_client, 'set') and callable(redis_client.set):
-            try:
-                await redis_save_session(redis_client, session_data)
-                return
-            except Exception as redis_save_error:
-                logger.warning(f"Failed to save session to Redis: {str(redis_save_error)}")
-                # Continue with file storage fallback
-        else:
-            logger.debug("Redis client not available or not properly configured, using file storage instead")
-
-        # Use file storage as fallback
-        file_storage_path = os.environ.get("SESSION_FILE_PATH",
-                                        os.path.join(os.getcwd(), "ai_service", "sessions"))
-        # Ensure directory exists
-        os.makedirs(file_storage_path, exist_ok=True)
-
-        # Save to file
-        file_path = os.path.join(file_storage_path, f"{session_data['session_id']}.json")
-        with open(file_path, "w") as f:
-            json.dump(session_data, f)
-
-        logger.info(f"Saved session {session_data['session_id']} to file")
-
-    except Exception as e:
-        # Don't crash - just log the error
-        logger.error(f"Failed to save session {session_data.get('session_id', 'unknown')}: {str(e)}")
-
-async def redis_save_session(redis_client, session_data: Dict[str, Any]) -> None:
-    """Save session data to Redis.
-
-    Args:
-        redis_client: Redis client instance
-        session_data: Session data to save
-    """
-    # First check if redis_client is None
-    if redis_client is None:
-        logger.warning("Redis client is None, cannot save session to Redis")
-        raise RuntimeError("Redis client is not available")
-
-    session_id = session_data.get('session_id')
-    if not session_id:
-        logger.error("Cannot save session without session_id")
-        return
-
-    # Get session expiry time from configuration
-    session_expiry = 3600  # Default 1 hour
-    try:
-        from ai_service.core.config import settings
-        session_expiry = getattr(settings, "SESSION_EXPIRY", 3600)
-    except ImportError:
-        logger.warning("Could not import settings, using default session expiry")
-
-    # Serialize session data
-    session_data_json = json.dumps(session_data)
-
-    # Handle both sync and async Redis clients
-    if hasattr(redis_client, 'set') and callable(redis_client.set):
-        if asyncio.iscoroutinefunction(redis_client.set):
-            # Async Redis client
-            await redis_client.set(
-                f"session:{session_id}",
-                session_data_json,
-                ex=session_expiry
-            )
-        else:
-            # Sync Redis client
-            redis_client.set(
-                f"session:{session_id}",
-                session_data_json,
-                ex=session_expiry
-            )
-    else:
-        logger.error("Redis client doesn't have set method")
-        raise RuntimeError("Invalid Redis client configuration")
-
-def _generate_session_id() -> str:
-    """Generate a random session ID."""
-    random_part = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
-    timestamp = int(time.time())
-    return f"{timestamp}_{random_part}"
-
-def _get_session_id_from_cookie(request: Request) -> Optional[str]:
-    """Get session ID from cookies."""
-    if SESSION_COOKIE_NAME in request.cookies:
-        return request.cookies[SESSION_COOKIE_NAME]
-    return None
-
-async def load_session(session_id: str) -> Optional[Dict[str, Any]]:
-    """Load session data from Redis or file storage."""
-    # Try Redis first
-    redis_client = None
-    try:
-        redis_client = get_current_redis_client()
-    except Exception as e:
-        logger.warning(f"Failed to get Redis client: {e}")
-        redis_client = None
-
-    if redis_client:
-        try:
-            # Handle both async and sync Redis clients
-            if hasattr(redis_client, 'get') and callable(redis_client.get):
-                if asyncio.iscoroutinefunction(redis_client.get):
-                    # Async Redis client
-                    session_data = await redis_client.get(f"session:{session_id}")
-                else:
-                    # Sync Redis client
-                    session_data = redis_client.get(f"session:{session_id}")
-
-                # Parse JSON if we got data
-                if session_data:
-                    if isinstance(session_data, bytes):
-                        return json.loads(session_data.decode('utf-8'))
-                    elif isinstance(session_data, str):
-                        return json.loads(session_data)
-                    elif isinstance(session_data, dict):
-                        return session_data
+            loop = asyncio.get_event_loop()
+            self.cleanup_task = loop.create_task(self._periodic_cleanup())
         except Exception as e:
-            logger.warning(f"Redis error when loading session: {e}")
-            # Fall back to file storage
+            logger.error(f"Failed to start session cleanup task: {e}")
 
-    # Try file storage as fallback
-    try:
-        file_storage_path = os.environ.get("SESSION_FILE_PATH",
-                                         os.path.join(os.getcwd(), "ai_service", "sessions"))
-        file_path = os.path.join(file_storage_path, f"{session_id}.json")
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                content = f.read()
-                if content.strip():  # Check if file is not empty
-                    return json.loads(content)
-                else:
-                    logger.warning(f"Empty session file found for {session_id}")
-    except json.JSONDecodeError as e:
-        logger.warning(f"File storage JSON error when loading session: {e}")
-    except Exception as e:
-        logger.warning(f"File storage error when loading session: {e}")
+    async def _periodic_cleanup(self) -> None:
+        """Periodically clean up expired sessions."""
+        try:
+            while True:
+                # Run cleanup every day
+                await asyncio.sleep(24 * 60 * 60)
 
-    # Return None if no session found
-    return None
+                try:
+                    # Clean up file storage
+                    file_count = await self.file_storage.cleanup_expired_sessions()
+                    logger.info(f"Cleaned up {file_count} expired session files")
+
+                    # Clean up Redis storage (if connected)
+                    if self.redis_storage.is_connected:
+                        redis_count = await self.redis_storage.cleanup_expired_sessions()
+                        if redis_count > 0:
+                            logger.info(f"Cleaned up {redis_count} expired Redis sessions")
+
+                except Exception as e:
+                    logger.error(f"Error during session cleanup: {e}")
+
+        except asyncio.CancelledError:
+            logger.info("Session cleanup task cancelled")
+        except Exception as e:
+            logger.error(f"Error in session cleanup task: {e}")
+
+# Helper function to get session service
+def get_session_service():
+    """Get the session service."""
+    # Direct access to session middleware is not supported
+    # Return a lightweight session service interface instead
+    return SessionService()
+
+class SessionService:
+    """
+    Session service interface for accessing session data.
+
+    This service provides simplified access to session functionality,
+    without requiring direct access to the middleware.
+    """
+
+    def __init__(self):
+        """Initialize the session service."""
+        # Initialize storages
+        self.redis_storage = None
+        self.file_storage = None
+
+        # Flag to track initialization
+        self.initialized = False
+
+    def _init_if_needed(self):
+        """Initialize storage if not already done."""
+        if not self.initialized:
+            self.redis_storage = RedisSessionStorage()
+            self.file_storage = FileSessionStorage()
+            self.initialized = True
+
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get session data for a session ID."""
+        self._init_if_needed()
+
+        # Try Redis first if available
+        if (self.redis_storage is not None and
+            hasattr(self.redis_storage, "is_connected") and
+            self.redis_storage.is_connected):
+            try:
+                data = asyncio.run(self.redis_storage.get_session(session_id))
+                if data:
+                    return data
+            except Exception as e:
+                logger.error(f"Error getting session from Redis: {e}")
+
+        # Fall back to file storage
+        try:
+            if self.file_storage is not None:
+                return asyncio.run(self.file_storage.get_session(session_id))
+        except Exception as e:
+            logger.error(f"Error getting session from file: {e}")
+            return None
+
+    def create_session(self, session_id: Optional[str] = None, data: Optional[Dict[str, Any]] = None) -> str:
+        """Create a new session."""
+        self._init_if_needed()
+
+        # Generate session ID if not provided
+        if not session_id:
+            timestamp = int(time.time())
+            random_part = secrets.token_hex(16)
+            session_id = f"{timestamp}_{random_part}"
+
+        # Initialize empty data if not provided
+        if data is None:
+            data = {}
+
+        # Add creation timestamp
+        data["created_at"] = datetime.now().isoformat()
+
+        # Add expiration timestamp
+        expiry_days = 30  # Default to 30 days
+        expires_at = datetime.now() + timedelta(days=expiry_days)
+        data["expires_at"] = expires_at.isoformat()
+
+        # Try to save session - Redis first if available
+        if (self.redis_storage is not None and
+            hasattr(self.redis_storage, "is_connected") and
+            self.redis_storage.is_connected):
+            try:
+                success = asyncio.run(self.redis_storage.set_session(session_id, data))
+                if success:
+                    logger.info(f"Created session {session_id} in Redis")
+                    return session_id
+            except Exception as e:
+                logger.error(f"Error creating session in Redis: {e}")
+
+        # Fall back to file storage
+        if self.file_storage is not None:
+            try:
+                success = asyncio.run(self.file_storage.set_session(session_id, data))
+                if success:
+                    logger.info(f"Created session {session_id} in file storage")
+                    return session_id
+            except Exception as e:
+                logger.error(f"Error creating session in file: {e}")
+
+        # Return session ID even if storage failed
+        return session_id
+
+    def update_session(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Update an existing session."""
+        self._init_if_needed()
+
+        # Get existing session first
+        existing_data = self.get_session(session_id)
+        if not existing_data:
+            logger.warning(f"Cannot update non-existent session {session_id}")
+            return False
+
+        # Merge new data with existing data
+        existing_data.update(data)
+
+        # Update last accessed timestamp
+        existing_data["last_accessed"] = datetime.now().isoformat()
+
+        # Try to save session
+        if self.redis_storage.is_connected:
+            # Try Redis first
+            try:
+                success = asyncio.run(self.redis_storage.set_session(session_id, existing_data))
+                if success:
+                    return True
+            except Exception as e:
+                logger.error(f"Error updating session in Redis: {e}")
+
+        # Fall back to file storage
+        try:
+            success = asyncio.run(self.file_storage.set_session(session_id, existing_data))
+            return success
+        except Exception as e:
+            logger.error(f"Error updating session in file: {e}")
+            return False
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session."""
+        self._init_if_needed()
+
+        redis_success = True
+        if self.redis_storage.is_connected:
+            # Try Redis first
+            try:
+                redis_success = asyncio.run(self.redis_storage.delete_session(session_id))
+            except Exception as e:
+                logger.error(f"Error deleting session from Redis: {e}")
+                redis_success = False
+
+        # Always try file storage as well
+        try:
+            file_success = asyncio.run(self.file_storage.delete_session(session_id))
+            return redis_success and file_success
+        except Exception as e:
+            logger.error(f"Error deleting session from file: {e}")
+            return False

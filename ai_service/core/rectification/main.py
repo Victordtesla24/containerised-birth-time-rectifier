@@ -327,7 +327,7 @@ async def rectify_birth_time(
                 )
 
         return rectified_dt, confidence
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Error in rectification process: {str(e)}")
         logger.error(traceback.format_exc())
 
@@ -546,7 +546,7 @@ def harmonic_time_refinement(
             adjusted_dt = birth_dt + timedelta(minutes=offset)
             adjusted_chart = calculate_chart(adjusted_dt, latitude, longitude, timezone)
             if not adjusted_chart:
-            continue
+                continue
 
             harmonic_score = analyze_harmonic_pattern(adjusted_chart)
             if harmonic_score > best_harmonic_score:
@@ -683,7 +683,7 @@ def questionnaire_based_rectification(
             while current <= end_time:
                 candidate_times.append(current)
                 current += timedelta(minutes=20)
-            else:
+        else:
             # No time indicator - generate candidates across the full day
             # with higher density during statistically common birth times
             day_start = birth_dt.replace(hour=0, minute=0, second=0, microsecond=0)

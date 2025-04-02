@@ -24,6 +24,42 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter()
 
+async def nominatim_geocode_direct(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Direct Nominatim geocoding function for testing purposes.
+
+    Args:
+        query: Location to geocode
+        limit: Maximum number of results to return
+
+    Returns:
+        List of location dictionaries with coordinates and address components
+    """
+    try:
+        import httpx
+
+        # Call the Nominatim API directly
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={
+                    "q": query,
+                    "format": "json",
+                    "addressdetails": 1,
+                    "limit": limit
+                },
+                headers={"User-Agent": "Birth-Time-Rectifier/1.0"}
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"Nominatim direct geocoding HTTP error: {response.status_code}")
+                return []
+    except Exception as e:
+        logger.error(f"Nominatim direct geocoding failed: {str(e)}")
+        return []
+
 @router.get("", summary="Geocode a location to coordinates and timezone")
 async def geocode_endpoint(
     query: str = Query(..., description="Location to geocode"),

@@ -35,6 +35,9 @@ async def initialize_session() -> Dict[str, Any]:
 
     Returns a session ID that must be included in subsequent requests as the X-Session-ID header.
     """
+    # Get the session service
+    session_service = get_session_service()
+
     # Generate a unique session ID
     session_id = str(uuid.uuid4())
 
@@ -43,6 +46,16 @@ async def initialize_session() -> Dict[str, Any]:
 
     # Get current time plus expiry in seconds
     expires_at = int(time.time()) + session_expiry
+
+    # Create and store the session
+    session_service.create_session(
+        session_id=session_id,
+        data={
+            "expires_at": expires_at,
+            "status": "active",
+            "created_at": int(time.time())
+        }
+    )
 
     logger.info(f"Created new session: {session_id}")
 
@@ -69,24 +82,38 @@ async def get_session_status(
     if not session_id:
         raise HTTPException(status_code=400, detail="X-Session-ID header is required")
 
-    # For now, return a basic status since we don't have session storage yet
-    # In a real implementation, we would validate the session against storage
+    # Get the session service
+    session_service = get_session_service()
+
+    # Get session data from the database
+    session_data = session_service.get_session(session_id)
+
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+
+    # Return session status
     return {
         "session_id": session_id,
-        "status": "active",
+        "status": session_data.get("data", {}).get("status", "active"),
         "last_activity": int(time.time())
     }
 
 @router.post("/data")
 async def update_session_data(
-    session_id: str,
-    data: Dict[str, Any]
+    data: Dict[str, Any],
+    session_id: Optional[str] = Header(None, alias="X-Session-ID")
 ):
     """
     Update session data.
 
     Adds or updates custom data in the session.
     """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="X-Session-ID header is required")
+
     # Get session service
     session_service = get_session_service()
 
@@ -108,12 +135,17 @@ async def update_session_data(
     }
 
 @router.get("/data")
-async def get_session_data(session_id: str):
+async def get_session_data(
+    session_id: Optional[str] = Header(None, alias="X-Session-ID")
+):
     """
     Get session data.
 
     Returns all custom data stored in the session.
     """
+    if not session_id:
+        raise HTTPException(status_code=400, detail="X-Session-ID header is required")
+
     # Get session service
     session_service = get_session_service()
 

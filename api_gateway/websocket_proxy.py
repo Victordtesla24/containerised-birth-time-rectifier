@@ -21,8 +21,10 @@ from jsonschema import ValidationError
 from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 import random
 import re
+from contextlib import asynccontextmanager
 
 from fastapi import WebSocket, WebSocketDisconnect, status
+from starlette.websockets import WebSocketState
 import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
@@ -38,7 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("api_gateway.websocket_proxy")
 
 # Configuration from environment variables
-AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://ai_service:8001/ws")
+AI_SERVICE_WS_URL = os.getenv("AI_SERVICE_WS_URL", "ws://localhost:8001/ws")
 WS_PING_INTERVAL = int(os.getenv("WS_PING_INTERVAL", "20"))
 WS_PING_TIMEOUT = int(os.getenv("WS_PING_TIMEOUT", "20"))
 WS_MAX_SIZE = int(os.getenv("WS_MAX_SIZE", "16777216"))  # 16MB
@@ -46,6 +48,33 @@ WS_MAX_QUEUE = int(os.getenv("WS_MAX_QUEUE", "32"))
 WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))
 WS_RETRY_ATTEMPTS = int(os.getenv("WS_RETRY_ATTEMPTS", "3"))
 WS_RETRY_DELAY = int(os.getenv("WS_RETRY_DELAY", "2"))
+
+@asynccontextmanager
+async def create_task_group():
+    """Context manager for managing a group of tasks that are started together.
+
+    Similar to anyio's TaskGroup but using asyncio primitives.
+    """
+    tasks = set()
+
+    async def start_soon(func, *args, **kwargs):
+        task = asyncio.create_task(func(*args, **kwargs))
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return task
+
+    try:
+        yield type('TaskGroup', (), {'start_soon': start_soon})
+    finally:
+        if tasks:
+            # Cancel all remaining tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+
+            # Wait for all tasks to complete or cancel
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
 class WebSocketProxy:
     """
@@ -153,13 +182,10 @@ class WebSocketProxy:
         upstream_url: str,
         client_id: str,
         token: str,
-        ping_interval: int = 30
+        ping_interval: int = 20
     ) -> None:
         """
-        Handle WebSocket connection by proxying messages between client and AI service.
-
-        This implementation includes robust message validation, automatic reconnection,
-        error recovery, and proper error reporting to ensure reliable WebSocket communication.
+        Handle WebSocket connection between client and AI service.
 
         Args:
             websocket: Client WebSocket connection
@@ -169,283 +195,198 @@ class WebSocketProxy:
             token: Authentication token (if any)
             ping_interval: Interval for sending ping messages (seconds)
         """
-        # Initialize connection state
-        connection_attempt = 0
-        max_reconnect_attempts = 5
-        backoff_factor = 1.5
-        retry_delay = 1.0
+        # Initialize connection tracking
         upstream_ws = None
-        pending_tasks = set()
-        heartbeat_task = None
-        client_receiver_task = None
-        upstream_receiver_task = None
-        last_connection_error = None
-        is_client_connected = True
         is_upstream_connected = False
-        message_queue = []
-        max_queue_size = 100
 
-        # Initialize connection metrics
-        connection_start_time = time.time()
-        messages_sent = 0
-        messages_received = 0
-        reconnection_count = 0
+        # Make sure the session_id is in the URL
+        if not upstream_url.endswith('/'):
+            upstream_url += '/'
+        if not upstream_url.endswith(f'/{session_id}'):
+            upstream_url += session_id
 
-        # Initialize connection state tracking
-        self.connection_status[session_id] = {
-            "client_connected": True,
-            "upstream_connected": False,
-            "last_client_message": time.time(),
-            "last_upstream_message": time.time(),
-            "reconnect_count": 0,
-            "client_id": client_id,
-            "errors": [],
-            "connection_quality": "initializing"
-        }
+        logger.info(f"Connecting to upstream WebSocket at {upstream_url}")
 
         try:
-            # Send initial connection status to client
+            # First notify client that we're connecting
             await websocket.send_json({
                 "type": "connection_status",
-                "status": "connecting_to_service",
+                "status": "connecting",
+                "message": "Connecting to upstream service...",
                 "session_id": session_id,
-                "client_id": client_id,
-                "timestamp": time.time()
+                "timestamp": datetime.now().isoformat()
             })
 
-            # Main connection loop with reconnection logic
-            while connection_attempt <= max_reconnect_attempts and is_client_connected:
-                try:
-                    # Disconnect existing connection if any
-                    if upstream_ws and is_upstream_connected:
-                        try:
-                            await upstream_ws.close()
-                        except Exception:
-                            pass  # Ignore errors when closing
+            # Connect to upstream WebSocket
+            upstream_ws = await self.connect_to_upstream_ws(upstream_url, session_id, token)
+            is_upstream_connected = True
 
-                    # Connect to upstream WebSocket
-                    logger.info(f"Connecting to upstream WebSocket at {upstream_url} (attempt {connection_attempt+1}/{max_reconnect_attempts+1})")
+            # Inform client of successful connection
+            await websocket.send_json({
+                "type": "connection_status",
+                "status": "connected",
+                "message": "Connected to upstream service",
+                "session_id": session_id,
+                "timestamp": datetime.now().isoformat()
+            })
 
-                    # Send connecting status to client
-                    if connection_attempt > 0:
-                        try:
-                            await websocket.send_json({
-                                "type": "connection_status",
-                                "status": "reconnecting",
-                                "session_id": session_id,
-                                "client_id": client_id,
-                                "attempt": connection_attempt + 1,
-                                "max_attempts": max_reconnect_attempts + 1,
-                                "timestamp": time.time()
-                            })
-                        except Exception as e:
-                            logger.warning(f"Failed to send reconnecting status to client: {e}")
-                            is_client_connected = False
-                            break
+            # Create tasks for bidirectional message handling and heartbeat
+            client_to_upstream = asyncio.create_task(
+                self.forward_client_messages(websocket, upstream_ws, session_id)
+            )
+            upstream_to_client = asyncio.create_task(
+                self.forward_upstream_messages(upstream_ws, websocket, session_id)
+            )
+            heartbeat_task = asyncio.create_task(
+                self.heartbeat(websocket, upstream_ws, ping_interval)
+            )
 
-                    # Apply exponential backoff for reconnection attempts
-                    if connection_attempt > 0:
-                        backoff_time = retry_delay * (backoff_factor ** (connection_attempt - 1))
-                        logger.info(f"Waiting {backoff_time:.2f}s before reconnection attempt")
-                        await asyncio.sleep(backoff_time)
+            # Wait for any task to complete (error or disconnect)
+            done, pending = await asyncio.wait(
+                [client_to_upstream, upstream_to_client, heartbeat_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
 
-                    # Connect to upstream with timeout
-                    try:
-                        upstream_ws = await asyncio.wait_for(
-                            self.connect_to_upstream_ws(upstream_url, session_id, token),
-                            timeout=10.0
-                        )
-                    except asyncio.TimeoutError:
-                        logger.error("Timeout connecting to upstream WebSocket")
-                        last_connection_error = "connection_timeout"
-                        connection_attempt += 1
-                        reconnection_count += 1
-                        continue
+            # Cancel remaining tasks
+            for task in pending:
+                task.cancel()
 
-                    # Update connection state
-                    is_upstream_connected = True
-                    self.connection_status[session_id]["upstream_connected"] = True
-                    self.connection_status[session_id]["last_upstream_message"] = time.time()
-                    self.connection_status[session_id]["reconnect_count"] = reconnection_count
+            # Wait for tasks to finish cancellation
+            await asyncio.gather(*pending, return_exceptions=True)
 
-                    # Calculate and update connection quality
-                    if reconnection_count == 0:
-                        connection_quality = "excellent"
-                    elif reconnection_count == 1:
-                        connection_quality = "good"
-                    elif reconnection_count <= 3:
-                        connection_quality = "fair"
-                    else:
-                        connection_quality = "poor"
+            # Log which task completed first
+            logger.info(f"WebSocket session {session_id}: A task completed, closing connection")
 
-                    self.connection_status[session_id]["connection_quality"] = connection_quality
-
-                    # Notify client of successful connection
-                    await websocket.send_json({
-                        "type": "connection_status",
-                        "status": "connected",
-                        "session_id": session_id,
-                        "client_id": client_id,
-                        "reconnection_count": reconnection_count,
-                        "connection_quality": connection_quality,
-                        "timestamp": time.time()
-                    })
-
-                    # Process any queued messages
-                    if message_queue:
-                        queued_messages = message_queue.copy()
-                        message_queue = []
-                        logger.info(f"Processing {len(queued_messages)} queued messages for session {session_id}")
-
-                        for queued_message in queued_messages:
-                            try:
-                                # Validate message with improved validation
-                                is_valid, error_message, parsed_message = self._validate_message(
-                                    json.dumps(queued_message) if isinstance(queued_message, dict) else queued_message
-                                )
-
-                                if is_valid and parsed_message:
-                                    # Add metadata to outgoing messages
-                                    if isinstance(parsed_message, dict):
-                                        if "timestamp" not in parsed_message:
-                                            parsed_message["timestamp"] = time.time()
-                                        if "client_id" not in parsed_message:
-                                            parsed_message["client_id"] = client_id
-
-                                    # Send message with error handling
-                                    try:
-                                        await upstream_ws.send_json(parsed_message)
-                                        messages_sent += 1
-                                        logger.debug(f"Sent queued message to upstream: {json.dumps(parsed_message)[:100]}...")
-                                    except Exception as send_error:
-                                        logger.error(f"Failed to send queued message: {send_error}")
-                                        # Re-queue the message for next reconnection attempt
-                                        if len(message_queue) < max_queue_size:
-                                            message_queue.append(queued_message)
-                                else:
-                                    logger.warning(f"Skipping invalid queued message: {error_message}")
-                            except Exception as queue_error:
-                                logger.error(f"Error processing queued message: {queue_error}")
-
-                    # Set up client message forwarding to upstream
-                    client_receiver_task = asyncio.create_task(
-                        self.forward_to_upstream(websocket, upstream_ws, session_id)
-                    )
-                    pending_tasks.add(client_receiver_task)
-                    client_receiver_task.add_done_callback(pending_tasks.discard)
-
-                    # Set up upstream message forwarding to client
-                    upstream_receiver_task = asyncio.create_task(
-                        self.forward_to_client(websocket, upstream_ws, session_id)
-                    )
-                    pending_tasks.add(upstream_receiver_task)
-                    upstream_receiver_task.add_done_callback(pending_tasks.discard)
-
-                    # Set up heartbeat task for connection monitoring
-                    heartbeat_task = asyncio.create_task(
-                        self._send_heartbeats(websocket, session_id, client_id, ping_interval)
-                    )
-                    pending_tasks.add(heartbeat_task)
-                    heartbeat_task.add_done_callback(pending_tasks.discard)
-
-                    # Wait for any task to complete (which indicates connection issue)
-                    done, pending = await asyncio.wait(
-                        pending_tasks,
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
-
-                    # Check which task completed and why
-                    for task in done:
-                        exception = task.exception()
-                        if exception:
-                            logger.warning(f"Task failed with exception: {exception}")
-                            # Record the error for diagnostics
-                            error_type = type(exception).__name__
-                            error_message = str(exception)
-
-                            # Update connection status with error
-                            self.connection_status[session_id]["errors"].append({
-                                "type": error_type,
-                                "message": error_message,
-                                "timestamp": time.time()
-                            })
-
-                            # Determine if client connection was lost
-                            if task == client_receiver_task:
-                                logger.info(f"Client {client_id} disconnected")
-                                is_client_connected = False
-
-                            # Determine if upstream connection was lost
-                            if task == upstream_receiver_task:
-                                logger.info(f"Upstream connection lost for session {session_id}")
-                                is_upstream_connected = False
-                                last_connection_error = error_type
-
-                    # Cancel all remaining tasks before reconnection attempt
-                    for task in pending:
-                        task.cancel()
-
-                    # Prepare for next attempt
-                    reconnection_count += 1
-                    connection_attempt += 1
-                    is_upstream_connected = False
-                    self.connection_status[session_id]["upstream_connected"] = False
-
-                    # Don't retry if client connection was lost
-                    if not is_client_connected:
-                        break
-
-                except Exception as e:
-                    logger.error(f"Error in WebSocket connection loop: {e}")
-                    logger.error(traceback.format_exc())
-
-                    # Record the error
-                    self.connection_status[session_id]["errors"].append({
-                        "type": type(e).__name__,
-                        "message": str(e),
-                        "timestamp": time.time()
-                    })
-
-                    # Prepare for next attempt
-                    last_connection_error = str(e)
-                    connection_attempt += 1
-                    reconnection_count += 1
-                    is_upstream_connected = False
-
-                    # Wait before retry
-                    await asyncio.sleep(1.0)
-
-            # If we've exhausted all reconnection attempts, send error to client
-            if connection_attempt > max_reconnect_attempts and is_client_connected:
-                await websocket.send_json({
-                    "type": "connection_error",
-                    "error": "max_reconnect_attempts_exceeded",
-                    "message": f"Failed to establish connection after {max_reconnect_attempts + 1} attempts",
-                    "last_error": last_connection_error,
-                    "session_id": session_id,
-                    "timestamp": time.time()
-                })
+        except WebSocketDisconnect:
+            logger.info(f"Client disconnected: {session_id}")
 
         except Exception as e:
-            logger.error(f"WebSocket handling error for session {session_id}: {e}")
+            logger.error(f"Error in WebSocket proxy: {e}")
             logger.error(traceback.format_exc())
 
-            # Try to send error to client
-            try:
-                if is_client_connected:
+            # Try to send error to client if still connected
+            if websocket.client_state == WebSocketState.CONNECTED:
+                try:
                     await websocket.send_json({
-                        "type": "connection_error",
-                        "error": "unhandled_exception",
-                        "message": str(e),
-                        "session_id": session_id,
-                        "timestamp": time.time()
+                        "type": "error",
+                        "message": f"Connection error: {str(e)}",
+                        "timestamp": datetime.now().isoformat()
                     })
-            except Exception:
-                pass  # Ignore error sending message
+                except Exception:
+                    pass
 
         finally:
-            # Clean up resources
-            await self.clean_stale_sessions()
+            # Clean up upstream connection if it was established
+            if upstream_ws is not None:
+                logger.info(f"Closing upstream connection for {session_id}")
+                try:
+                    await upstream_ws.close()
+                except Exception as e:
+                    logger.warning(f"Error closing upstream connection: {e}")
+
+            logger.info(f"WebSocket proxy session ended: {session_id}")
+
+    async def forward_client_messages(self, client_ws: WebSocket, upstream_ws: Any, session_id: str) -> None:
+        """Forward messages from client to upstream"""
+        try:
+            while True:
+                # Receive message from client
+                message = await client_ws.receive()
+
+                # Handle different message types
+                if message["type"] == "websocket.disconnect":
+                    logger.info(f"Client disconnected: {session_id}")
+                    break
+
+                if message["type"] == "websocket.receive":
+                    if "text" in message:
+                        # Text message
+                        await upstream_ws.send(message["text"])
+                    elif "bytes" in message:
+                        # Binary message
+                        await upstream_ws.send(message["bytes"])
+
+        except WebSocketDisconnect:
+            logger.info(f"Client disconnected during message forwarding: {session_id}")
+        except Exception as e:
+            logger.error(f"Error forwarding client message: {e}")
+
+    async def forward_upstream_messages(self, upstream_ws: Any, client_ws: WebSocket, session_id: str) -> None:
+        """Forward messages from upstream to client"""
+        try:
+            while True:
+                # Receive message from upstream
+                message = await upstream_ws.recv()
+
+                # Forward to client
+                if isinstance(message, str):
+                    await client_ws.send_text(message)
+                elif isinstance(message, bytes):
+                    await client_ws.send_bytes(message)
+
+        except ConnectionClosed:
+            logger.info(f"Upstream connection closed: {session_id}")
+        except Exception as e:
+            logger.error(f"Error forwarding upstream message: {e}")
+
+    async def heartbeat(self, client_ws: WebSocket, upstream_ws: Any, interval: int) -> None:
+        """Send periodic heartbeat messages to keep connections alive"""
+        try:
+            while True:
+                await asyncio.sleep(interval)
+
+                # Send ping to upstream
+                if upstream_ws:
+                    try:
+                        await upstream_ws.ping()
+                    except Exception as e:
+                        logger.warning(f"Error sending ping to upstream: {e}")
+                        break
+
+                # Send ping to client
+                try:
+                    await client_ws.send_json({"type": "ping", "timestamp": datetime.now().isoformat()})
+                except Exception as e:
+                    logger.warning(f"Error sending ping to client: {e}")
+                    break
+
+        except Exception as e:
+            logger.error(f"Heartbeat error: {e}")
+
+    async def connect_to_upstream_ws(self, upstream_url: str, session_id: str, token: str) -> Any:
+        """Connect to the upstream WebSocket server"""
+        logger.info(f"Connecting to upstream WebSocket at {upstream_url}")
+
+        # Set headers for authentication
+        headers = {
+            "X-Session-ID": session_id,
+            "X-API-Gateway-Source": "true",
+            "X-Client-ID": f"api-gateway-{session_id[:8]}",
+            "Origin": "http://localhost:3001",
+            "User-Agent": "API-Gateway-WebSocket-Client"
+        }
+
+        # Add token if provided
+        if token and token.strip():
+            headers["Authorization"] = f"Bearer {token}"
+
+        try:
+            # Connect to upstream WebSocket
+            websocket = await websockets.connect(
+                upstream_url,
+                extra_headers=headers,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=5,
+                max_size=WS_MAX_SIZE
+            )
+
+            logger.info(f"Successfully connected to upstream WebSocket at {upstream_url}")
+            return websocket
+
+        except Exception as e:
+            logger.error(f"Error connecting to upstream WebSocket: {e}")
+            raise
 
     def _validate_message(self, message_str: str) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """
@@ -743,375 +684,6 @@ class WebSocketProxy:
         if sessions_to_remove:
             logger.info(f"Cleaned up {len(sessions_to_remove)} stale sessions")
 
-    async def connect_to_upstream_ws(self, upstream_url: str, session_id: str, token: str) -> Any:
-        """
-        Connect to the upstream WebSocket service.
-
-        Args:
-            upstream_url: The URL of the upstream WebSocket service
-            session_id: The session ID for authentication
-            token: The authorization token (optional)
-
-        Returns:
-            The connected WebSocket client
-        """
-        try:
-            # Construct headers
-            headers = {}
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-
-            headers["X-Session-ID"] = session_id
-            headers["X-Client-ID"] = f"api-gateway-{uuid.uuid4().hex[:8]}"
-
-            # Connect to the upstream WebSocket
-            logger.info(f"Connecting to upstream WebSocket: {upstream_url}")
-            upstream_ws = await websockets.connect(
-                upstream_url,
-                extra_headers=headers
-            )
-
-            logger.info(f"Connected to upstream WebSocket for session {session_id}")
-            return upstream_ws
-        except websockets.exceptions.InvalidStatusCode as e:
-            logger.error(f"Error connecting to upstream WebSocket: {e}")
-
-            # For 401/403 errors, try connecting without auth token as fallback
-            if e.status_code in (401, 403) and token:
-                logger.info("Trying to connect without authentication token")
-                try:
-                    headers = {
-                        "X-Session-ID": session_id,
-                        "X-Client-ID": f"api-gateway-{uuid.uuid4().hex[:8]}"
-                    }
-                    upstream_ws = await websockets.connect(
-                        upstream_url,
-                        extra_headers=headers
-                    )
-                    logger.info(f"Connected to upstream WebSocket without auth for session {session_id}")
-                    return upstream_ws
-                except Exception as inner_e:
-                    logger.error(f"Error connecting without auth token: {inner_e}")
-
-            # Raise the original exception
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error connecting to upstream WebSocket: {e}")
-            raise
-
-    async def forward_to_upstream(self, websocket: WebSocket, upstream_ws: Any, session_id: str) -> None:
-        """
-        Forward messages from client to upstream service.
-
-        Args:
-            websocket: Client WebSocket connection
-            upstream_ws: Upstream WebSocket connection
-            session_id: Session ID for this connection
-        """
-        try:
-            async for message in websocket.iter_text():
-                if message == "ping":
-                    await websocket.send_text("pong")
-                    continue
-
-                # Update last client message timestamp
-                if session_id in self.connection_status:
-                    self.connection_status[session_id]["last_client_message"] = time.time()
-
-                # Forward the message directly to upstream
-                try:
-                    await upstream_ws.send(message)
-                    logger.debug(f"Forwarded message to upstream: {message[:100]}...")
-                except Exception as e:
-                    # Log the error but propagate it so connection will be reset appropriately
-                    logger.error(f"Error forwarding message to upstream: {e}")
-                    error_message = {
-                        "type": "error",
-                        "code": "UPSTREAM_ERROR",
-                        "message": f"Error forwarding message: {str(e)}"
-                    }
-                    await websocket.send_json(error_message)
-                    # Propagate the error
-                    raise
-        except WebSocketDisconnect:
-            logger.info(f"Client disconnected for session {session_id}")
-            await self._handle_disconnect(session_id, upstream_ws)
-        except ConnectionClosed:
-            logger.info(f"Upstream connection closed for session {session_id}")
-            await self._handle_disconnect(session_id, None, websocket)
-        except Exception as e:
-            logger.error(f"Error in forward_to_upstream: {e}")
-            logger.error(traceback.format_exc())
-            await self._handle_disconnect(session_id, upstream_ws, websocket)
-            # Propagate the error
-            raise
-
-    async def forward_to_client(self, websocket: WebSocket, upstream_ws: Any, session_id: str) -> None:
-        """
-        Forward messages from upstream service to client with validation.
-
-        Args:
-            websocket: Client WebSocket connection
-            upstream_ws: Upstream WebSocket connection
-            session_id: Session ID for this connection
-        """
-        try:
-            async for message in upstream_ws.iter_json():
-                # Update last upstream message timestamp
-                if session_id in self.connection_status:
-                    self.connection_status[session_id]["last_upstream_message"] = time.time()
-
-                try:
-                    # Validate message structure
-                    is_valid, error_message, _ = self._validate_message(json.dumps(message))
-                    if not is_valid:
-                        logger.warning(f"Invalid message from upstream: {error_message}")
-                        # Send error to client but continue processing
-                        error_response = {
-                            "type": "error",
-                            "code": "INVALID_MESSAGE",
-                            "message": f"Invalid message from upstream: {error_message}"
-                        }
-                        await websocket.send_json(error_response)
-                        continue
-
-                    # Process any special messages (e.g., authentication)
-                    if self._handle_special_messages(message, session_id):
-                        continue
-
-                    # Forward the message to the client
-                    await websocket.send_json(message)
-                    logger.debug(f"Forwarded message to client: {str(message)[:100]}...")
-                except Exception as e:
-                    logger.error(f"Error processing upstream message: {e}")
-                    # Send error to client
-                    try:
-                        error_response = {
-                            "type": "error",
-                            "code": "MESSAGE_PROCESSING_ERROR",
-                            "message": f"Error processing message: {str(e)}"
-                        }
-                        await websocket.send_json(error_response)
-                    except Exception:
-                        logger.error("Failed to send error to client")
-
-                    # Continue processing other messages
-                    continue
-        except WebSocketDisconnect:
-            logger.info(f"Client disconnected for session {session_id}")
-            await self._handle_disconnect(session_id, upstream_ws)
-        except ConnectionClosed:
-            logger.info(f"Upstream connection closed for session {session_id}")
-            await self._handle_disconnect(session_id, None, websocket)
-        except Exception as e:
-            logger.error(f"Error in forward_to_client: {e}")
-            logger.error(traceback.format_exc())
-            await self._handle_disconnect(session_id, upstream_ws, websocket)
-            # Propagate the error
-            raise
-
-    async def heartbeat(self, upstream_ws: Any, interval: int = 30) -> None:
-        """
-        Send periodic heartbeats to keep connections alive.
-
-        Args:
-            upstream_ws: Upstream WebSocket connection
-            interval: Interval in seconds between heartbeats
-        """
-        try:
-            while True:
-                await asyncio.sleep(interval)
-
-                # Send heartbeat to upstream
-                try:
-                    await upstream_ws.send_json({
-                        "type": "heartbeat",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    logger.debug("Sent heartbeat to upstream service")
-                except Exception as e:
-                    logger.error(f"Error sending heartbeat to upstream: {e}")
-                    raise
-        except Exception as e:
-            logger.error(f"Error in heartbeat task: {e}")
-            raise
-
-    async def process_message(
-        self,
-        message: Dict[str, Any],
-        session_id: str,
-        source: str = "client"
-    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
-        """
-        Process and transform messages with error recovery.
-
-        This method handles message preprocessing, normalization, and recovery from
-        various error conditions.
-
-        Args:
-            message: The message dictionary to process
-            session_id: The session ID associated with this message
-            source: The source of the message ('client' or 'upstream')
-
-        Returns:
-            Tuple of (success, processed_message_or_error_response)
-        """
-        try:
-            # Ensure required base fields
-            if "message_id" not in message:
-                message["message_id"] = str(uuid.uuid4())
-
-            if "timestamp" not in message:
-                message["timestamp"] = datetime.now().isoformat()
-
-            if "session_id" not in message:
-                message["session_id"] = session_id
-
-            # Apply transformations based on message type
-            message_type = message.get("type", "")
-
-            if message_type == "event":
-                # Normalize event types to lowercase with underscores
-                if "event_type" in message:
-                    message["event_type"] = message["event_type"].lower().replace(" ", "_")
-
-                # Ensure data is always an object
-                if "data" not in message:
-                    message["data"] = {}
-                elif not isinstance(message["data"], dict):
-                    return False, {
-                        "type": "error",
-                        "error_code": "invalid_data_format",
-                        "error_message": "Event data must be an object",
-                        "source_message_id": message.get("message_id"),
-                        "timestamp": datetime.now().isoformat(),
-                        "recoverable": False
-                    }
-
-            elif message_type == "request":
-                # Ensure parameters is an object
-                if "parameters" not in message:
-                    message["parameters"] = {}
-                elif not isinstance(message["parameters"], dict):
-                    return False, {
-                        "type": "error",
-                        "error_code": "invalid_parameters_format",
-                        "error_message": "Request parameters must be an object",
-                        "source_message_id": message.get("message_id"),
-                        "timestamp": datetime.now().isoformat(),
-                        "recoverable": False
-                    }
-
-                # Add source info for tracing
-                message["_source"] = source
-
-            elif message_type == "error":
-                # Ensure error_details exists
-                if "error_details" not in message:
-                    message["error_details"] = {}
-
-                # Log errors for monitoring
-                logger.warning(f"Error message from {source} in session {session_id}: {message.get('error_code')} - {message.get('error_message')}")
-
-            # Track message in metrics
-            self._track_message_metrics(session_id, message_type, source)
-
-            return True, message
-
-        except Exception as e:
-            logger.error(f"Error processing message: {str(e)}\n{traceback.format_exc()}")
-            return False, {
-                "type": "error",
-                "error_code": "message_processing_error",
-                "error_message": f"Failed to process message: {str(e)}",
-                "timestamp": datetime.now().isoformat(),
-                "recoverable": False
-            }
-
-    def _track_message_metrics(self, session_id: str, message_type: str, source: str) -> None:
-        """
-        Track message metrics for monitoring and diagnostics.
-
-        Args:
-            session_id: The session ID
-            message_type: The message type
-            source: The message source
-        """
-        # Initialize session metrics if not existing
-        if session_id not in self.client_metadata:
-            self.client_metadata[session_id] = {
-                "connected_at": datetime.now().isoformat(),
-                "last_activity": datetime.now().isoformat(),
-                "reconnect_count": 0,
-                "client_info": {},
-                "message_counts": {}
-            }
-
-        if "message_counts" not in self.client_metadata[session_id]:
-            self.client_metadata[session_id]["message_counts"] = {}
-
-        metrics = self.client_metadata[session_id]["message_counts"]
-
-        # Update metrics for this message type and source
-        key = f"{source}_{message_type}"
-        if key not in metrics:
-            metrics[key] = 0
-        metrics[key] += 1
-
-        # Update overall counts
-        total_key = f"{source}_total"
-        if total_key not in metrics:
-            metrics[total_key] = 0
-        metrics[total_key] += 1
-
-        # Update timestamp
-        self.client_metadata[session_id]["last_activity"] = datetime.now().isoformat()
-
-    async def _handle_disconnect(self, session_id: str, upstream_ws: Optional[Any] = None, websocket: Optional[WebSocket] = None) -> None:
-        """
-        Handle the disconnection of a WebSocket connection.
-
-        Args:
-            session_id: The session ID
-            upstream_ws: The upstream WebSocket connection (optional)
-            websocket: The client WebSocket connection (optional)
-        """
-        try:
-            # Update connection status
-            if session_id in self.connection_status:
-                self.connection_status[session_id]["client_connected"] = False
-                self.connection_status[session_id]["upstream_connected"] = False
-                self.connection_status[session_id]["disconnected_at"] = time.time()
-
-                # Calculate session duration if we have starting data
-                if "last_client_message" in self.connection_status[session_id]:
-                    start_time = self.connection_status[session_id].get("connected_at", self.connection_status[session_id]["last_client_message"])
-                    self.connection_status[session_id]["session_duration"] = time.time() - start_time
-
-                # Log connection summary
-                logger.info(f"WebSocket session {session_id} ended: duration={self.connection_status[session_id].get('session_duration', 0):.2f}s, "
-                        f"messages_sent={self.connection_status[session_id].get('messages_sent', 0)}, messages_received={self.connection_status[session_id].get('messages_received', 0)}")
-
-            # Clean up resources
-            await self.clean_stale_sessions()
-
-            # Notify client of disconnection if websocket is available
-            if websocket:
-                try:
-                    await websocket.send_json({
-                        "type": "connection_status",
-                        "status": "upstream_disconnected",
-                        "session_id": session_id,
-                        "timestamp": time.time(),
-                        "error": "upstream_disconnected"
-                    })
-                except Exception as e:
-                    logger.error(f"Failed to send disconnect notification: {e}")
-
-        except Exception as e:
-            logger.error(f"Error handling disconnection: {e}")
-            logger.error(traceback.format_exc())
-
     def _handle_special_messages(self, message: Dict[str, Any], session_id: str) -> bool:
         """
         Handle special messages (e.g., authentication) for a session.
@@ -1125,6 +697,61 @@ class WebSocketProxy:
         """
         # Implement special message handling logic here
         return False
+
+    # Add method to handle test events
+    async def send_test_event(self, session_id: str, message: str) -> bool:
+        """
+        Send a test event to a connected client.
+
+        Args:
+            session_id: The session ID to send the event to
+            message: The message to include in the event
+
+        Returns:
+            bool: True if the event was sent successfully
+        """
+        try:
+            # First check if the session is actually connected
+            if not self._connection_exists(session_id):
+                logger.warning(f"Cannot send test event: No active connection for session {session_id}")
+                return False
+
+            # Create event structure
+            event = {
+                "type": "test_event",
+                "message": message,
+                "session_id": session_id,
+                "timestamp": datetime.now().isoformat(),
+                "test": True,
+                "id": str(uuid.uuid4())  # Add a unique ID for tracking
+            }
+
+            # Try to send via the manager with timeout for safety
+            try:
+                return await asyncio.wait_for(
+                    self.ws_manager.send_update(session_id, event),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout sending test event to session {session_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error sending test event to session {session_id}: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+    def _connection_exists(self, session_id: str) -> bool:
+        """
+        Check if a connection exists for the given session ID.
+
+        Args:
+            session_id: The session ID to check
+
+        Returns:
+            True if the connection exists, False otherwise
+        """
+        # Check if the session ID is in the WebSocketManager's active connections
+        return session_id in self.ws_manager.active_connections
 
 # Create a global instance
 proxy = WebSocketProxy()

@@ -95,6 +95,18 @@ async def get_openai_service():
             # Create a new service instance
             _openai_service_instance = OpenAIService(api_key=api_key)
 
+            # Initialize HTTP client explicitly to detect failures early
+            try:
+                # Attempt to initialize the HTTP client
+                if not await _openai_service_instance._ensure_http_client():
+                    logger.error("Failed to initialize HTTP client for OpenAI service")
+                    _openai_service_instance = None
+                    return None
+            except Exception as client_error:
+                logger.error(f"Error initializing HTTP client: {client_error}")
+                _openai_service_instance = None
+                return None
+
             # Successfully initialized
             logger.info("OpenAI service initialized successfully")
 

@@ -34,6 +34,10 @@ class OpenAIService:
         self.max_retries = 3
         self.retry_delay = 1.0
 
+        # Check if aiohttp is available at initialization time
+        if not AIOHTTP_AVAILABLE:
+            self.logger.error("aiohttp package is not installed. OpenAI API calls will fail.")
+
     async def _ensure_http_client(self):
         """Ensure HTTP client is initialized."""
         if self._http_client is None and AIOHTTP_AVAILABLE:
@@ -46,7 +50,12 @@ class OpenAIService:
             if self.organization_id:
                 headers["OpenAI-Organization"] = self.organization_id
 
-            self._http_client = aiohttp.ClientSession(headers=headers)
+            try:
+                self._http_client = aiohttp.ClientSession(headers=headers)
+                return True
+            except Exception as e:
+                self.logger.error(f"Failed to initialize HTTP client: {e}")
+                return False
         return self._http_client is not None
 
     async def chat_completion(

@@ -49,7 +49,7 @@ class QuestionnaireGenerateRequest(BaseModel):
 # Helper function to request data from the AI service
 async def request_ai_service(endpoint: str, data: Optional[Dict[str, Any]] = None, method: str = "POST") -> Dict[str, Any]:
     """Send a request to the AI service"""
-    ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai_service:8001")
+    ai_service_url = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
 
     # Initialize data to empty dict if None
     if data is None:

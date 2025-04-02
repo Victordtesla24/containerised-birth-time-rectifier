@@ -56,6 +56,7 @@ class SessionStore:
             if not os.path.exists(self.session_dir):
                 return
 
+            loaded_count = 0
             for filename in os.listdir(self.session_dir):
                 if filename.endswith(".json"):
                     session_id = os.path.splitext(filename)[0]
@@ -65,20 +66,67 @@ class SessionStore:
                         with open(file_path, "r") as f:
                             session_data = json.load(f)
 
+                            # Sanitize datetime fields to ensure they're valid strings
+                            for dt_field in ["created_at", "updated_at", "last_accessed"]:
+                                if dt_field in session_data:
+                                    # Handle different data types gracefully
+                                    dt_value = session_data[dt_field]
+
+                                    # Ensure datetime fields are strings
+                                    if not isinstance(dt_value, str):
+                                        if isinstance(dt_value, (int, float)):
+                                            # Convert timestamps to ISO format
+                                            session_data[dt_field] = datetime.fromtimestamp(dt_value).isoformat()
+                                        elif dt_value is None:
+                                            # Use current time for None values
+                                            session_data[dt_field] = datetime.now().isoformat()
+                                        elif isinstance(dt_value, dict):
+                                            # Handle dictionary values (e.g., serialized datetime objects)
+                                            session_data[dt_field] = datetime.now().isoformat()
+                                            logger.warning(f"Converted complex {dt_field} in session {session_id} to current time")
+                                        else:
+                                            # Default to current time for any other type
+                                            session_data[dt_field] = datetime.now().isoformat()
+                                            logger.warning(f"Converted invalid {dt_field} type in session {session_id} to current time")
+
                             # Check if session is expired
-                            created_at = datetime.fromisoformat(session_data.get("created_at", "2000-01-01T00:00:00"))
+                            # Get the created_at value with a default if not present
+                            created_at_value = session_data.get("created_at", datetime.now().isoformat())
+
+                            # Make sure created_at is a string to avoid fromisoformat errors
+                            if not isinstance(created_at_value, str):
+                                created_at_value = datetime.now().isoformat()
+                                session_data["created_at"] = created_at_value
+
+                            # Parse the date safely
+                            try:
+                                created_at = datetime.fromisoformat(created_at_value)
+                            except ValueError:
+                                # If parsing fails, use current time
+                                logger.warning(f"Invalid date format in session {session_id}: {created_at_value}, using current time")
+                                created_at = datetime.now()
+                                # Update the session data with correct format
+                                session_data["created_at"] = created_at.isoformat()
+
                             expiry_date = created_at + timedelta(days=self.session_expiry_days)
 
                             if datetime.now() < expiry_date:
                                 self.sessions[session_id] = session_data
+                                loaded_count += 1
                             else:
                                 # Remove expired session file
                                 os.remove(file_path)
                                 logger.info(f"Removed expired session: {session_id}")
                     except Exception as e:
                         logger.error(f"Error loading session {session_id}: {e}")
+                        # Try to delete corrupted session files
+                        try:
+                            os.remove(file_path)
+                            logger.info(f"Removed corrupted session file: {session_id}")
+                        except Exception:
+                            logger.warning(f"Failed to remove corrupted session file: {session_id}")
 
-            logger.info(f"Loaded {len(self.sessions)} sessions from {self.session_dir}")
+            logger.info(f"Loaded {loaded_count} sessions from {self.session_dir}")
         except Exception as e:
             logger.error(f"Error loading sessions: {e}")
 
@@ -226,8 +274,15 @@ async def get_session_by_id(session_id: str, db: AsyncSession) -> Optional[Sessi
         Session if found, None otherwise
     """
     try:
-        result = await db.execute(select(Session).where(Session.id == session_id))
-        return result.scalar_one_or_none()
+        # For a non-SQLAlchemy model, we need a different approach
+        # First, check if we can get the session from the file-based store
+        session_store = get_session_store()
+        session_data = await session_store.get_session(session_id)
+
+        if session_data:
+            # Convert to Session object
+            return Session.from_dict(session_data)
+        return None
     except Exception as e:
         logger.error(f"Error getting session {session_id}: {e}")
         return None

@@ -118,35 +118,38 @@ def validate_required_env_vars(required_vars: List[str]) -> Dict[str, str]:
     # Return values of required variables
     return {var: os.environ.get(var, "") for var in required_vars}
 
-def get_env_with_fallback(key: str, default: Optional[str] = None) -> Optional[str]:
+def get_env_with_fallback(key: str, default_value: Optional[str] = None) -> str:
     """
-    Get an environment variable with fallback to .env file.
-
-    This function prioritizes environment variables over .env files,
-    which allows for runtime configuration through container env vars.
+    Get environment variable with fallback to .env file or default value.
 
     Args:
         key: Environment variable name
-        default: Default value if not found (default: None)
+        default_value: Default value if not found in environment or .env
 
     Returns:
-        Environment variable value or default
+        Value from environment, .env file, or default value
     """
-    # First check if the variable is already in the environment
-    value = os.environ.get(key)
+    try:
+        # Check environment first
+        env_value = os.environ.get(key)
+        if env_value is not None:
+            return env_value
 
-    # If not found, try to load from .env file
-    if value is None:
-        env_vars = load_env_file()
-        value = env_vars.get(key)
+        # Check .env file using dotenv
+        dotenv_value = os.getenv(key)
+        if dotenv_value is not None:
+            return dotenv_value
 
-        # If found in .env, set it in the environment for future use
-        if value is not None:
-            os.environ[key] = value
-            logger.info(f"Set {key} from .env file")
+        # Return default value if provided
+        if default_value is not None:
+            return default_value
 
-    # Return the value or default
-    return value if value is not None else default
+        # Default to empty string if nothing found and no default
+        return ""
+    except Exception as e:
+        logger.warning(f"Error getting environment variable {key}: {e}")
+        # Return default or empty string rather than None
+        return default_value if default_value is not None else ""
 
 # Load environment variables on module import
 if DOTENV_AVAILABLE:

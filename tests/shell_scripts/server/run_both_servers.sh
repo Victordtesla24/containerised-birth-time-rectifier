@@ -360,7 +360,7 @@ if [ "$USE_TMUX" = true ]; then
   tmux split-window -h -t birth_time_rectifier
 
   # Start AI Service in second pane with active port check and socket options
-  tmux send-keys -t birth_time_rectifier "cd $PROJECT_ROOT/ai_service && if ! netstat -an | grep -v 'CLOSED' | grep '\\.8001 ' > /dev/null; then export PYTHONPATH=$PROJECT_ROOT && python3 -c \"import socket; import sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 8001)); s.close(); print('✓ Socket test successful with SO_REUSEADDR')\" && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8001 | tee $LOGS_DIR/ai_service.log; else echo 'Port 8001 is still in use, cannot start AI Service'; fi" C-m
+  tmux send-keys -t birth_time_rectifier "cd $PROJECT_ROOT/ai_service && if ! netstat -an | grep -v 'CLOSED' | grep '\\.8001 ' > /dev/null; then export PYTHONPATH=$PROJECT_ROOT && python3 -c \"import socket; import sys; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 8001)); s.close(); print('✓ Socket test successful with SO_REUSEADDR')\" && python3 -m uvicorn ai_service.unified_main:app --reload --host 0.0.0.0 --port 8001 | tee $LOGS_DIR/ai_service.log; else echo 'Port 8001 is still in use, cannot start AI Service'; fi" C-m
 
   # Add an informational pane at the bottom for monitoring with enhanced status
   tmux split-window -v -t birth_time_rectifier
@@ -421,8 +421,8 @@ except Exception as e:
   API_GATEWAY_CMD="python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 3001"
   API_GATEWAY_LOG="$LOGS_DIR/api_gateway.log"
 
-  # Start AI Service
-  AI_SERVICE_CMD="python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8001"
+  # Start AI Service - Use unified_main for better resource management
+  AI_SERVICE_CMD="python3 -m uvicorn ai_service.unified_main:app --reload --host 0.0.0.0 --port 8001"
   AI_SERVICE_LOG="$LOGS_DIR/ai_service.log"
 
   # Start both servers with proper error checking

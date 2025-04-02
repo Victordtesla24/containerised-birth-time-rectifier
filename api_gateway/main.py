@@ -1,8 +1,12 @@
 """
 Birth Time Rectifier API Gateway
 --------------------------------
-This module serves as the API gateway for the Birth Time Rectifier application,
-routing requests to the appropriate microservices and handling common functionality.
+This module serves as the API Gateway for the Birth Time Rectifier application,
+implementing the Consolidated Single-Registration Architecture with versioned API endpoints.
+
+The API Gateway enforces the standardized /api/v1/ prefix for all API requests,
+returning appropriate 404 responses for non-compliant paths. This ensures consistent
+API versioning across the application and simplifies future maintenance and extensions.
 """
 
 # Standard library imports
@@ -15,20 +19,25 @@ import asyncio
 import logging
 import traceback
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 # Third party imports
-from fastapi import FastAPI, HTTPException, status, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi import FastAPI, HTTPException, status, WebSocket, WebSocketDisconnect, Request, Depends
+from fastapi.responses import JSONResponse, Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import redis.asyncio as redis
 import jwt
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.websockets import WebSocketState
+# Import directly from the routes directory
+import importlib.util
+from fastapi import APIRouter
 
 # Local imports
 from api_gateway.websocket_proxy import proxy as websocket_proxy
+from api_gateway.websocket_proxy import WebSocketProxy
 
 # Configure logging
 os.makedirs("logs", exist_ok=True)
@@ -54,34 +63,54 @@ app = FastAPI(
     redoc_url="/redoc" if os.getenv("ENVIRONMENT", "development") != "production" else None,
 )
 
-# Try to import route modules - with fallback for missing modules
-try:
-    from api_gateway.routes import questionnaire
-    app.include_router(questionnaire.router)
-    logger.info("Included questionnaire routes")
-except ImportError as e:
-    logger.warning(f"Failed to import questionnaire routes: {e}")
+# Add this function near the top of the file, after imports
+async def run_redis_operation(operation_func):
+    """
+    Run a Redis operation with proper error handling.
+    If Redis is not available, returns False.
 
-try:
-    from api_gateway.routes import chart
-    app.include_router(chart.router)
-    logger.info("Included chart routes")
-except ImportError as e:
-    logger.warning(f"Failed to import chart routes: {e}")
+    Args:
+        operation_func: A function that performs Redis operations
 
-try:
-    from api_gateway.routes import session
-    app.include_router(session.router)
-    logger.info("Included session routes")
-except ImportError as e:
-    logger.warning(f"Failed to import session routes: {e}")
+    Returns:
+        The result of the operation or False if Redis is not available
+    """
+    try:
+        if redis_client is None:
+            logger.warning("Redis client not available, skipping operation")
+            return False
 
-try:
-    from api_gateway.routes import geocode
-    app.include_router(geocode.router)
-    logger.info("Included geocode routes")
-except ImportError as e:
-    logger.warning(f"Failed to import geocode routes: {e}")
+        return operation_func()
+    except Exception as e:
+        logger.warning(f"Redis operation failed: {e}")
+        return False
+
+# Function to safely import router modules
+def import_router_module(module_name):
+    """Safely import a router module and include it if it has a router attribute."""
+    try:
+        # Build the full module name
+        full_module_name = f"api_gateway.routes.{module_name}"
+
+        # Try to import the module
+        module = importlib.import_module(full_module_name)
+
+        # Check if it has a router attribute
+        if hasattr(module, 'router'):
+            # Include the router
+            app.include_router(module.router)
+            logger.info(f"Included {module_name} router")
+        else:
+            logger.warning(f"Module {module_name} doesn't have a router attribute")
+
+    except ImportError as e:
+        logger.warning(f"Failed to import {module_name} router: {e}")
+    except Exception as e:
+        logger.error(f"Error including {module_name} router: {e}")
+
+# Import and include all router modules
+for router_module in ['questionnaire', 'chart', 'session', 'geocode']:
+    import_router_module(router_module)
 
 # Add CORS middleware
 app.add_middleware(
@@ -108,7 +137,7 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION = 3600  # 1 hour
 
 # Determine AI service URLs
-AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://ai_service:8001")
+AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://localhost:8001")
 logger.info("AI service URL: %s", AI_SERVICE_URL)
 
 # Normalize URL (handle trailing slash)
@@ -117,31 +146,8 @@ if AI_SERVICE_URL and AI_SERVICE_URL.endswith("/"):
 logger.info("Final AI_SERVICE_URL: %s", AI_SERVICE_URL)
 
 # Configure WebSocket URL
-AI_SERVICE_WS_URL = os.environ.get("AI_SERVICE_WS_URL", "ws://ai_service:8001/ws")
+AI_SERVICE_WS_URL = os.environ.get("AI_SERVICE_WS_URL", "ws://localhost:8001/ws")
 logger.info("AI service WebSocket URL: %s", AI_SERVICE_WS_URL)
-
-# Route conflict prevention middleware
-@app.middleware("http")
-async def handle_route_conflicts(request: Request, call_next):
-    """
-    Middleware to handle potential route conflicts, especially for the root path.
-    This middleware runs before the PathRewriterMiddleware.
-    """
-    path = request.url.path
-
-    # Add dedicated handling for paths that might cause conflicts
-    if path == "/":
-        logger.debug("Route conflict prevention: Root path detected")
-        # Let the dedicated root handler take care of it
-        return await call_next(request)
-
-    if path in ("/health", "/api/health", "/api/basic-health"):
-        logger.debug("Route conflict prevention: Health path detected - %s", path)
-        # Direct health check handled by dedicated endpoint
-        return await call_next(request)
-
-    # For all other paths, continue normal processing
-    return await call_next(request)
 
 # Add security headers middleware
 @app.middleware("http")
@@ -163,127 +169,94 @@ async def add_security_headers(request: Request, call_next):
         )
     return response
 
-# Helper function to run Redis operations in a separate thread
-async def run_redis_operation(operation_func):
-    """Run Redis operation in a thread to avoid blocking the event loop"""
-    if redis_client is None:
-        logger.warning("Redis client is None, skipping operation")
-        return None
-
-    loop = asyncio.get_event_loop()
-    try:
-        start_time = time.time()
-        result = await loop.run_in_executor(redis_executor, operation_func)
-        time_diff = time.time() - start_time
-        logger.info("Redis operation completed in %.2f seconds", time_diff)
-        return result
-    except Exception as e:
-        logger.error("Redis operation error: %s", e)
-        return None
-
 # Session validation middleware
 @app.middleware("http")
 async def validate_session(request: Request, call_next):
-    session_token = request.headers.get("X-Session-Token")
-
-    # Paths that don't require session validation
-    exempt_path_prefixes = [
-        "/api/geocode", "/api/v1/geocode",
-        "/api/chart/validate", "/api/v1/chart/validate",
-        "/api/chart/generate", "/api/v1/chart/generate",
-        "/api/chart/", "/api/v1/chart/",
-        "/api/questionnaire/initialize", "/api/v1/questionnaire/initialize"
-    ]
-
-    # Skip session validation for certain paths
-    if request.url.path == "/" or request.url.path in ["/health", "/api/v1/health", "/api/v1/session/init", "/api/session/init"] or \
-       any(request.url.path.startswith(prefix) for prefix in exempt_path_prefixes):
+    """Validate session for protected routes"""
+    # Skip for non-API routes, health checks and WebSocket connections
+    path = request.url.path
+    if (
+        not path.startswith("/api/") or
+        path.startswith("/api/v1/health") or
+        path.startswith("/api/v1/ws-auth") or
+        path.startswith("/ws/")
+    ):
         return await call_next(request)
 
-    # For questionnaire endpoints, we should be more lenient with session validation
-    is_questionnaire_path = "/questionnaire/" in request.url.path
+    # Skip validation for public routes
+    if path in PUBLIC_ROUTES:
+        return await call_next(request)
 
-    # If no session token and not a questionnaire path, require authentication
-    if not session_token and not is_questionnaire_path:
+    # Skip for OPTIONS requests (CORS preflight)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Get session ID from cookies or headers
+    session_id = None
+    if "session_id" in request.cookies:
+        session_id = request.cookies.get("session_id")
+    elif "Authorization" in request.headers:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth.replace("Bearer ", "")
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                session_id = payload.get("session_id")
+            except Exception as e:
+                logger.warning(f"Invalid JWT token: {e}")
+
+    # Validate session exists
+    if not session_id:
+        logger.warning("No session ID provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session token is required"
+            detail="Authentication required"
         )
 
-    # If we have a token, try to validate it
-    if session_token:
-        try:
-            # Verify JWT token
-            payload = jwt.decode(session_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            session_id = payload.get("session_id")
+    # Check if session exists in Redis
+    try:
+        session_valid = False
 
-            # Check if session exists in Redis
-            try:
-                if redis_client:
-                    # Check if session exists
-                    def check_session_exists():
-                        if redis_client:
-                            return redis_client.exists(f"session:{session_id}")
-                        return None
+        if redis_client is not None:
+            result = await run_redis_operation(
+                lambda: redis_client.exists(f"session:{session_id}") if redis_client else False
+            )
+            session_valid = bool(result)
 
-                    session_exists = await run_redis_operation(check_session_exists)
-                    if session_exists is not None and not bool(session_exists):
-                        logger.warning("Session %s not found in Redis", session_id)
-                        # Continue with JWT validation only
+            if not session_valid:
+                logger.warning(f"Invalid session ID: {session_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired session"
+                )
+        else:
+            # If Redis is unavailable, skip validation in development
+            if ENV == "development":
+                logger.warning("Redis unavailable, skipping session validation in development")
+                session_valid = True
+            else:
+                logger.error("Redis unavailable and not in development - rejecting request")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication service unavailable"
+                )
 
-                    # Update session last activity
-                    def update_session_activity():
-                        if redis_client:
-                            return redis_client.hset(
-                                f"session:{session_id}",
-                                mapping={"last_activity": datetime.now().isoformat()}
-                            )
-                        return None
-
-                    update_result = await run_redis_operation(update_session_activity)
-                    if update_result is not None:
-                        logger.debug("Redis hset result: %s", update_result)
-
-                # Add session info to request state
-                request.state.session_id = session_id
-            except Exception as redis_error:
-                logger.error("Redis error: %s", redis_error)
-                # Continue with JWT validation only
-                request.state.session_id = session_id
-
-        except jwt.ExpiredSignatureError as exc:
-            logger.warning("Session %s has expired", session_token)
-
-            # For questionnaire endpoints, generate a new session instead of failing
-            if is_questionnaire_path:
-                logger.warning("Expired token for questionnaire endpoint - generating new session")
-                request.state.session_id = str(uuid.uuid4())
-                return await call_next(request)
-
-            # For other endpoints, require authentication
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Session validation error: {e}")
+        if ENV == "development":
+            logger.warning("Continuing despite session validation error in development")
+        else:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session has expired"
-            ) from exc
-        except jwt.InvalidTokenError as exc:
-            logger.error("Invalid JWT token: %s", exc)
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Session validation error"
+            )
 
-            # Special handling for questionnaire endpoints - generate new session instead of failing
-            if is_questionnaire_path:
-                logger.warning("Invalid token for questionnaire endpoint - generating new session")
-                request.state.session_id = str(uuid.uuid4())
-                return await call_next(request)
+    # Add session ID to request state
+    request.state.session_id = session_id
 
-            # For other endpoints, require valid authentication
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid session token"
-            ) from exc
-    # If no token but it's a questionnaire path, generate a new session ID
-    elif is_questionnaire_path:
-        request.state.session_id = str(uuid.uuid4())
-        logger.info("Generated new session ID for questionnaire endpoint: %s", request.state.session_id)
-
+    # Continue with request
     return await call_next(request)
 
 # Add request logging middleware
@@ -329,32 +302,6 @@ async def v1_health_check():
         "version": "v1"
     }
 
-# Direct API health endpoint with additional debugging
-@app.route("/api/health", methods=["GET"])
-async def direct_api_health(_request):
-    """Direct handler for /api/health to bypass middleware and routing issues"""
-    logger.info("Direct API health endpoint accessed")
-    try:
-        # Return a simple response with no dependencies
-        return JSONResponse(
-            content={
-                "status": "healthy",
-                "timestamp": datetime.now().isoformat(),
-                "service": "api_gateway",
-                "version": "compatibility",
-                "direct_handler": True
-            },
-            status_code=200
-        )
-    except Exception as e:
-        logger.error("Error in direct health handler: %s", e)
-        logger.error(traceback.format_exc())
-        # Most basic response possible
-        return JSONResponse(
-            content={"status": "error", "message": str(e)},
-            status_code=500
-        )
-
 # Session initialization endpoint
 @app.get("/api/v1/session/init")
 async def initialize_session(request: Request):
@@ -377,16 +324,6 @@ API_PATHS = {
     "geocode": "/api/v1/geocode",
     "ai": "/api/v1/ai",
     "user": "/api/v1/user"
-}
-
-# Legacy path mappings
-LEGACY_PATHS = {
-    # Root level paths
-    "/chart": "/api/chart",
-    "/questionnaire": "/api/questionnaire",
-    "/session": "/api/session",
-    "/geocode": "/api/geocode",
-    "/health": "/api/health"
 }
 
 # Standardized response structure
@@ -415,78 +352,158 @@ http_client = httpx.AsyncClient(
 )
 
 async def proxy_to_ai_service(request: Request):
+    """Generic proxy function to forward requests to the AI service"""
+    try:
+        # Get target path by removing the API Gateway's path prefix
+        path = request.url.path
+        if path.startswith("/api/v1/"):
+            path = path[8:]  # Remove "/api/v1/" prefix
+
+        # Construct the target URL, ensuring no double slashes
+        target_path = path.lstrip("/")  # Remove leading slash to avoid double slash
+        target_url = f"{AI_SERVICE_URL}/api/v1/{target_path}"
+        logger.info(f"Proxying request to: {target_url}")
+
+        # Get request method and params
+        method = request.method
+        params = dict(request.query_params)
+
+        # Extract headers
+        headers = {k: v for k, v in request.headers.items()
+                if k.lower() not in ["host", "content-length"]}
+
+        # Extract request body for non-GET requests
+        body = None
+        if method != "GET":
+            body = await request.body()
+
+        try:
+            # Make the request to the AI service
+            async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+                if method == "GET":
+                    response = await client.get(target_url, params=params, headers=headers)
+                elif method == "POST":
+                    response = await client.post(target_url, params=params, headers=headers, content=body)
+                elif method == "PUT":
+                    response = await client.put(target_url, params=params, headers=headers, content=body)
+                elif method == "DELETE":
+                    response = await client.delete(target_url, params=params, headers=headers)
+                else:
+                    logger.error(f"Unsupported method {method} for proxying")
+                    return JSONResponse(
+                        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+                        content={"error": f"Method {method} not supported for proxying"}
+                    )
+
+            # Log the response status
+            logger.info(f"Received response from AI service with status: {response.status_code}")
+
+            # Return the response from the AI service
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+            )
+
+        except httpx.ConnectError as e:
+            logger.error(f"Error connecting to AI service: {e}")
+            error_message = f"Error connecting to AI service: {str(e)}"
+            # Return more detailed error information
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "error": {
+                        "message": error_message,
+                        "type": "ServiceUnavailableError",
+                        "request_id": str(uuid.uuid4())
+                    }
+                }
+            )
+        except (httpx.ReadTimeout, httpx.RequestError) as e:
+            logger.error(f"Timeout or request error connecting to AI service: {e}")
+            error_message = f"Timeout connecting to AI service: {str(e)}"
+            # Return more detailed error information
+            return JSONResponse(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                content={
+                    "error": {
+                        "message": error_message,
+                        "type": "GatewayTimeoutError",
+                        "request_id": str(uuid.uuid4())
+                    }
+                }
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error from AI service: {e} - Status: {e.response.status_code}")
+            try:
+                error_response = e.response.json()
+                # Forward the error response from the AI service
+                return JSONResponse(
+                    status_code=e.response.status_code,
+                    content=error_response
+                )
+            except Exception:
+                # If we can't parse the error response, return a generic one
+                return JSONResponse(
+                    status_code=e.response.status_code,
+                    content={
+                        "error": {
+                            "message": f"Error from AI service: {str(e)}",
+                            "type": "ServiceError",
+                            "request_id": str(uuid.uuid4())
+                        }
+                    }
+                )
+    except Exception as e:
+        logger.error(f"Unhandled error in proxy_to_ai_service: {e}")
+        logger.error(traceback.format_exc())
+
+        # Include more detailed error information
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": {
+                    "message": f"Proxy error: {str(e)}",
+                    "type": "ProxyError",
+                    "request_id": str(uuid.uuid4())
+                }
+            }
+        )
+
+# Special proxy handler for geocode requests to transform parameters
+@app.get("/api/v1/geocode")
+async def geocode_proxy(request: Request, address: Optional[str] = None):
     """
-    Proxy requests to the AI service.
-
-    This endpoint forwards requests from the API gateway to the AI service,
-    handling errors and providing fallbacks when necessary.
+    Special proxy handler for geocode requests that transforms parameters.
+    The API Gateway accepts 'address' but the AI Service expects 'query'.
     """
-    # Extract the path from the request
-    path = request.url.path
+    # Clone the original request query params for modification
+    params = dict(request.query_params)
 
-    # Remove leading '/api/v1/' if present to avoid double api prefixes
-    if path.startswith('/api/v1/'):
-        path = path[8:]  # Remove '/api/v1/'
-    # Also remove '/api/' prefix if present
-    elif path.startswith('/api/'):
-        path = path[5:]  # Remove '/api/' prefix
+    # Transform 'address' parameter to 'query' parameter if present
+    if address:
+        params["query"] = address
+        # Remove the original address parameter to avoid confusion
+        if "address" in params:
+            del params["address"]
 
-    # Normalize path - remove leading slash to avoid double slashes
-    path = path.lstrip('/')
+    logger.info(f"Geocode proxy: Transforming address='{address}' to query parameter")
 
-    # Get the AI service URL from environment
-    ai_service_url = os.getenv("AI_SERVICE_URL", "http://ai_service:8001")
+    # Construct the target URL for the geocode endpoint
+    target_url = f"{AI_SERVICE_URL}/api/v1/geocode"
+    logger.info(f"Proxying geocode request to: {target_url} with params: {params}")
 
-    # Remove trailing slash from AI service URL if present
-    ai_service_url = ai_service_url.rstrip('/')
-
-    # Construct target URL with normalized path
-    target_url = f"{ai_service_url}/api/v1/{path}"
-
-    # Log the full target URL for debugging
-    logger.info("Proxying request to: %s", target_url)
+    # Extract headers
+    headers = {k: v for k, v in request.headers.items()
+              if k.lower() not in ["host", "content-length"]}
 
     try:
-        # Get request body for POST/PUT methods
-        request_body = None
-        if request.method in ["POST", "PUT", "PATCH"]:
-            request_body = await request.body()
-
-            # For debugging: log the request body if it's a questionnaire request
-            if "questionnaire" in path and request_body:
-                try:
-                    request_data = json.loads(request_body)
-                    logger.debug("Request data: %s", request_data)
-                except Exception:
-                    logger.debug("Could not parse request body as JSON")
-
-        # Make the request to the AI service with explicit SSL verification
-        async with httpx.AsyncClient(
-            timeout=60.0,
-            verify=True  # Explicitly enable SSL verification
-        ) as client:
-            headers = {k: v for k, v in request.headers.items()
-                      if k.lower() not in ["host", "content-length"]}
-
-            # Send the request to the AI service
-            if request.method == "GET":
-                response = await client.get(target_url, params=dict(request.query_params), headers=headers)
-            elif request.method == "POST":
-                response = await client.post(target_url, content=request_body, headers=headers)
-            elif request.method == "PUT":
-                response = await client.put(target_url, content=request_body, headers=headers)
-            elif request.method == "DELETE":
-                response = await client.delete(target_url, headers=headers)
-            else:
-                return JSONResponse(
-                    status_code=405,
-                    content={"error": "Method not allowed", "detail": f"Method {request.method} is not supported"}
-                )
+        # Make the request to the AI service
+        async with httpx.AsyncClient(timeout=30.0, verify=True) as client:
+            response = await client.get(target_url, params=params, headers=headers)
 
         # Log the response status
-        logger.info("\n%s %s - %s %s\n%s\n",
-                   request.method, path, response.status_code, response.reason_phrase,
-                   "-" * 80)
+        logger.info(f"Received geocode response from AI service with status: {response.status_code}")
 
         # Return the response from the AI service
         return Response(
@@ -494,26 +511,14 @@ async def proxy_to_ai_service(request: Request):
             status_code=response.status_code,
             headers=dict(response.headers),
         )
-
     except Exception as e:
-        logger.error("Error proxying API request: %s", e)
-
-        # Handle the error with a friendly message
-        error_detail = str(e)
-        if "Connection refused" in error_detail:
-            error_message = "AI service is currently unavailable. Please try again later."
-        elif "Read timed out" in error_detail:
-            error_message = "Request to AI service timed out. Please try again."
-        else:
-            error_message = f"Error connecting to AI service: {error_detail}"
-
-        # Return a JSON error response
+        logger.error(f"Error proxying geocode request: {e}")
         return JSONResponse(
-            status_code=503,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": {
-                    "message": error_message,
-                    "type": "ServiceUnavailableError",
+                    "message": f"Geocode proxy error: {str(e)}",
+                    "type": "ProxyError",
                     "request_id": str(uuid.uuid4())
                 }
             }
@@ -523,8 +528,83 @@ async def proxy_to_ai_service(request: Request):
 @app.api_route("/api/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None)
 async def api_proxy_v1(request: Request, path: str):
     """Proxy requests to the v1 API endpoints"""
+    # Skip paths that have dedicated handlers
+    if request.url.path == "/api/v1/geocode" or request.url.path == "/api/v1/test-event":
+        logger.debug("Skipping general proxy for dedicated endpoint: %s", request.url.path)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This endpoint is handled by a dedicated handler"
+        )
+
     logger.debug("Proxying request to v1 API path: %s", path)
     return await proxy_to_ai_service(request)
+
+# Add test-event endpoint for WebSocket testing
+@app.post("/api/v1/test-event", response_class=JSONResponse)
+async def send_test_event(request: Request):
+    """
+    Send a test event to a WebSocket client.
+    This endpoint is used by test scripts to verify WebSocket functionality.
+    """
+    try:
+        # Parse the request body
+        data = await request.json()
+        session_id = data.get("session_id")
+        message = data.get("message", "Test event from API Gateway")
+
+        # Get session ID from header if not in body
+        if not session_id:
+            session_id = request.headers.get("X-Session-ID")
+
+        if not session_id:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"error": "Missing session_id in request body or X-Session-ID header"}
+            )
+
+        logger.info(f"Sending test event to session {session_id}")
+
+        # Use a TaskGroup with proper exception handling
+        try:
+            result = await websocket_proxy.send_test_event(session_id, message)
+
+            if result:
+                return JSONResponse(
+                    content={"success": True, "message": f"Test event sent to session {session_id}"}
+                )
+            else:
+                logger.warning(f"No active WebSocket connection for session {session_id}")
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={"error": f"No active WebSocket connection found for session {session_id}"}
+                )
+        except asyncio.CancelledError:
+            logger.warning("Test event sending was cancelled")
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": "Operation cancelled"}
+            )
+        except Exception as send_error:
+            logger.error(f"Error sending test event: {send_error}")
+            logger.error(traceback.format_exc())
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"error": f"Failed to send test event: {str(send_error)}"}
+            )
+
+    except json.JSONDecodeError as json_error:
+        logger.error(f"Invalid JSON in request: {json_error}")
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": "Invalid JSON in request body"}
+        )
+    except Exception as e:
+        logger.error(f"Error processing test event request: {e}")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"error": f"Server error: {str(e)}"}
+        )
 
 # Add root endpoint handler
 @app.get("/", include_in_schema=True, response_class=JSONResponse)
@@ -565,69 +645,107 @@ async def root_endpoint(request: Request):
         status_code=200
     )
 
-# Legacy API routes - Proxy with path rewriting
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"], response_model=None, include_in_schema=True)
-async def api_proxy(request: Request, path: str):
-    """Proxy requests with legacy path rewriting"""
-    # Skip specific endpoints that have dedicated handlers
-    if path == "" or request.url.path == "/" or request.url.path == "/health" or request.url.path == "/api/health" or request.url.path == "/api/basic-health":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Not found - handled by dedicated endpoint"
-        )
-
-    # Add deprecation header for legacy paths
-    original_path = request.url.path
-    rewritten = False
-    target_path = original_path
-
-    # Check if this is a legacy path that should be rewritten
-    for prefix, new_prefix in LEGACY_PATHS.items():
-        if original_path.startswith(prefix):
-            # Rewrite the path
-            rest_of_path = original_path[len(prefix):]
-            if rest_of_path and not rest_of_path.startswith("/"):
-                rest_of_path = f"/{rest_of_path}"
-            target_path = f"{new_prefix}{rest_of_path}"
-            rewritten = True
-            break
-
-    # If this is a legacy path, update path to match expected API path
-    if rewritten:
-        # Remove the /api prefix from the path since proxy_to_ai_service will add it
-        if target_path.startswith("/api/"):
-            path = target_path[5:]  # Remove /api/ prefix
-        else:
-            path = target_path
-
-    response_data = await proxy_to_ai_service(request)
-
-    # Add deprecation header if path was rewritten
-    if rewritten:
-        # Create a JSONResponse with the data to add headers
-        response = JSONResponse(
-            content=response_data,
-            status_code=200
-        )
-        response.headers["X-API-Warning"] = f"This endpoint is deprecated. Please use {target_path} instead."
-        return response
-
-    return response_data
-
 # WebSocket endpoints
 @app.websocket("/ws/{session_id}")
-async def websocket_endpoint_with_id(websocket: WebSocket, session_id: str):
+async def websocket_endpoint_with_session(websocket: WebSocket, session_id: str):
     """
-    WebSocket endpoint for real-time updates with session ID.
-    Proxies the connection to the AI service.
+    WebSocket endpoint with session ID.
+
+    This endpoint handles WebSocket connections with a specified session ID
+    by establishing a connection to the upstream AI service and proxying messages.
     """
+    client_id = f"client-{uuid.uuid4().hex[:8]}"
+
     try:
-        # Connect to the WebSocket proxy
-        await websocket_proxy.connect(websocket, session_id)
+        # First, verify the session is valid
+        is_authenticated = False
+
+        # Check for session token in headers or cookies
+        headers = dict(websocket.headers.items())
+        token = headers.get("authorization", "")
+        if token.startswith("Bearer "):
+            token = token[7:]  # Remove "Bearer " prefix
+
+        # Verify token if provided
+        if token:
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                token_session_id = payload.get("session_id")
+                if token_session_id == session_id:
+                    is_authenticated = True
+                    logger.info(f"Authenticated WebSocket connection with token: {session_id}")
+            except Exception as e:
+                logger.warning(f"Invalid token for WebSocket connection: {e}")
+
+        # If not authenticated by token, check Redis
+        if not is_authenticated and redis_client is not None:
+            try:
+                # Check if session exists in Redis
+                def check_session():
+                    if redis_client is not None:
+                        return redis_client.exists(f"session:{session_id}")
+                    return False
+
+                session_exists = await run_redis_operation(check_session)
+                is_authenticated = bool(session_exists)
+
+                if is_authenticated:
+                    logger.info(f"Authenticated WebSocket connection from Redis: {session_id}")
+            except Exception as e:
+                logger.warning(f"Redis session check failed: {e}")
+
+        # In development, allow unauthenticated connections for testing
+        if not is_authenticated and ENV == "development":
+            logger.warning(f"Accepting unauthenticated WebSocket in development: {session_id}")
+            is_authenticated = True
+
+        # Reject unauthenticated connections in production
+        if not is_authenticated:
+            logger.warning(f"Unauthenticated WebSocket connection attempt: {session_id}")
+            await websocket.accept()
+            await websocket.send_json({
+                "type": "error",
+                "code": "AUTHENTICATION_REQUIRED",
+                "message": "Authentication required for WebSocket connection",
+                "timestamp": datetime.now().isoformat()
+            })
+            await websocket.close(code=1008)  # Policy violation
+            return
+
+        # Connection is authenticated, connect to the upstream AI service
+        logger.info(f"Connecting to upstream AI service for session: {session_id}")
+        proxy = WebSocketProxy()
+
+        # Get the upstream URL from settings
+        upstream_url = f"{AI_SERVICE_WS_URL}"
+
+        # Accept the connection and start proxying
+        await websocket.accept()
+
+        await proxy.handle_websocket(
+            websocket=websocket,
+            session_id=session_id,
+            upstream_url=upstream_url,
+            client_id=client_id,
+            token=token
+        )
+
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for session %s", session_id)
+        logger.info(f"WebSocket client disconnected: {client_id}")
     except Exception as e:
-        logger.error("WebSocket error for session %s: %s", session_id, e)
+        logger.error(f"WebSocket error: {e}")
+        logger.error(traceback.format_exc())
+
+        # Try to send an error message if the connection is still open
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": str(e),
+                    "timestamp": datetime.now().isoformat()
+                })
+        except Exception:
+            pass
 
 @app.websocket("/ws")
 @app.websocket("/api/ws")
@@ -667,8 +785,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_id = init_message["session_id"]
                 logger.info("Updated session ID to %s for client %s", session_id, client_id)
 
-            # Connect to AI service
-            await websocket_proxy.connect(websocket, session_id)
+            # Connect to AI service using handle_websocket instead of just connect
+            upstream_url = f"{AI_SERVICE_WS_URL}"
+            await websocket_proxy.handle_websocket(
+                websocket=websocket,
+                session_id=session_id,
+                upstream_url=upstream_url,
+                client_id=client_id,
+                token="",  # No token for now
+                ping_interval=30
+            )
 
         except asyncio.TimeoutError:
             logger.warning("No initialization message received within timeout for client %s", client_id)
@@ -761,6 +887,66 @@ app.mount("/health", health_app)
 app.mount("/api/health", health_app)
 app.mount("/api/basic-health", health_app)
 
+# Add middleware to enforce v1 API paths
+@app.middleware("http")
+async def api_path_validator(request: Request, call_next):
+    """
+    Middleware to validate API paths and enforce the versioned API architecture.
+
+    This middleware ensures all API paths follow the standardized /api/v1/ prefix pattern.
+    Non-compliant paths receive a 404 response with helpful guidance on proper usage.
+    Root, health, and documentation paths are exempted from this validation.
+    """
+    path = request.url.path
+
+    # Skip v1 API paths, they should be handled normally
+    if path.startswith("/api/v1/"):
+        return await call_next(request)
+
+    # Skip root, health, websocket and documentation paths
+    if path == "/" or path == "/health" or path.startswith("/ws") or path in ["/docs", "/redoc", "/openapi.json", "/swagger"]:
+        return await call_next(request)
+
+    # Return 404 for any other API path that starts with /api/
+    if path.startswith("/api/"):
+        # Extract the path without the /api/ prefix for better guidance
+        resource_path = path[5:] if len(path) > 5 else ""
+        suggested_path = f"/api/v1/{resource_path}" if resource_path else "/api/v1/"
+
+        # Identify common API resources for helpful suggestions
+        common_resources = {
+            "chart": "Access chart data with /api/v1/chart/...",
+            "geocode": "Geocode locations with /api/v1/geocode",
+            "questionnaire": "Access questionnaires with /api/v1/questionnaire/...",
+            "health": "Check API health with /api/v1/health",
+            "session": "Manage sessions with /api/v1/session/..."
+        }
+
+        # Find potential resource matches
+        resource_suggestion = ""
+        for resource, description in common_resources.items():
+            if resource in resource_path:
+                resource_suggestion = description
+                break
+
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": {
+                    "code": "ENDPOINT_NOT_FOUND",
+                    "message": "Endpoint not found. All API requests must use the /api/v1/ prefix.",
+                    "details": "The API uses a versioned architecture to ensure consistency and future compatibility.",
+                    "suggested_path": suggested_path,
+                    "resource_hint": resource_suggestion if resource_suggestion else "See documentation for available endpoints",
+                    "documentation_url": "/api/v1/docs",
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+        )
+
+    # For all other paths, continue normal processing
+    return await call_next(request)
+
 # Main entry point
 if __name__ == "__main__":
     import uvicorn
@@ -776,3 +962,74 @@ if __name__ == "__main__":
         port=port,
         reload=False
     )
+
+@app.post("/api/v1/ws-auth")
+async def websocket_auth(request: Request):
+    """
+    WebSocket authentication endpoint to create valid sessions before establishing WebSocket connections.
+    """
+    try:
+        # Extract session ID if provided
+        data = await request.json()
+        session_id = data.get("session_id")
+
+        # If no session ID provided, create a new one
+        if not session_id:
+            session_id = f"ws-{uuid.uuid4().hex}"
+
+        # Create session token with simple JWT
+        payload = {
+            "session_id": session_id,
+            "type": "websocket",
+            "exp": int((datetime.now() + timedelta(hours=1)).timestamp()),
+            "iat": int(datetime.now().timestamp())
+        }
+
+        token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+        # Store session in Redis if available
+        if redis_client is not None:
+            try:
+                redis_client.hset(
+                    f"session:{session_id}",
+                    mapping={
+                        "created_at": datetime.now().isoformat(),
+                        "type": "websocket",
+                        "client_ip": request.client.host if request.client else "unknown",
+                        "authenticated": "true"
+                    }
+                )
+                redis_client.expire(f"session:{session_id}", 3600)  # 1 hour expiry
+                logger.info(f"Created WebSocket session in Redis: {session_id}")
+            except Exception as redis_error:
+                logger.warning(f"Failed to store WebSocket session in Redis: {redis_error}")
+                # Continue anyway - the JWT token will still work
+
+        logger.info(f"Created WebSocket auth session: {session_id}")
+
+        return JSONResponse({
+            "session_id": session_id,
+            "token": token,
+            "expires_in": 3600  # 1 hour in seconds
+        })
+    except Exception as e:
+        logger.error(f"WebSocket auth error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create WebSocket session: {str(e)}"
+        )
+
+# Define public routes that don't require authentication
+PUBLIC_ROUTES = [
+    "/api/v1/session/init",
+    "/api/v1/health",
+    "/api/v1/health/ping",
+    "/api/v1/health/basic",
+    "/api/v1/ws-auth",
+    "/docs",
+    "/redoc",
+    "/openapi.json"
+]
+
+# Get the environment
+ENV = os.environ.get("ENVIRONMENT", "development").lower()

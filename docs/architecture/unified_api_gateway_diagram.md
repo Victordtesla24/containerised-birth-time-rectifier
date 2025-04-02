@@ -17,8 +17,6 @@ graph TD
             Gateway
             Config[API Gateway Config]
             Gateway --> Config
-            LegacyRoutes[Legacy Routes]
-            Gateway --> LegacyRoutes
         end
     end
 
@@ -56,13 +54,7 @@ classDiagram
         +API_VERSION
         +API_PREFIX
         +ENDPOINTS
-        +LEGACY_ENDPOINTS
         +ENDPOINT_METADATA
-    }
-
-    class LegacyRoutes {
-        +forwardToNewEndpoint()
-        +addDeprecationWarning()
     }
 
     class PythonBackend {
@@ -73,7 +65,6 @@ classDiagram
 
     UnifiedApiClient --> ApiGatewayHandler: makes requests through
     ApiGatewayHandler --> ApiGatewayConfig: uses configuration from
-    ApiGatewayHandler --> LegacyRoutes: forwards legacy requests
     ApiGatewayHandler --> PythonBackend: forwards requests to
 ```
 
@@ -91,12 +82,6 @@ sequenceDiagram
     User->>Frontend: Interaction
     Frontend->>APIClient: API Request
     APIClient->>Gateway: Standardized Request
-
-    alt Legacy Route
-        Gateway->>Gateway: Add deprecation header
-        Gateway->>Gateway: Rewrite path
-    end
-
     Gateway->>Python: Forward request
     Python->>Services: Process request
     Services->>Python: Response data
@@ -122,7 +107,6 @@ The Unified API Client provides a centralized way for the frontend application t
 The API Gateway Handler is a catch-all Next.js API route that processes all API requests:
 
 - **Proxy Middleware**: Forward requests to the Python backend
-- **Path Rewriting**: Convert frontend paths to backend paths
 - **Session Management**: Track and validate sessions
 - **Error Handling**: Standardized error responses
 - **CORS Support**: Proper cross-origin resource sharing
@@ -132,24 +116,16 @@ The API Gateway Handler is a catch-all Next.js API route that processes all API 
 The configuration file defines all API endpoints and metadata:
 
 - **Endpoint Registry**: All available endpoints with versioning
-- **Legacy Mappings**: Support for backward compatibility
 - **API Metadata**: Documentation and client generation info
 
-### 4. Simplified Python Backend (`ai_service/main_simplified.py`)
+### 4. Python Backend (`ai_service/unified_main.py`)
 
 The Python backend is streamlined to use consistent router registration:
 
-- **Unified Prefix**: All endpoints use `/api` prefix
-- **Simplified Registration**: No duplicate router registration
+- **Unified Prefix**: All endpoints use `/api/v1` prefix
+- **Simplified Registration**: Single router registration pattern
 - **Standardized Error Handling**: Consistent error format
-
-### 5. Legacy Support Routes
-
-Transition routes maintain backward compatibility while encouraging migration:
-
-- **Deprecation Notices**: Warning headers for legacy endpoints
-- **Request Forwarding**: Redirect to new endpoints
-- **Graceful Degradation**: Fallback options for changes
+- **Middleware for 404s**: Returns appropriate error for non-v1 paths
 
 ## Benefits of the Unified Architecture
 
@@ -183,18 +159,14 @@ The implementation of the unified API Gateway architecture follows this process:
    - Create API Gateway configuration
    - Set up API Gateway handler
 
-2. **Update Backend Routing**
-   - Simplify Python backend router registration
-   - Standardize on `/api` prefix
+2. **Configure Backend Routing**
+   - Implement Python backend router registration with `/api/v1` prefix
+   - Add middleware to enforce v1 API paths
 
-3. **Implement Transition Routes**
-   - Create legacy endpoint handlers
-   - Add deprecation warnings
-
-4. **Test and Validate**
+3. **Test and Validate**
    - Verify all endpoints work through the gateway
-   - Test backward compatibility
+   - Ensure proper 404 handling for non-v1 paths
 
 ## Conclusion
 
-The unified API Gateway architecture transforms the Birth Time Rectifier application from a dual-layer architecture with redundant implementations to a streamlined, unified approach. This architecture reduces code duplication, improves maintainability, and enhances the developer experience while maintaining backward compatibility.
+The unified API Gateway architecture transforms the Birth Time Rectifier application to a streamlined, unified approach. This architecture reduces code duplication, improves maintainability, and enhances the developer experience by providing a consistent versioned API architecture.
