@@ -41,7 +41,7 @@
     "framer-motion": "^8.5.0",
     "iron-session": "^8.0.4",
     "jspdf": "^3.0.0",
-    "lint": "^0.8.19",
+    "lint": "^1.1.2",
     "lodash": "^4.17.21",
     "next": "^15.2.2",
     "node-mocks-http": "^1.16.2",
