@@ -1,7 +1,7 @@
 # Core libraries
 fastapi==0.100.0
 uvicorn==0.22.0
-pydantic==1.10.12
+pydantic==1.10.13
 PyJWT==2.8.0
 
 # Swiss Ephemeris library
@@ -9,7 +9,7 @@ pyswisseph==2.10.3.2
 flatlib==0.2.0
 
 # Utilities
-python-multipart==0.0.19
+python-multipart==0.0.22
 httpx==0.26.0
 python-dotenv==1.0.0
 jsonschema==4.20.0
@@ -20,11 +20,11 @@ geopy==2.4.0
 pytz==2023.3
 numpy==1.26.4
 pandas==2.2.1
-requests==2.32.2
+requests==2.32.4
 
 # Connection and networking
-aiohttp==3.9.0
-starlette==0.27.0
+aiohttp==3.13.3
+starlette==0.49.1
 websockets==12.0
 
 # Testing and development
@@ -44,8 +44,8 @@ ephem==4.1.5
 
 # Visualization
 matplotlib==3.8.3
-Pillow==10.1.0
+Pillow==12.1.1
 reportlab==4.1.0
 
 # Development dependencies
-black==24.3.0
+black==26.3.1
