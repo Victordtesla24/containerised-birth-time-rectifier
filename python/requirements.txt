@@ -1,7 +1,7 @@
 # Core libraries
 fastapi==0.100.0
 uvicorn==0.22.0
-pydantic==1.10.12  # Changed from 2.0.0 to be compatible with fastapi 0.100.0
+pydantic==1.10.13  # Changed from 2.0.0 to be compatible with fastapi 0.100.0
 # pydantic-settings==0.2.5  # Commented out to resolve dependency conflicts
 pytest==7.4.3  # Updated from 7.3.1 to be compatible with pytest-env
 pytest-asyncio==0.21.0  # Fixed version
@@ -13,7 +13,7 @@ pyswisseph==2.10.3.2
 flatlib==0.2.0  # Astrology calculation library
 
 # Utilities
-python-multipart==0.0.19
+python-multipart==0.0.22
 httpx==0.26.0
 psutil==5.9.5
 python-jose==3.4.0
@@ -29,12 +29,12 @@ timezonefinder==5.2.0
 pytz==2023.3
 numpy==1.26.4
 pandas==2.2.1
-requests==2.32.2
-urllib3==1.26.18  # Downgraded to be compatible with LibreSSL 2.8.3
+requests==2.32.4
+urllib3==2.6.3  # Downgraded to be compatible with LibreSSL 2.8.3
 
 # Connection and networking
-aiohttp==3.9.0  # Changed from beta version
-starlette==0.27.0  # Updated to be compatible with FastAPI 0.100.0
+aiohttp==3.13.3  # Changed from beta version
+starlette==0.49.1  # Updated to be compatible with FastAPI 0.100.0
 itsdangerous==2.1.2
 jinja2==3.1.6
 aiofiles==23.1.0
@@ -43,19 +43,19 @@ websockets==12.0
 # AI and ML dependencies
 scikit-learn==1.5.1
 tensorflow==2.15.0  # Using base package for container compatibility
-torch==2.6.0  # Updated to latest installed version
-filelock==3.18.0  # Required by PyTorch
+torch==2.8.0  # Updated to latest installed version
+filelock==3.20.3  # Required by PyTorch
 fsspec==2023.9.0  # Downgraded from future version
 networkx==3.4.2  # Required by PyTorch
 sympy==1.13.1  # Required by PyTorch
 mpmath==1.3.0  # Required by sympy/PyTorch
-transformers==4.48.0  # Added for unified rectification model
+transformers==4.53.0  # Added for unified rectification model
 openai==1.12.0  # For OpenAI API access
 tenacity==8.2.0  # For retry logic
 
 # Testing and development
 pytest-cov==4.1.0
-black==24.3.0
+black==26.3.1
 isort==5.13.2
 mypy==1.8.0
 ruff==0.1.11
@@ -84,12 +84,12 @@ websocket-client==1.7.0  # Added for WebSocket client connections
 
 # Data visualization and chart generation
 matplotlib==3.8.3  # For chart rendering
-Pillow==10.1.0  # PIL fork for image processing
+Pillow==12.1.1  # PIL fork for image processing
 # mpl_toolkits.mplot3d is included in matplotlib, not a separate package
 
 # PDF Generation
 reportlab==4.1.0  # For PDF generation
-weasyprint==60.2  # HTML to PDF conversion alternative
+weasyprint==68.0  # HTML to PDF conversion alternative
 
 # Redis for session storage and caching
 hiredis==2.3.2  # C accelerator for redis-py
